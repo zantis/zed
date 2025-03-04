@@ -137,7 +137,7 @@ impl SearchQuery {
             query = word_query
         }
 
-        let multiline = query.contains('\n') || query.contains("\\n");
+        let multiline = query.contains('\n') || query.contains("\\n") || query.contains("\\s");
         let regex = RegexBuilder::new(&query)
             .case_insensitive(!case_sensitive)
             .build()?;

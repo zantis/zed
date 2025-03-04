@@ -8,7 +8,7 @@ pub struct SettingsJsonSchemaParams<'a> {
     pub font_names: &'a [String],
 }
 
-impl SettingsJsonSchemaParams<'_> {
+impl<'a> SettingsJsonSchemaParams<'a> {
     pub fn font_family_schema(&self) -> Schema {
         let available_fonts: Vec<_> = self.font_names.iter().cloned().map(Value::String).collect();
 

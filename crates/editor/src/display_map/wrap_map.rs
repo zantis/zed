@@ -69,7 +69,7 @@ pub struct WrapRows<'a> {
     transforms: Cursor<'a, Transform, (WrapPoint, TabPoint)>,
 }
 
-impl WrapRows<'_> {
+impl<'a> WrapRows<'a> {
     pub(crate) fn seek(&mut self, start_row: u32) {
         self.transforms
             .seek(&WrapPoint::new(start_row, 0), Bias::Left, &());
@@ -872,7 +872,7 @@ impl WrapSnapshot {
     }
 }
 
-impl WrapChunks<'_> {
+impl<'a> WrapChunks<'a> {
     pub(crate) fn seek(&mut self, rows: Range<u32>) {
         let output_start = WrapPoint::new(rows.start, 0);
         let output_end = WrapPoint::new(rows.end, 0);
@@ -955,7 +955,7 @@ impl<'a> Iterator for WrapChunks<'a> {
     }
 }
 
-impl Iterator for WrapRows<'_> {
+impl<'a> Iterator for WrapRows<'a> {
     type Item = RowInfo;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -1120,7 +1120,7 @@ impl<'a> sum_tree::Dimension<'a, TransformSummary> for TabPoint {
     }
 }
 
-impl sum_tree::SeekTarget<'_, TransformSummary, TransformSummary> for TabPoint {
+impl<'a> sum_tree::SeekTarget<'a, TransformSummary, TransformSummary> for TabPoint {
     fn cmp(&self, cursor_location: &TransformSummary, _: &()) -> std::cmp::Ordering {
         Ord::cmp(&self.0, &cursor_location.input.lines)
     }

@@ -498,7 +498,7 @@ pub struct TabChunks<'a> {
     inside_leading_tab: bool,
 }
 
-impl TabChunks<'_> {
+impl<'a> TabChunks<'a> {
     pub(crate) fn seek(&mut self, range: Range<TabPoint>) {
         let (input_start, expanded_char_column, to_next_stop) =
             self.snapshot.to_fold_point(range.start, Bias::Left);

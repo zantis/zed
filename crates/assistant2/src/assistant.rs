@@ -16,7 +16,6 @@ mod terminal_inline_assistant;
 mod thread;
 mod thread_history;
 mod thread_store;
-mod tool_use;
 mod ui;
 
 use std::sync::Arc;
@@ -27,7 +26,7 @@ use command_palette_hooks::CommandPaletteFilter;
 use feature_flags::{Assistant2FeatureFlag, FeatureFlagAppExt};
 use fs::Fs;
 use gpui::{actions, App};
-use prompt_store::PromptBuilder;
+use prompt_library::PromptBuilder;
 use settings::Settings as _;
 
 pub use crate::assistant_panel::{AssistantPanel, ConcreteAssistantPanelDelegate};
@@ -39,6 +38,7 @@ actions!(
         NewThread,
         NewPromptEditor,
         ToggleContextPicker,
+        ToggleModelSelector,
         RemoveAllContext,
         OpenHistory,
         OpenConfiguration,

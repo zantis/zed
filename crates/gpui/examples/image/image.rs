@@ -74,9 +74,6 @@ struct ImageShowcase {
 impl Render for ImageShowcase {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         div()
-            .id("main")
-            .overflow_y_scroll()
-            .p_5()
             .size_full()
             .flex()
             .flex_col()
@@ -119,20 +116,8 @@ impl Render for ImageShowcase {
                         div()
                             .flex_col()
                             .child("Auto Height")
-                            .child(img("https://picsum.photos/800/400").w(px(180.))),
+                            .child(img("https://picsum.photos/480/640").w(px(180.))),
                     ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .justify_center()
-                    .items_center()
-                    .w_full()
-                    .border_1()
-                    .border_color(rgb(0xC0C0C0))
-                    .child("image with max width 100%")
-                    .child(img("https://picsum.photos/800/400").max_w_full()),
             )
     }
 }
@@ -179,7 +164,9 @@ fn main() {
                 cx.new(|_| ImageShowcase {
                     // Relative path to your root project path
                     local_resource: manifest_dir.join("examples/image/app-icon.png").into(),
-                    remote_resource: "https://picsum.photos/800/400".into(),
+
+                    remote_resource: "https://picsum.photos/512/512".into(),
+
                     asset_resource: "image/color.svg".into(),
                 })
             })

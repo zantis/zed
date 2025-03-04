@@ -42,7 +42,7 @@ pub struct ItemSettings {
     pub activate_on_close: ActivateOnClose,
     pub file_icons: bool,
     pub show_diagnostics: ShowDiagnostics,
-    pub show_close_button: ShowCloseButton,
+    pub always_show_close_button: bool,
 }
 
 #[derive(Deserialize)]
@@ -58,15 +58,6 @@ pub enum ClosePosition {
     Left,
     #[default]
     Right,
-}
-
-#[derive(Clone, Default, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum ShowCloseButton {
-    Always,
-    #[default]
-    Hover,
-    Hidden,
 }
 
 #[derive(Copy, Clone, Debug, Default, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -113,7 +104,7 @@ pub struct ItemSettingsContent {
     /// Whether to always show the close button on tabs.
     ///
     /// Default: false
-    show_close_button: Option<ShowCloseButton>,
+    always_show_close_button: Option<bool>,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, JsonSchema)]

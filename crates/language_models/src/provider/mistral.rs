@@ -20,10 +20,10 @@ use settings::{Settings, SettingsStore};
 use std::sync::Arc;
 use strum::IntoEnumIterator;
 use theme::ThemeSettings;
-use ui::{prelude::*, Icon, IconName, List, Tooltip};
+use ui::{prelude::*, Icon, IconName, Tooltip};
 use util::ResultExt;
 
-use crate::{ui::InstructionListItem, AllLanguageModelSettings};
+use crate::AllLanguageModelSettings;
 
 const PROVIDER_ID: &str = "mistral";
 const PROVIDER_NAME: &str = "Mistral";
@@ -570,6 +570,14 @@ impl ConfigurationView {
 
 impl Render for ConfigurationView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        const MISTRAL_CONSOLE_URL: &str = "https://console.mistral.ai/api-keys";
+        const INSTRUCTIONS: [&str; 4] = [
+            "To use Zed's assistant with Mistral, you need to add an API key. Follow these steps:",
+            " - Create one by visiting:",
+            " - Ensure your Mistral account has credits",
+            " - Paste your API key below and hit enter to start using the assistant",
+        ];
+
         let env_var_set = self.state.read(cx).api_key_from_env;
 
         if self.load_credentials_task.is_some() {
@@ -578,21 +586,19 @@ impl Render for ConfigurationView {
             v_flex()
                 .size_full()
                 .on_action(cx.listener(Self::save_api_key))
-                .child(Label::new("To use Zed's assistant with Mistral, you need to add an API key. Follow these steps:"))
-                .child(
-                    List::new()
-                        .child(InstructionListItem::new(
-                            "Create one by visiting",
-                            Some("Mistral's console"),
-                            Some("https://console.mistral.ai/api-keys"),
-                        ))
-                        .child(InstructionListItem::text_only(
-                            "Ensure your Mistral account has credits",
-                        ))
-                        .child(InstructionListItem::text_only(
-                            "Paste your API key below and hit enter to start using the assistant",
-                        )),
+                .child(Label::new(INSTRUCTIONS[0]))
+                .child(h_flex().child(Label::new(INSTRUCTIONS[1])).child(
+                    Button::new("mistral_console", MISTRAL_CONSOLE_URL)
+                        .style(ButtonStyle::Subtle)
+                        .icon(IconName::ArrowUpRight)
+                        .icon_size(IconSize::XSmall)
+                        .icon_color(Color::Muted)
+                        .on_click(move |_, _, cx| cx.open_url(MISTRAL_CONSOLE_URL))
+                    )
                 )
+                .children(
+                    (2..INSTRUCTIONS.len()).map(|n|
+                        Label::new(INSTRUCTIONS[n])).collect::<Vec<_>>())
                 .child(
                     h_flex()
                         .w_full()
@@ -609,7 +615,7 @@ impl Render for ConfigurationView {
                     Label::new(
                         format!("You can also assign the {MISTRAL_API_KEY_VAR} environment variable and restart Zed."),
                     )
-                    .size(LabelSize::Small).color(Color::Muted),
+                    .size(LabelSize::Small),
                 )
                 .into_any()
         } else {

@@ -11,8 +11,6 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use std::borrow::Borrow;
 use std::io::Write as _;
-#[cfg(not(windows))]
-use std::os::unix::fs::PermissionsExt;
 use std::process::Stdio;
 use std::sync::LazyLock;
 use std::{
@@ -63,12 +61,6 @@ pub enum UpstreamTracking {
     Tracked(UpstreamTrackingStatus),
 }
 
-impl From<UpstreamTrackingStatus> for UpstreamTracking {
-    fn from(status: UpstreamTrackingStatus) -> Self {
-        UpstreamTracking::Tracked(status)
-    }
-}
-
 impl UpstreamTracking {
     pub fn is_gone(&self) -> bool {
         matches!(self, UpstreamTracking::Gone)
@@ -79,18 +71,6 @@ impl UpstreamTracking {
             UpstreamTracking::Gone => None,
             UpstreamTracking::Tracked(status) => Some(*status),
         }
-    }
-}
-
-#[derive(Debug)]
-pub struct RemoteCommandOutput {
-    pub stdout: String,
-    pub stderr: String,
-}
-
-impl RemoteCommandOutput {
-    pub fn is_empty(&self) -> bool {
-        self.stdout.is_empty() && self.stderr.is_empty()
     }
 }
 
@@ -199,10 +179,10 @@ pub trait GitRepository: Send + Sync {
         branch_name: &str,
         upstream_name: &str,
         options: Option<PushOptions>,
-    ) -> Result<RemoteCommandOutput>;
-    fn pull(&self, branch_name: &str, upstream_name: &str) -> Result<RemoteCommandOutput>;
+    ) -> Result<()>;
+    fn pull(&self, branch_name: &str, upstream_name: &str) -> Result<()>;
     fn get_remotes(&self, branch_name: Option<&str>) -> Result<Vec<Remote>>;
-    fn fetch(&self) -> Result<RemoteCommandOutput>;
+    fn fetch(&self) -> Result<()>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
@@ -378,30 +358,24 @@ impl GitRepository for RealGitRepository {
 
             log::debug!("indexing SHA: {sha}, path {path:?}");
 
-            let output = new_std_command(&self.git_binary_path)
+            let status = new_std_command(&self.git_binary_path)
                 .current_dir(&working_directory)
                 .args(["update-index", "--add", "--cacheinfo", "100644", &sha])
                 .arg(path.as_ref())
-                .output()?;
+                .status()?;
 
-            if !output.status.success() {
-                return Err(anyhow!(
-                    "Failed to stage:\n{}",
-                    String::from_utf8_lossy(&output.stderr)
-                ));
+            if !status.success() {
+                return Err(anyhow!("Failed to add to index: {status:?}"));
             }
         } else {
-            let output = new_std_command(&self.git_binary_path)
+            let status = new_std_command(&self.git_binary_path)
                 .current_dir(&working_directory)
                 .args(["update-index", "--force-remove"])
                 .arg(path.as_ref())
-                .output()?;
+                .status()?;
 
-            if !output.status.success() {
-                return Err(anyhow!(
-                    "Failed to unstage:\n{}",
-                    String::from_utf8_lossy(&output.stderr)
-                ));
+            if !status.success() {
+                return Err(anyhow!("Failed to remove from index: {status:?}"));
             }
         }
 
@@ -625,108 +599,69 @@ impl GitRepository for RealGitRepository {
         branch_name: &str,
         remote_name: &str,
         options: Option<PushOptions>,
-    ) -> Result<RemoteCommandOutput> {
+    ) -> Result<()> {
         let working_directory = self.working_directory()?;
 
-        // We do this on every operation to ensure that the askpass script exists and is executable.
-        #[cfg(not(windows))]
-        let (askpass_script_path, _temp_dir) = setup_askpass()?;
-
-        let mut command = new_std_command("git");
-        command
+        let output = new_std_command(&self.git_binary_path)
             .current_dir(&working_directory)
-            .args(["push"])
+            .args(["push", "--quiet"])
             .args(options.map(|option| match option {
                 PushOptions::SetUpstream => "--set-upstream",
                 PushOptions::Force => "--force-with-lease",
             }))
             .arg(remote_name)
-            .arg(format!("{}:{}", branch_name, branch_name));
-
-        #[cfg(not(windows))]
-        {
-            command.env("GIT_ASKPASS", askpass_script_path);
-        }
-
-        let output = command.output()?;
+            .arg(format!("{}:{}", branch_name, branch_name))
+            .output()?;
 
         if !output.status.success() {
             return Err(anyhow!(
                 "Failed to push:\n{}",
                 String::from_utf8_lossy(&output.stderr)
             ));
-        } else {
-            return Ok(RemoteCommandOutput {
-                stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-            });
         }
+
+        // TODO: Get remote response out of this and show it to the user
+        Ok(())
     }
 
-    fn pull(&self, branch_name: &str, remote_name: &str) -> Result<RemoteCommandOutput> {
+    fn pull(&self, branch_name: &str, remote_name: &str) -> Result<()> {
         let working_directory = self.working_directory()?;
 
-        // We do this on every operation to ensure that the askpass script exists and is executable.
-        #[cfg(not(windows))]
-        let (askpass_script_path, _temp_dir) = setup_askpass()?;
-
-        let mut command = new_std_command("git");
-        command
+        let output = new_std_command(&self.git_binary_path)
             .current_dir(&working_directory)
-            .args(["pull"])
+            .args(["pull", "--quiet"])
             .arg(remote_name)
-            .arg(branch_name);
-
-        #[cfg(not(windows))]
-        {
-            command.env("GIT_ASKPASS", askpass_script_path);
-        }
-
-        let output = command.output()?;
+            .arg(branch_name)
+            .output()?;
 
         if !output.status.success() {
             return Err(anyhow!(
                 "Failed to pull:\n{}",
                 String::from_utf8_lossy(&output.stderr)
             ));
-        } else {
-            return Ok(RemoteCommandOutput {
-                stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-            });
         }
+
+        // TODO: Get remote response out of this and show it to the user
+        Ok(())
     }
 
-    fn fetch(&self) -> Result<RemoteCommandOutput> {
+    fn fetch(&self) -> Result<()> {
         let working_directory = self.working_directory()?;
 
-        // We do this on every operation to ensure that the askpass script exists and is executable.
-        #[cfg(not(windows))]
-        let (askpass_script_path, _temp_dir) = setup_askpass()?;
-
-        let mut command = new_std_command("git");
-        command
+        let output = new_std_command(&self.git_binary_path)
             .current_dir(&working_directory)
-            .args(["fetch", "--all"]);
-
-        #[cfg(not(windows))]
-        {
-            command.env("GIT_ASKPASS", askpass_script_path);
-        }
-
-        let output = command.output()?;
+            .args(["fetch", "--quiet", "--all"])
+            .output()?;
 
         if !output.status.success() {
             return Err(anyhow!(
                 "Failed to fetch:\n{}",
                 String::from_utf8_lossy(&output.stderr)
             ));
-        } else {
-            return Ok(RemoteCommandOutput {
-                stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-            });
         }
+
+        // TODO: Get remote response out of this and show it to the user
+        Ok(())
     }
 
     fn get_remotes(&self, branch_name: Option<&str>) -> Result<Vec<Remote>> {
@@ -770,18 +705,6 @@ impl GitRepository for RealGitRepository {
             ));
         }
     }
-}
-
-#[cfg(not(windows))]
-fn setup_askpass() -> Result<(PathBuf, tempfile::TempDir), anyhow::Error> {
-    let temp_dir = tempfile::Builder::new()
-        .prefix("zed-git-askpass")
-        .tempdir()?;
-    let askpass_script = "#!/bin/sh\necho ''";
-    let askpass_script_path = temp_dir.path().join("git-askpass.sh");
-    std::fs::write(&askpass_script_path, askpass_script)?;
-    std::fs::set_permissions(&askpass_script_path, std::fs::Permissions::from_mode(0o755))?;
-    Ok((askpass_script_path, temp_dir))
 }
 
 #[derive(Debug, Clone)]
@@ -967,20 +890,15 @@ impl GitRepository for FakeGitRepository {
         unimplemented!()
     }
 
-    fn push(
-        &self,
-        _branch: &str,
-        _remote: &str,
-        _options: Option<PushOptions>,
-    ) -> Result<RemoteCommandOutput> {
+    fn push(&self, _branch: &str, _remote: &str, _options: Option<PushOptions>) -> Result<()> {
         unimplemented!()
     }
 
-    fn pull(&self, _branch: &str, _remote: &str) -> Result<RemoteCommandOutput> {
+    fn pull(&self, _branch: &str, _remote: &str) -> Result<()> {
         unimplemented!()
     }
 
-    fn fetch(&self) -> Result<RemoteCommandOutput> {
+    fn fetch(&self) -> Result<()> {
         unimplemented!()
     }
 
@@ -1098,7 +1016,7 @@ impl Borrow<Path> for RepoPath {
 #[derive(Debug)]
 pub struct RepoPathDescendants<'a>(pub &'a Path);
 
-impl MapSeekTarget<RepoPath> for RepoPathDescendants<'_> {
+impl<'a> MapSeekTarget<RepoPath> for RepoPathDescendants<'a> {
     fn cmp_cursor(&self, key: &RepoPath) -> Ordering {
         if key.starts_with(self.0) {
             Ordering::Greater

@@ -15,7 +15,7 @@ actions!(
         Cancel,
         Confirm,
         SecondaryConfirm,
-        SelectPrevious,
+        SelectPrev,
         SelectNext,
         SelectFirst,
         SelectLast,

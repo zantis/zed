@@ -328,7 +328,6 @@ impl Server {
             .add_request_handler(forward_mutating_project_request::<proto::PrepareRename>)
             .add_request_handler(forward_mutating_project_request::<proto::PerformRename>)
             .add_request_handler(forward_mutating_project_request::<proto::ReloadBuffers>)
-            .add_request_handler(forward_mutating_project_request::<proto::ApplyCodeActionKind>)
             .add_request_handler(forward_mutating_project_request::<proto::FormatBuffers>)
             .add_request_handler(forward_mutating_project_request::<proto::CreateProjectEntry>)
             .add_request_handler(forward_mutating_project_request::<proto::RenameProjectEntry>)
@@ -976,7 +975,7 @@ impl Server {
     }
 }
 
-impl Deref for ConnectionPoolGuard<'_> {
+impl<'a> Deref for ConnectionPoolGuard<'a> {
     type Target = ConnectionPool;
 
     fn deref(&self) -> &Self::Target {
@@ -984,13 +983,13 @@ impl Deref for ConnectionPoolGuard<'_> {
     }
 }
 
-impl DerefMut for ConnectionPoolGuard<'_> {
+impl<'a> DerefMut for ConnectionPoolGuard<'a> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.guard
     }
 }
 
-impl Drop for ConnectionPoolGuard<'_> {
+impl<'a> Drop for ConnectionPoolGuard<'a> {
     fn drop(&mut self) {
         #[cfg(test)]
         self.check_invariants();

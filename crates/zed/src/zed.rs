@@ -22,7 +22,6 @@ use editor::ProposedChangesEditorToolbar;
 use editor::{scroll::Autoscroll, Editor, MultiBuffer};
 use feature_flags::{FeatureFlagAppExt, FeatureFlagViewExt, GitUiFeatureFlag};
 use futures::{channel::mpsc, select_biased, StreamExt};
-use git_ui::git_panel::GitPanel;
 use git_ui::project_diff::ProjectDiffToolbar;
 use gpui::{
     actions, point, px, Action, App, AppContext as _, AsyncApp, Context, DismissEvent, Element,
@@ -38,7 +37,7 @@ use outline_panel::OutlinePanel;
 use paths::{local_settings_file_relative_path, local_tasks_file_relative_path};
 use project::{DirectoryLister, ProjectItem};
 use project_panel::ProjectPanel;
-use prompt_store::PromptBuilder;
+use prompt_library::PromptBuilder;
 use quick_action_bar::QuickActionBar;
 use recent_projects::open_ssh_project;
 use release_channel::{AppCommitSha, ReleaseChannel};
@@ -430,10 +429,7 @@ fn initialize_panels(
             workspace.add_panel(chat_panel, window, cx);
             workspace.add_panel(notification_panel, window, cx);
             cx.when_flag_enabled::<GitUiFeatureFlag>(window, |workspace, window, cx| {
-                let entity = cx.entity();
-                let project = workspace.project().clone();
-                let app_state = workspace.app_state().clone();
-                let git_panel = cx.new(|cx| GitPanel::new(entity, project, app_state, window, cx));
+                let git_panel = git_ui::git_panel::GitPanel::new(workspace, window, cx);
                 workspace.add_panel(git_panel, window, cx);
             });
         })?;
@@ -1118,14 +1114,11 @@ fn open_log_file(workspace: &mut Workspace, window: &mut Window, cx: &mut Contex
                                 NotificationId::unique::<OpenLogError>(),
                                 cx,
                                 |cx| {
-                                    cx.new(|cx| {
-                                        MessageNotification::new(
-                                            format!(
-                                                "Unable to access/open log file at path {:?}",
-                                                paths::log_file().as_path()
-                                            ),
-                                            cx,
-                                        )
+                                    cx.new(|_| {
+                                        MessageNotification::new(format!(
+                                            "Unable to access/open log file at path {:?}",
+                                            paths::log_file().as_path()
+                                        ))
                                     })
                                 },
                             );
@@ -1141,7 +1134,6 @@ fn open_log_file(workspace: &mut Workspace, window: &mut Window, cx: &mut Contex
                         let editor = cx.new(|cx| {
                             let mut editor =
                                 Editor::for_multibuffer(buffer, Some(project), true, window, cx);
-                            editor.set_read_only(true);
                             editor.set_breadcrumb_header(format!(
                                 "Last {} lines in {}",
                                 MAX_LINES,
@@ -1330,8 +1322,8 @@ fn show_keymap_file_json_error(
     let message: SharedString =
         format!("JSON parse error in keymap file. Bindings not reloaded.\n\n{error}").into();
     show_app_notification(notification_id, cx, move |cx| {
-        cx.new(|cx| {
-            MessageNotification::new(message.clone(), cx)
+        cx.new(|_cx| {
+            MessageNotification::new(message.clone())
                 .primary_message("Open Keymap File")
                 .primary_on_click(|window, cx| {
                     window.dispatch_action(zed_actions::OpenKeymap.boxed_clone(), cx);
@@ -1388,8 +1380,8 @@ fn show_markdown_app_notification<F>(
                 let parsed_markdown = parsed_markdown.clone();
                 let primary_button_message = primary_button_message.clone();
                 let primary_button_on_click = primary_button_on_click.clone();
-                cx.new(move |cx| {
-                    MessageNotification::new_from_builder(cx, move |window, cx| {
+                cx.new(move |_cx| {
+                    MessageNotification::new_from_builder(move |window, cx| {
                         gpui::div()
                             .text_xs()
                             .child(markdown_preview::markdown_renderer::render_parsed_markdown(
@@ -1448,8 +1440,8 @@ pub fn handle_settings_changed(error: Option<anyhow::Error>, cx: &mut App) {
                 return;
             }
             show_app_notification(id, cx, move |cx| {
-                cx.new(|cx| {
-                    MessageNotification::new(format!("Invalid user settings file\n{error}"), cx)
+                cx.new(|_cx| {
+                    MessageNotification::new(format!("Invalid user settings file\n{error}"))
                         .primary_message("Open Settings File")
                         .primary_icon(IconName::Settings)
                         .primary_on_click(|window, cx| {
@@ -1587,7 +1579,7 @@ fn open_local_file(
         struct NoOpenFolders;
 
         workspace.show_notification(NotificationId::unique::<NoOpenFolders>(), cx, |cx| {
-            cx.new(|cx| MessageNotification::new("This project has no folders open.", cx))
+            cx.new(|_| MessageNotification::new("This project has no folders open."))
         })
     }
 }
@@ -1630,7 +1622,6 @@ fn open_telemetry_log_file(
                 workspace.add_item_to_active_pane(
                     Box::new(cx.new(|cx| {
                         let mut editor = Editor::for_multibuffer(buffer, Some(project), true, window, cx);
-                        editor.set_read_only(true);
                         editor.set_breadcrumb_header("Telemetry Log".into());
                         editor
                     })),
@@ -3888,7 +3879,7 @@ mod tests {
         // From the Atom keymap
         use workspace::ActivatePreviousPane;
         // From the JetBrains keymap
-        use workspace::ActivatePreviousItem;
+        use workspace::ActivatePrevItem;
 
         app_state
             .fs
@@ -3929,7 +3920,7 @@ mod tests {
                 workspace.register_action(|_, _: &A, _window, _cx| {});
                 workspace.register_action(|_, _: &B, _window, _cx| {});
                 workspace.register_action(|_, _: &ActivatePreviousPane, _window, _cx| {});
-                workspace.register_action(|_, _: &ActivatePreviousItem, _window, _cx| {});
+                workspace.register_action(|_, _: &ActivatePrevItem, _window, _cx| {});
                 cx.notify();
             })
             .unwrap();
@@ -3978,7 +3969,7 @@ mod tests {
         assert_key_bindings_for(
             workspace.into(),
             cx,
-            vec![("backspace", &B), ("{", &ActivatePreviousItem)],
+            vec![("backspace", &B), ("{", &ActivatePrevItem)],
             line!(),
         );
     }
@@ -4121,8 +4112,6 @@ mod tests {
                     | "vim::PushLiteral"
                     | "vim::Number"
                     | "vim::SelectRegister"
-                    | "git::StageAndNext"
-                    | "git::UnstageAndNext"
                     | "terminal::SendText"
                     | "terminal::SendKeystroke"
                     | "app_menu::OpenApplicationMenu"

@@ -245,7 +245,7 @@ impl NotebookEditor {
 
     pub fn select_previous(
         &mut self,
-        _: &menu::SelectPrevious,
+        _: &menu::SelectPrev,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {

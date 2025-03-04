@@ -587,7 +587,7 @@ impl<'a> Scope<'a> {
     }
 }
 
-impl Drop for Scope<'_> {
+impl<'a> Drop for Scope<'a> {
     fn drop(&mut self) {
         self.tx.take().unwrap();
 

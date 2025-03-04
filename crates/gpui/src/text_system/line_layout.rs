@@ -601,15 +601,15 @@ struct CacheKeyRef<'a> {
     wrap_width: Option<Pixels>,
 }
 
-impl PartialEq for (dyn AsCacheKeyRef + '_) {
+impl<'a> PartialEq for (dyn AsCacheKeyRef + 'a) {
     fn eq(&self, other: &dyn AsCacheKeyRef) -> bool {
         self.as_cache_key_ref() == other.as_cache_key_ref()
     }
 }
 
-impl Eq for (dyn AsCacheKeyRef + '_) {}
+impl<'a> Eq for (dyn AsCacheKeyRef + 'a) {}
 
-impl Hash for (dyn AsCacheKeyRef + '_) {
+impl<'a> Hash for (dyn AsCacheKeyRef + 'a) {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.as_cache_key_ref().hash(state)
     }
@@ -644,7 +644,7 @@ impl<'a> Borrow<dyn AsCacheKeyRef + 'a> for Arc<CacheKey> {
     }
 }
 
-impl AsCacheKeyRef for CacheKeyRef<'_> {
+impl<'a> AsCacheKeyRef for CacheKeyRef<'a> {
     fn as_cache_key_ref(&self) -> CacheKeyRef {
         *self
     }

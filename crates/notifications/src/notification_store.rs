@@ -469,7 +469,7 @@ impl sum_tree::Summary for NotificationSummary {
     }
 }
 
-impl sum_tree::Dimension<'_, NotificationSummary> for NotificationId {
+impl<'a> sum_tree::Dimension<'a, NotificationSummary> for NotificationId {
     fn zero(_cx: &()) -> Self {
         Default::default()
     }
@@ -480,7 +480,7 @@ impl sum_tree::Dimension<'_, NotificationSummary> for NotificationId {
     }
 }
 
-impl sum_tree::Dimension<'_, NotificationSummary> for Count {
+impl<'a> sum_tree::Dimension<'a, NotificationSummary> for Count {
     fn zero(_cx: &()) -> Self {
         Default::default()
     }

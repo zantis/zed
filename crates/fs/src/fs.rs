@@ -135,7 +135,6 @@ pub trait Fs: Send + Sync {
         Arc<dyn Watcher>,
     );
 
-    fn home_dir(&self) -> Option<PathBuf>;
     fn open_repo(&self, abs_dot_git: &Path) -> Option<Arc<dyn GitRepository>>;
     fn is_fake(&self) -> bool;
     async fn is_case_sensitive(&self) -> Result<bool>;
@@ -814,10 +813,6 @@ impl Fs for RealFs {
         temp_dir.close()?;
         case_sensitive
     }
-
-    fn home_dir(&self) -> Option<PathBuf> {
-        Some(paths::home_dir().clone())
-    }
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
@@ -851,7 +846,6 @@ struct FakeFsState {
     metadata_call_count: usize,
     read_dir_call_count: usize,
     moves: std::collections::HashMap<u64, PathBuf>,
-    home_dir: Option<PathBuf>,
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -1037,7 +1031,6 @@ impl FakeFs {
                 read_dir_call_count: 0,
                 metadata_call_count: 0,
                 moves: Default::default(),
-                home_dir: None,
             }),
         });
 
@@ -1268,7 +1261,7 @@ impl FakeFs {
         self.with_git_state(dot_git, true, |state| {
             let branch = branch.map(Into::into);
             state.branches.extend(branch.clone());
-            state.current_branch_name = branch
+            state.current_branch_name = branch.map(Into::into)
         })
     }
 
@@ -1530,10 +1523,6 @@ impl FakeFs {
 
     fn simulate_random_delay(&self) -> impl futures::Future<Output = ()> {
         self.executor.simulate_random_delay()
-    }
-
-    pub fn set_home_dir(&self, home_dir: PathBuf) {
-        self.state.lock().home_dir = Some(home_dir);
     }
 }
 
@@ -2089,10 +2078,6 @@ impl Fs for FakeFs {
     #[cfg(any(test, feature = "test-support"))]
     fn as_fake(&self) -> Arc<FakeFs> {
         self.this.upgrade().unwrap()
-    }
-
-    fn home_dir(&self) -> Option<PathBuf> {
-        self.state.lock().home_dir.clone()
     }
 }
 

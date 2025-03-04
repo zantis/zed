@@ -816,20 +816,20 @@ impl LocalBufferStore {
                 .any(|(work_dir, _)| file.path.starts_with(work_dir))
             {
                 let snapshot = buffer.text_snapshot();
-                let has_unstaged_diff = diff_state
-                    .unstaged_diff
-                    .as_ref()
-                    .is_some_and(|diff| diff.is_upgradable());
-                let has_uncommitted_diff = diff_state
-                    .uncommitted_diff
-                    .as_ref()
-                    .is_some_and(|set| set.is_upgradable());
                 diff_state_updates.push((
                     snapshot.clone(),
                     file.path.clone(),
-                    has_unstaged_diff.then(|| diff_state.index_text.clone()),
-                    has_uncommitted_diff.then(|| diff_state.head_text.clone()),
-                ));
+                    diff_state
+                        .unstaged_diff
+                        .as_ref()
+                        .and_then(|set| set.upgrade())
+                        .is_some(),
+                    diff_state
+                        .uncommitted_diff
+                        .as_ref()
+                        .and_then(|set| set.upgrade())
+                        .is_some(),
+                ))
             }
         }
 
@@ -845,47 +845,37 @@ impl LocalBufferStore {
                     diff_state_updates
                         .into_iter()
                         .filter_map(
-                            |(buffer_snapshot, path, current_index_text, current_head_text)| {
+                            |(buffer_snapshot, path, needs_staged_text, needs_committed_text)| {
                                 let local_repo = snapshot.local_repo_for_path(&path)?;
                                 let relative_path = local_repo.relativize(&path).ok()?;
-                                let index_text = if current_index_text.is_some() {
+                                let staged_text = if needs_staged_text {
                                     local_repo.repo().load_index_text(&relative_path)
                                 } else {
                                     None
                                 };
-                                let head_text = if current_head_text.is_some() {
+                                let committed_text = if needs_committed_text {
                                     local_repo.repo().load_committed_text(&relative_path)
                                 } else {
                                     None
                                 };
-
-                                // Avoid triggering a diff update if the base text has not changed.
-                                if let Some((current_index, current_head)) =
-                                    current_index_text.as_ref().zip(current_head_text.as_ref())
-                                {
-                                    if current_index.as_deref() == index_text.as_ref()
-                                        && current_head.as_deref() == head_text.as_ref()
-                                    {
-                                        return None;
-                                    }
-                                }
-
-                                let diff_bases_change = match (
-                                    current_index_text.is_some(),
-                                    current_head_text.is_some(),
-                                ) {
-                                    (true, true) => Some(if index_text == head_text {
-                                        DiffBasesChange::SetBoth(head_text)
-                                    } else {
-                                        DiffBasesChange::SetEach {
-                                            index: index_text,
-                                            head: head_text,
+                                let diff_bases_change =
+                                    match (needs_staged_text, needs_committed_text) {
+                                        (true, true) => Some(if staged_text == committed_text {
+                                            DiffBasesChange::SetBoth(committed_text)
+                                        } else {
+                                            DiffBasesChange::SetEach {
+                                                index: staged_text,
+                                                head: committed_text,
+                                            }
+                                        }),
+                                        (true, false) => {
+                                            Some(DiffBasesChange::SetIndex(staged_text))
                                         }
-                                    }),
-                                    (true, false) => Some(DiffBasesChange::SetIndex(index_text)),
-                                    (false, true) => Some(DiffBasesChange::SetHead(head_text)),
-                                    (false, false) => None,
-                                };
+                                        (false, true) => {
+                                            Some(DiffBasesChange::SetHead(committed_text))
+                                        }
+                                        (false, false) => None,
+                                    };
                                 Some((buffer_snapshot, diff_bases_change))
                             },
                         )
@@ -1486,15 +1476,14 @@ impl BufferStore {
                     diff_state.language = language;
                     diff_state.language_registry = language_registry;
 
-                    let diff = cx.new(|cx| BufferDiff::new(&text_snapshot, cx));
+                    let diff = cx.new(|_| BufferDiff::new(&text_snapshot));
                     match kind {
                         DiffKind::Unstaged => diff_state.unstaged_diff = Some(diff.downgrade()),
                         DiffKind::Uncommitted => {
                             let unstaged_diff = if let Some(diff) = diff_state.unstaged_diff() {
                                 diff
                             } else {
-                                let unstaged_diff =
-                                    cx.new(|cx| BufferDiff::new(&text_snapshot, cx));
+                                let unstaged_diff = cx.new(|_| BufferDiff::new(&text_snapshot));
                                 diff_state.unstaged_diff = Some(unstaged_diff.downgrade());
                                 unstaged_diff
                             };
@@ -1643,9 +1632,9 @@ impl BufferStore {
                     // file in the Cargo registry (presumably opened with go-to-definition
                     // from a normal Rust file). If so, we can put together a permalink
                     // using crate metadata.
-                    if buffer
+                    if !buffer
                         .language()
-                        .is_none_or(|lang| lang.name() != "Rust".into())
+                        .is_some_and(|lang| lang.name() == "Rust".into())
                     {
                         return Task::ready(Err(anyhow!("no permalink available")));
                     }
@@ -2395,7 +2384,8 @@ impl BufferStore {
                 shared.diff = Some(diff.clone());
             }
         })?;
-        let staged_text = diff.read_with(&cx, |diff, _| diff.base_text_string())?;
+        let staged_text =
+            diff.read_with(&cx, |diff, _| diff.base_text().map(|buffer| buffer.text()))?;
         Ok(proto::OpenUnstagedDiffResponse { staged_text })
     }
 
@@ -2425,25 +2415,22 @@ impl BufferStore {
         diff.read_with(&cx, |diff, cx| {
             use proto::open_uncommitted_diff_response::Mode;
 
-            let unstaged_diff = diff.secondary_diff();
-            let index_snapshot = unstaged_diff.and_then(|diff| {
-                let diff = diff.read(cx);
-                diff.base_text_exists().then(|| diff.base_text())
-            });
+            let staged_buffer = diff
+                .secondary_diff()
+                .and_then(|diff| diff.read(cx).base_text());
 
             let mode;
             let staged_text;
             let committed_text;
-            if diff.base_text_exists() {
-                let committed_snapshot = diff.base_text();
-                committed_text = Some(committed_snapshot.text());
-                if let Some(index_text) = index_snapshot {
-                    if index_text.remote_id() == committed_snapshot.remote_id() {
+            if let Some(committed_buffer) = diff.base_text() {
+                committed_text = Some(committed_buffer.text());
+                if let Some(staged_buffer) = staged_buffer {
+                    if staged_buffer.remote_id() == committed_buffer.remote_id() {
                         mode = Mode::IndexMatchesHead;
                         staged_text = None;
                     } else {
                         mode = Mode::IndexAndHead;
-                        staged_text = Some(index_text.text());
+                        staged_text = Some(staged_buffer.text());
                     }
                 } else {
                     mode = Mode::IndexAndHead;
@@ -2452,7 +2439,7 @@ impl BufferStore {
             } else {
                 mode = Mode::IndexAndHead;
                 committed_text = None;
-                staged_text = index_snapshot.as_ref().map(|buffer| buffer.text());
+                staged_text = staged_buffer.as_ref().map(|buffer| buffer.text());
             }
 
             proto::OpenUncommittedDiffResponse {

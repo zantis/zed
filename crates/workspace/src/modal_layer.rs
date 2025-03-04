@@ -112,7 +112,7 @@ impl ModalLayer {
         cx.notify();
     }
 
-    pub fn hide_modal(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+    fn hide_modal(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let Some(active_modal) = self.active_modal.as_mut() else {
             self.dismiss_on_focus_lost = false;
             return false;

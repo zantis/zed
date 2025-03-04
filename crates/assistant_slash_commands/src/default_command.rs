@@ -5,7 +5,7 @@ use assistant_slash_command::{
 };
 use gpui::{Task, WeakEntity};
 use language::{BufferSnapshot, LspAdapterDelegate};
-use prompt_store::PromptStore;
+use prompt_library::PromptStore;
 use std::{
     fmt::Write,
     sync::{atomic::AtomicBool, Arc},
@@ -21,11 +21,11 @@ impl SlashCommand for DefaultSlashCommand {
     }
 
     fn description(&self) -> String {
-        "Insert default prompt".into()
+        "insert default prompt".into()
     }
 
     fn menu_text(&self) -> String {
-        self.description()
+        "Insert Default Prompt".into()
     }
 
     fn requires_argument(&self) -> bool {

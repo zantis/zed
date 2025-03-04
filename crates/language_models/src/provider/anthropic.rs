@@ -1,4 +1,3 @@
-use crate::ui::InstructionListItem;
 use crate::AllLanguageModelSettings;
 use anthropic::{AnthropicError, ContentDelta, Event, ResponseContent};
 use anyhow::{anyhow, Context as _, Result};
@@ -25,7 +24,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
 use theme::ThemeSettings;
-use ui::{prelude::*, Icon, IconName, List, Tooltip};
+use ui::{prelude::*, Icon, IconName, Tooltip};
 use util::{maybe, ResultExt};
 
 const PROVIDER_ID: &str = language_model::ANTHROPIC_PROVIDER_ID;
@@ -507,7 +506,7 @@ pub fn into_anthropic(
                         MessageContent::ToolUse(tool_use) => {
                             Some(anthropic::RequestContent::ToolUse {
                                 id: tool_use.id.to_string(),
-                                name: tool_use.name.to_string(),
+                                name: tool_use.name,
                                 input: tool_use.input,
                                 cache_control,
                             })
@@ -516,7 +515,7 @@ pub fn into_anthropic(
                             Some(anthropic::RequestContent::ToolResult {
                                 tool_use_id: tool_result.tool_use_id.to_string(),
                                 is_error: tool_result.is_error,
-                                content: tool_result.content.to_string(),
+                                content: tool_result.content,
                                 cache_control,
                             })
                         }
@@ -637,7 +636,7 @@ pub fn map_to_language_model_completion_events(
                                         Ok(LanguageModelCompletionEvent::ToolUse(
                                             LanguageModelToolUse {
                                                 id: tool_use.id.into(),
-                                                name: tool_use.name.into(),
+                                                name: tool_use.name,
                                                 input: if tool_use.input_json.is_empty() {
                                                     serde_json::Value::Null
                                                 } else {
@@ -804,6 +803,12 @@ impl ConfigurationView {
 
 impl Render for ConfigurationView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        const ANTHROPIC_CONSOLE_URL: &str = "https://console.anthropic.com/settings/keys";
+        const INSTRUCTIONS: [&str; 3] = [
+            "To use Zed's assistant with Anthropic, you need to add an API key. Follow these steps:",
+            "- Create one at:",
+            "- Paste your API key below and hit enter to use the assistant:",
+        ];
         let env_var_set = self.state.read(cx).api_key_from_env;
 
         if self.load_credentials_task.is_some() {
@@ -812,20 +817,17 @@ impl Render for ConfigurationView {
             v_flex()
                 .size_full()
                 .on_action(cx.listener(Self::save_api_key))
-                .child(Label::new("To use Zed's assistant with Anthropic, you need to add an API key. Follow these steps:"))
-                .child(
-                    List::new()
-                        .child(
-                            InstructionListItem::new(
-                                "Create one by visiting",
-                                Some("Anthropic's settings"),
-                                Some("https://console.anthropic.com/settings/keys")
-                            )
-                        )
-                        .child(
-                            InstructionListItem::text_only("Paste your API key below and hit enter to start using the assistant")
-                        )
+                .child(Label::new(INSTRUCTIONS[0]))
+                .child(h_flex().child(Label::new(INSTRUCTIONS[1])).child(
+                    Button::new("anthropic_console", ANTHROPIC_CONSOLE_URL)
+                        .style(ButtonStyle::Subtle)
+                        .icon(IconName::ArrowUpRight)
+                        .icon_size(IconSize::XSmall)
+                        .icon_color(Color::Muted)
+                        .on_click(move |_, _, cx| cx.open_url(ANTHROPIC_CONSOLE_URL))
+                    )
                 )
+                .child(Label::new(INSTRUCTIONS[2]))
                 .child(
                     h_flex()
                         .w_full()
@@ -842,8 +844,7 @@ impl Render for ConfigurationView {
                     Label::new(
                         format!("You can also assign the {ANTHROPIC_API_KEY_VAR} environment variable and restart Zed."),
                     )
-                    .size(LabelSize::Small)
-                    .color(Color::Muted),
+                    .size(LabelSize::Small),
                 )
                 .into_any()
         } else {

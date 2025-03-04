@@ -386,10 +386,17 @@ fn render_accept_terms(
     let form = v_flex()
         .w_full()
         .gap_2()
+        .when(
+            view_kind == LanguageModelProviderTosView::ThreadEmptyState,
+            |form| form.items_center(),
+        )
         .child(
             h_flex()
                 .flex_wrap()
-                .items_start()
+                .when(
+                    view_kind == LanguageModelProviderTosView::ThreadEmptyState,
+                    |form| form.justify_center(),
+                )
                 .child(Label::new(text))
                 .child(terms_button),
         )
@@ -409,11 +416,9 @@ fn render_accept_terms(
             );
 
             match view_kind {
+                LanguageModelProviderTosView::ThreadEmptyState => button_container.justify_center(),
                 LanguageModelProviderTosView::PromptEditorPopup => button_container.justify_end(),
-                LanguageModelProviderTosView::Configuration
-                | LanguageModelProviderTosView::ThreadEmptyState => {
-                    button_container.justify_start()
-                }
+                LanguageModelProviderTosView::Configuration => button_container.justify_start(),
             }
         });
 

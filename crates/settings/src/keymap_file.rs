@@ -620,7 +620,7 @@ mod tests {
               // Standard macOS bindings
               {
                 \"bindings\": {
-                  \"up\": \"menu::SelectPrevious\",
+                  \"up\": \"menu::SelectPrev\",
                 },
               },
             ]

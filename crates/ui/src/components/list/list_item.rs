@@ -38,7 +38,6 @@ pub struct ListItem {
     children: SmallVec<[AnyElement; 2]>,
     selectable: bool,
     outlined: bool,
-    rounded: bool,
     overflow_x: bool,
     focused: Option<bool>,
 }
@@ -64,7 +63,6 @@ impl ListItem {
             children: SmallVec::new(),
             selectable: true,
             outlined: false,
-            rounded: false,
             overflow_x: false,
             focused: None,
         }
@@ -149,11 +147,6 @@ impl ListItem {
         self
     }
 
-    pub fn rounded(mut self) -> Self {
-        self.rounded = true;
-        self
-    }
-
     pub fn overflow_x(mut self) -> Self {
         self.overflow_x = true;
         self
@@ -217,13 +210,13 @@ impl RenderOnce for ListItem {
                             })
                     })
             })
-            .when(self.rounded, |this| this.rounded_md())
             .child(
                 h_flex()
                     .id("inner_list_item")
                     .group("list_item")
                     .w_full()
                     .relative()
+                    .items_center()
                     .gap_1()
                     .px(DynamicSpacing::Base06.rems(cx))
                     .map(|this| match self.spacing {

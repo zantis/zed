@@ -25,9 +25,6 @@
   name: (identifier) @function)
 (method_definition
   name: (property_identifier) @function.method)
-(method_definition
-    name: (property_identifier) @constructor
-    (#eq? @constructor "constructor"))
 
 (pair
   key: (property_identifier) @function.method
@@ -47,6 +44,9 @@
   right: [(function_expression) (arrow_function)])
 
 ; Special identifiers
+
+((identifier) @constructor
+ (#match? @constructor "^[A-Z]"))
 
 ((identifier) @type
  (#match? @type "^[A-Z]"))

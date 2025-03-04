@@ -405,7 +405,6 @@ dependencies = [
  "pretty_assertions",
  "project",
  "prompt_library",
- "prompt_store",
  "proto",
  "rand 0.8.5",
  "rope",
@@ -473,7 +472,6 @@ dependencies = [
  "picker",
  "project",
  "prompt_library",
- "prompt_store",
  "proto",
  "rand 0.8.5",
  "rope",
@@ -492,7 +490,6 @@ dependencies = [
  "ui",
  "util",
  "uuid",
- "vim_mode_setting",
  "workspace",
  "zed_actions",
 ]
@@ -528,7 +525,7 @@ dependencies = [
  "picker",
  "pretty_assertions",
  "project",
- "prompt_store",
+ "prompt_library",
  "rand 0.8.5",
  "regex",
  "rope",
@@ -619,7 +616,7 @@ dependencies = [
  "log",
  "pretty_assertions",
  "project",
- "prompt_store",
+ "prompt_library",
  "rope",
  "schemars",
  "semantic_index",
@@ -2078,7 +2075,6 @@ name = "buffer_diff"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "clock",
  "ctor",
  "env_logger 0.11.6",
  "futures 0.3.31",
@@ -2590,9 +2586,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.31"
+version = "4.5.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "027bb0d98429ae334a8698531da7077bdf906419543a35a55c2cb1b66437d767"
+checksum = "92b7b18d71fad5313a1e320fa9897994228ce274b60faa4d694fe0ea89cd9e6d"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -2600,9 +2596,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.5.31"
+version = "4.5.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5589e0cba072e0f3d23791efac0fd8627b49c829c196a492e88168e6a669d863"
+checksum = "a35db2071778a7344791a4fb4f95308b5673d219dee3ae348b86642574ecc90c"
 dependencies = [
  "anstream",
  "anstyle",
@@ -2657,7 +2653,6 @@ dependencies = [
  "serde",
  "tempfile",
  "util",
- "windows 0.58.0",
 ]
 
 [[package]]
@@ -2863,7 +2858,7 @@ dependencies = [
  "pretty_assertions",
  "project",
  "prometheus",
- "prompt_store",
+ "prompt_library",
  "prost 0.9.0",
  "rand 0.8.5",
  "recent_projects",
@@ -3025,6 +3020,7 @@ dependencies = [
  "collections",
  "gpui",
  "linkme",
+ "once_cell",
  "parking_lot",
  "theme",
 ]
@@ -3146,9 +3142,9 @@ checksum = "6245d59a3e82a7fc217c5828a6692dbc6dfb63a0c8c90495621f7b9d79704a0e"
 
 [[package]]
 name = "convert_case"
-version = "0.8.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "baaaa0ecca5b51987b9423ccdc971514dd8b0bb7b4060b983d3664dad3f1f89f"
+checksum = "bb402b8d4c85569410425650ce3eddc7d698ed96d39a73f941b08fb63082f1e7"
 dependencies = [
  "unicode-segmentation",
 ]
@@ -3668,19 +3664,18 @@ dependencies = [
 
 [[package]]
 name = "ctor"
-version = "0.4.0"
+version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7747ac3a66a06f4ee6718686c8ea976d2d05fb30ada93ebd76b3f9aef97257c"
+checksum = "21d960ecacd0a1bf55e73144b72de745e7bf275c7952c50e36e8af0a0cb7ab1f"
 dependencies = [
  "ctor-proc-macro",
- "dtor",
 ]
 
 [[package]]
 name = "ctor-proc-macro"
-version = "0.0.5"
+version = "0.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f211af61d8efdd104f96e57adf5e426ba1bc3ed7a4ead616e15e5881fd79c4d"
+checksum = "c426d2ba3e525b39c1f0a9ba41b9fe61878dee11fa4e4a76b6ab440f46c5db5d"
 
 [[package]]
 name = "ctrlc"
@@ -4057,21 +4052,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dtor"
-version = "0.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8bf39a0bfd1f94d62ffdb2802a7e6244c0f34f6ebacf5d4c26547d08cd1d67a5"
-dependencies = [
- "dtor-proc-macro",
-]
-
-[[package]]
-name = "dtor-proc-macro"
-version = "0.0.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7454e41ff9012c00d53cf7f475c5e3afa3b91b7c90568495495e8d9bf47a1055"
-
-[[package]]
 name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4125,7 +4105,7 @@ dependencies = [
  "client",
  "clock",
  "collections",
- "convert_case 0.8.0",
+ "convert_case 0.7.1",
  "ctor",
  "db",
  "emojis",
@@ -5373,7 +5353,6 @@ dependencies = [
  "serde_json",
  "smol",
  "sum_tree",
- "tempfile",
  "text",
  "time",
  "unindent",
@@ -5419,11 +5398,8 @@ dependencies = [
  "anyhow",
  "buffer_diff",
  "collections",
- "component",
- "ctor",
  "db",
  "editor",
- "env_logger 0.11.6",
  "feature_flags",
  "futures 0.3.31",
  "fuzzy",
@@ -5431,27 +5407,21 @@ dependencies = [
  "gpui",
  "itertools 0.14.0",
  "language",
- "linkify",
- "linkme",
- "log",
  "menu",
  "multi_buffer",
  "panel",
  "picker",
  "postage",
- "pretty_assertions",
  "project",
  "schemars",
  "serde",
  "serde_derive",
  "serde_json",
  "settings",
- "smallvec",
  "strum",
  "theme",
  "time",
  "ui",
- "unindent",
  "util",
  "windows 0.58.0",
  "workspace",
@@ -7605,9 +7575,9 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.26"
+version = "0.4.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30bde2b3dc3671ae49d8e2e9f044c7c005836e7a023ee57cffa25ab82764bb9e"
+checksum = "04cbf5b083de1c7e0222a7a51dbfdba1cbe1c6ab0b15e29fff3f6c077fd9cd9f"
 dependencies = [
  "serde",
  "value-bag",
@@ -7978,7 +7948,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "collections",
- "convert_case 0.8.0",
+ "convert_case 0.7.1",
  "log",
  "pretty_assertions",
  "streaming-iterator",
@@ -10334,34 +10304,10 @@ name = "prompt_library"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "collections",
- "editor",
- "gpui",
- "language",
- "language_model",
- "log",
- "menu",
- "picker",
- "prompt_store",
- "release_channel",
- "rope",
- "serde",
- "settings",
- "theme",
- "ui",
- "util",
- "workspace",
- "zed_actions",
-]
-
-[[package]]
-name = "prompt_store"
-version = "0.1.0"
-dependencies = [
- "anyhow",
  "assets",
  "chrono",
  "collections",
+ "editor",
  "fs",
  "futures 0.3.31",
  "fuzzy",
@@ -10369,14 +10315,23 @@ dependencies = [
  "handlebars 4.5.0",
  "heed",
  "language",
+ "language_model",
  "log",
+ "menu",
  "parking_lot",
  "paths",
+ "picker",
+ "release_channel",
  "rope",
  "serde",
+ "settings",
  "text",
+ "theme",
+ "ui",
  "util",
  "uuid",
+ "workspace",
+ "zed_actions",
 ]
 
 [[package]]
@@ -12090,18 +12045,18 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.218"
+version = "1.0.217"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8dfc9d19bdbf6d17e22319da49161d5d0108e4188e8b680aef6299eed22df60"
+checksum = "02fc4265df13d6fa1d00ecff087228cc0a2b5f3c0e87e258d8b94a156e984c70"
 dependencies = [
  "serde_derive",
 ]
 
 [[package]]
 name = "serde_derive"
-version = "1.0.218"
+version = "1.0.217"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f09503e191f4e797cb8aac08e9a4a4695c5edf6a2e70e376d961ddd5c969f82b"
+checksum = "5a9bf7cf98d04a2b28aead066b7496853d4779c9cc183c440dbac457641e19a0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -14614,7 +14569,7 @@ dependencies = [
 name = "ui_macros"
 version = "0.1.0"
 dependencies = [
- "convert_case 0.8.0",
+ "convert_case 0.7.1",
  "linkme",
  "proc-macro2",
  "quote",
@@ -14921,7 +14876,6 @@ dependencies = [
  "multi_buffer",
  "nvim-rs",
  "parking_lot",
- "project",
  "project_panel",
  "regex",
  "release_channel",
@@ -16778,7 +16732,7 @@ dependencies = [
 
 [[package]]
 name = "zed"
-version = "0.178.0"
+version = "0.176.1"
 dependencies = [
  "activity_indicator",
  "anyhow",
@@ -16856,7 +16810,7 @@ dependencies = [
  "project",
  "project_panel",
  "project_symbols",
- "prompt_store",
+ "prompt_library",
  "proto",
  "recent_projects",
  "release_channel",
@@ -16996,7 +16950,7 @@ dependencies = [
 
 [[package]]
 name = "zed_html"
-version = "0.1.6"
+version = "0.1.5"
 dependencies = [
  "zed_extension_api 0.1.0",
 ]

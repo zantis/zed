@@ -27,7 +27,7 @@ impl<'de> Deserialize<'de> for ChatPanelButton {
     {
         struct Visitor;
 
-        impl serde::de::Visitor<'_> for Visitor {
+        impl<'de> serde::de::Visitor<'de> for Visitor {
             type Value = ChatPanelButton;
 
             fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {

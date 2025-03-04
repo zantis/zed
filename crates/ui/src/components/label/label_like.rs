@@ -57,7 +57,7 @@ pub trait LabelCommon {
     fn alpha(self, alpha: f32) -> Self;
 
     /// Truncates overflowing text with an ellipsis (`…`) if needed.
-    fn truncate(self) -> Self;
+    fn text_ellipsis(self) -> Self;
 
     /// Sets the label to render as a single line.
     fn single_line(self) -> Self;
@@ -84,7 +84,7 @@ pub struct LabelLike {
     alpha: Option<f32>,
     underline: bool,
     single_line: bool,
-    truncate: bool,
+    text_ellipsis: bool,
 }
 
 impl Default for LabelLike {
@@ -109,7 +109,7 @@ impl LabelLike {
             alpha: None,
             underline: false,
             single_line: false,
-            truncate: false,
+            text_ellipsis: false,
         }
     }
 }
@@ -166,9 +166,8 @@ impl LabelCommon for LabelLike {
         self
     }
 
-    /// Truncates overflowing text with an ellipsis (`…`) if needed.
-    fn truncate(mut self) -> Self {
-        self.truncate = true;
+    fn text_ellipsis(mut self) -> Self {
+        self.text_ellipsis = true;
         self
     }
 
@@ -221,7 +220,7 @@ impl RenderOnce for LabelLike {
             })
             .when(self.strikethrough, |this| this.line_through())
             .when(self.single_line, |this| this.whitespace_nowrap())
-            .when(self.truncate, |this| {
+            .when(self.text_ellipsis, |this| {
                 this.overflow_x_hidden().text_ellipsis()
             })
             .text_color(color)

@@ -522,7 +522,7 @@ impl ExtensionsPage {
                             extension.authors.join(", ")
                         ))
                         .size(LabelSize::Small)
-                        .truncate(),
+                        .text_ellipsis(),
                     )
                     .child(Label::new("<>").size(LabelSize::Small)),
             )
@@ -534,7 +534,7 @@ impl ExtensionsPage {
                         Label::new(description.clone())
                             .size(LabelSize::Small)
                             .color(Color::Default)
-                            .truncate()
+                            .text_ellipsis()
                     }))
                     .children(repository_url.map(|repository_url| {
                         IconButton::new(
@@ -665,7 +665,7 @@ impl ExtensionsPage {
                             extension.manifest.authors.join(", ")
                         ))
                         .size(LabelSize::Small)
-                        .truncate(),
+                        .text_ellipsis(),
                     )
                     .child(
                         Label::new(format!(
@@ -683,7 +683,7 @@ impl ExtensionsPage {
                         Label::new(description.clone())
                             .size(LabelSize::Small)
                             .color(Color::Default)
-                            .truncate()
+                            .text_ellipsis()
                     }))
                     .child(
                         h_flex()

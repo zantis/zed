@@ -158,16 +158,8 @@ impl Render for AssistantConfiguration {
             .child(
                 v_flex()
                     .p(DynamicSpacing::Base16.rems(cx))
-                    .gap_2()
-                    .child(
-                        v_flex()
-                            .gap_0p5()
-                            .child(Headline::new("Prompt Library").size(HeadlineSize::Small))
-                            .child(
-                                Label::new("Create reusable prompts and tag which ones you want sent in every LLM interaction.")
-                                    .color(Color::Muted),
-                            ),
-                    )
+                    .gap_1()
+                    .child(Headline::new("Prompt Library").size(HeadlineSize::Small))
                     .child(
                         Button::new("open-prompt-library", "Open Prompt Library")
                             .style(ButtonStyle::Filled)

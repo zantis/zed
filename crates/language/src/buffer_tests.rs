@@ -254,7 +254,6 @@ fn file(path: &str) -> Arc<dyn File> {
     Arc::new(TestFile {
         path: Path::new(path).into(),
         root_name: "zed".into(),
-        local_root: None,
     })
 }
 

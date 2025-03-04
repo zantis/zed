@@ -82,7 +82,7 @@ impl AppCell {
 #[derive(Deref, DerefMut)]
 pub struct AppRef<'a>(Ref<'a, App>);
 
-impl Drop for AppRef<'_> {
+impl<'a> Drop for AppRef<'a> {
     fn drop(&mut self) {
         if option_env!("TRACK_THREAD_BORROWS").is_some() {
             let thread_id = std::thread::current().id();
@@ -95,7 +95,7 @@ impl Drop for AppRef<'_> {
 #[derive(Deref, DerefMut)]
 pub struct AppRefMut<'a>(RefMut<'a, App>);
 
-impl Drop for AppRefMut<'_> {
+impl<'a> Drop for AppRefMut<'a> {
     fn drop(&mut self) {
         if option_env!("TRACK_THREAD_BORROWS").is_some() {
             let thread_id = std::thread::current().id();

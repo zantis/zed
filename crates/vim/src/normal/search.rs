@@ -28,7 +28,7 @@ pub(crate) struct MoveToNext {
 
 #[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct MoveToPrevious {
+pub(crate) struct MoveToPrev {
     #[serde(default = "default_true")]
     case_sensitive: bool,
     #[serde(default)]
@@ -67,15 +67,15 @@ pub(crate) struct Replacement {
     is_case_sensitive: bool,
 }
 
-actions!(vim, [SearchSubmit, MoveToNextMatch, MoveToPreviousMatch]);
-impl_actions!(vim, [FindCommand, Search, MoveToPrevious, MoveToNext]);
+actions!(vim, [SearchSubmit, MoveToNextMatch, MoveToPrevMatch]);
+impl_actions!(vim, [FindCommand, Search, MoveToPrev, MoveToNext]);
 impl_internal_actions!(vim, [ReplaceCommand]);
 
 pub(crate) fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
     Vim::action(editor, cx, Vim::move_to_next);
-    Vim::action(editor, cx, Vim::move_to_previous);
+    Vim::action(editor, cx, Vim::move_to_prev);
     Vim::action(editor, cx, Vim::move_to_next_match);
-    Vim::action(editor, cx, Vim::move_to_previous_match);
+    Vim::action(editor, cx, Vim::move_to_prev_match);
     Vim::action(editor, cx, Vim::search);
     Vim::action(editor, cx, Vim::search_deploy);
     Vim::action(editor, cx, Vim::find_command);
@@ -94,12 +94,7 @@ impl Vim {
         )
     }
 
-    fn move_to_previous(
-        &mut self,
-        action: &MoveToPrevious,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn move_to_prev(&mut self, action: &MoveToPrev, window: &mut Window, cx: &mut Context<Self>) {
         self.move_to_internal(
             Direction::Prev,
             action.case_sensitive,
@@ -119,9 +114,9 @@ impl Vim {
         self.move_to_match_internal(self.search.direction, window, cx)
     }
 
-    fn move_to_previous_match(
+    fn move_to_prev_match(
         &mut self,
-        _: &MoveToPreviousMatch,
+        _: &MoveToPrevMatch,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {

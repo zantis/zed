@@ -7,17 +7,16 @@ use gpui::{
     pulsating_between, Animation, AnimationExt, App, DismissEvent, Entity, Focusable, Subscription,
     TextStyle, WeakEntity,
 };
-use language_model::LanguageModelRegistry;
+use language_model::{LanguageModelRegistry, LanguageModelRequestTool};
+use language_model_selector::LanguageModelSelector;
 use rope::Point;
 use settings::Settings;
 use std::time::Duration;
 use text::Bias;
 use theme::ThemeSettings;
 use ui::{
-    prelude::*, ButtonLike, KeyBinding, PlatformStyle, PopoverMenu, PopoverMenuHandle, Switch,
-    TintColor, Tooltip,
+    prelude::*, ButtonLike, KeyBinding, PopoverMenu, PopoverMenuHandle, Switch, TintColor, Tooltip,
 };
-use vim_mode_setting::VimModeSetting;
 use workspace::Workspace;
 
 use crate::assistant_model_selector::AssistantModelSelector;
@@ -26,7 +25,7 @@ use crate::context_store::{refresh_context_store_text, ContextStore};
 use crate::context_strip::{ContextStrip, ContextStripEvent, SuggestContextKind};
 use crate::thread::{RequestKind, Thread};
 use crate::thread_store::ThreadStore;
-use crate::{Chat, ChatMode, RemoveAllContext, ToggleContextPicker};
+use crate::{Chat, ChatMode, RemoveAllContext, ToggleContextPicker, ToggleModelSelector};
 
 pub struct MessageEditor {
     thread: Entity<Thread>,
@@ -37,6 +36,7 @@ pub struct MessageEditor {
     inline_context_picker: Entity<ContextPicker>,
     inline_context_picker_menu_handle: PopoverMenuHandle<ContextPicker>,
     model_selector: Entity<AssistantModelSelector>,
+    model_selector_menu_handle: PopoverMenuHandle<LanguageModelSelector>,
     use_tools: bool,
     _subscriptions: Vec<Subscription>,
 }
@@ -53,6 +53,7 @@ impl MessageEditor {
         let context_store = cx.new(|_cx| ContextStore::new(workspace.clone()));
         let context_picker_menu_handle = PopoverMenuHandle::default();
         let inline_context_picker_menu_handle = PopoverMenuHandle::default();
+        let model_selector_menu_handle = PopoverMenuHandle::default();
 
         let editor = cx.new(|cx| {
             let mut editor = Editor::auto_height(10, window, cx);
@@ -105,11 +106,28 @@ impl MessageEditor {
             context_picker_menu_handle,
             inline_context_picker,
             inline_context_picker_menu_handle,
-            model_selector: cx
-                .new(|cx| AssistantModelSelector::new(fs, editor.focus_handle(cx), window, cx)),
+            model_selector: cx.new(|cx| {
+                AssistantModelSelector::new(
+                    fs,
+                    model_selector_menu_handle.clone(),
+                    editor.focus_handle(cx),
+                    window,
+                    cx,
+                )
+            }),
+            model_selector_menu_handle,
             use_tools: false,
             _subscriptions: subscriptions,
         }
+    }
+
+    fn toggle_model_selector(
+        &mut self,
+        _: &ToggleModelSelector,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.model_selector_menu_handle.toggle(window, cx)
     }
 
     fn toggle_chat_mode(&mut self, _: &ChatMode, _window: &mut Window, cx: &mut Context<Self>) {
@@ -187,7 +205,22 @@ impl MessageEditor {
                 .update(&mut cx, |thread, cx| {
                     let context = context_store.read(cx).snapshot(cx).collect::<Vec<_>>();
                     thread.insert_user_message(user_message, context, cx);
-                    thread.send_to_model(model, request_kind, use_tools, cx);
+                    let mut request = thread.to_completion_request(request_kind, cx);
+
+                    if use_tools {
+                        request.tools = thread
+                            .tools()
+                            .tools(cx)
+                            .into_iter()
+                            .map(|tool| LanguageModelRequestTool {
+                                name: tool.name(),
+                                description: tool.description(),
+                                input_schema: tool.input_schema(),
+                            })
+                            .collect();
+                    }
+
+                    thread.stream_completion(request, model, cx)
                 })
                 .ok();
         })
@@ -276,6 +309,7 @@ impl Render for MessageEditor {
         let inline_context_picker = self.inline_context_picker.clone();
         let bg_color = cx.theme().colors().editor_background;
         let is_streaming_completion = self.thread.read(cx).is_streaming();
+        let button_width = px(64.);
         let is_model_selected = self.is_model_selected(cx);
         let is_editor_empty = self.is_editor_empty(cx);
         let submit_label_color = if is_editor_empty {
@@ -284,25 +318,10 @@ impl Render for MessageEditor {
             Color::Default
         };
 
-        let vim_mode_enabled = VimModeSetting::get_global(cx).0;
-        let platform = PlatformStyle::platform();
-        let linux = platform == PlatformStyle::Linux;
-        let windows = platform == PlatformStyle::Windows;
-        let button_width = if linux || windows || vim_mode_enabled {
-            px(92.)
-        } else {
-            px(64.)
-        };
-
         v_flex()
             .key_context("MessageEditor")
             .on_action(cx.listener(Self::chat))
-            .on_action(cx.listener(|this, action, window, cx| {
-                let selector = this.model_selector.read(cx).selector.clone();
-                selector.update(cx, |this, cx| {
-                    this.toggle_model_selector(action, window, cx);
-                })
-            }))
+            .on_action(cx.listener(Self::toggle_model_selector))
             .on_action(cx.listener(Self::toggle_context_picker))
             .on_action(cx.listener(Self::remove_all_context))
             .on_action(cx.listener(Self::move_up))
@@ -314,7 +333,7 @@ impl Render for MessageEditor {
             .child(self.context_strip.clone())
             .child(
                 v_flex()
-                    .gap_5()
+                    .gap_4()
                     .child({
                         let settings = ThemeSettings::get_global(cx);
                         let text_style = TextStyle {

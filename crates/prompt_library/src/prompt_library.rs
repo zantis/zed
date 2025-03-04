@@ -1,3 +1,6 @@
+mod prompt_store;
+mod prompts;
+
 use anyhow::Result;
 use collections::{HashMap, HashSet};
 use editor::CompletionProvider;
@@ -26,7 +29,8 @@ use util::{ResultExt, TryFutureExt};
 use workspace::Workspace;
 use zed_actions::assistant::InlineAssist;
 
-use prompt_store::*;
+pub use crate::prompt_store::*;
+pub use crate::prompts::*;
 
 pub fn init(cx: &mut App) {
     prompt_store::init(cx);

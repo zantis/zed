@@ -1,7 +1,7 @@
 use crate::{
     buffer_search::Deploy, BufferSearchBar, FocusSearch, NextHistoryQuery, PreviousHistoryQuery,
-    ReplaceAll, ReplaceNext, SearchOptions, SelectNextMatch, SelectPreviousMatch,
-    ToggleCaseSensitive, ToggleIncludeIgnored, ToggleRegex, ToggleReplace, ToggleWholeWord,
+    ReplaceAll, ReplaceNext, SearchOptions, SelectNextMatch, SelectPrevMatch, ToggleCaseSensitive,
+    ToggleIncludeIgnored, ToggleRegex, ToggleReplace, ToggleWholeWord,
 };
 use anyhow::Context as _;
 use collections::{HashMap, HashSet};
@@ -90,7 +90,7 @@ pub fn init(cx: &mut App) {
         );
         register_workspace_action(
             workspace,
-            move |search_bar, action: &SelectPreviousMatch, window, cx| {
+            move |search_bar, action: &SelectPrevMatch, window, cx| {
                 search_bar.select_prev_match(action, window, cx)
             },
         );
@@ -894,7 +894,6 @@ impl ProjectSearchView {
                             editor.set_text(old_query.as_str(), window, cx);
                         });
                         search_view.search_options = SearchOptions::from_query(&old_query);
-                        search_view.adjust_query_regex_language(cx);
                     }
                 }
                 new_query
@@ -1440,9 +1439,9 @@ impl ProjectSearchBar {
         self.cycle_field(Direction::Next, window, cx);
     }
 
-    fn backtab(
+    fn tab_previous(
         &mut self,
-        _: &editor::actions::Backtab,
+        _: &editor::actions::TabPrev,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -1697,7 +1696,7 @@ impl ProjectSearchBar {
 
     fn select_prev_match(
         &mut self,
-        _: &SelectPreviousMatch,
+        _: &SelectPrevMatch,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -1896,7 +1895,7 @@ impl Render for ProjectSearchBar {
                         move |window, cx| {
                             Tooltip::for_action_in(
                                 "Go To Previous Match",
-                                &SelectPreviousMatch,
+                                &SelectPrevMatch,
                                 &focus_handle,
                                 window,
                                 cx,
@@ -2095,7 +2094,7 @@ impl Render for ProjectSearchBar {
                 cx.stop_propagation();
             }))
             .capture_action(cx.listener(|this, action, window, cx| {
-                this.backtab(action, window, cx);
+                this.tab_previous(action, window, cx);
                 cx.stop_propagation();
             }))
             .on_action(cx.listener(|this, action, window, cx| this.confirm(action, window, cx)))

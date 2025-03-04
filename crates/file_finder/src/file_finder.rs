@@ -44,7 +44,7 @@ use workspace::{
     Workspace,
 };
 
-actions!(file_finder, [SelectPrevious, ToggleMenu]);
+actions!(file_finder, [SelectPrev, ToggleMenu]);
 
 impl ModalView for FileFinder {
     fn on_before_dismiss(
@@ -199,14 +199,9 @@ impl FileFinder {
         }
     }
 
-    fn handle_select_prev(
-        &mut self,
-        _: &SelectPrevious,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn handle_select_prev(&mut self, _: &SelectPrev, window: &mut Window, cx: &mut Context<Self>) {
         self.init_modifiers = Some(window.modifiers());
-        window.dispatch_action(Box::new(menu::SelectPrevious), cx);
+        window.dispatch_action(Box::new(menu::SelectPrev), cx);
     }
 
     fn handle_toggle_menu(&mut self, _: &ToggleMenu, window: &mut Window, cx: &mut Context<Self>) {
@@ -1200,7 +1195,6 @@ impl PickerDelegate for FileFinderDelegate {
                                     None,
                                     true,
                                     allow_preview,
-                                    true,
                                     window,
                                     cx,
                                 )
@@ -1456,9 +1450,9 @@ impl<'a> PathComponentSlice<'a> {
                     matches.next();
                 }
                 if is_first_normal || is_last || !is_normal || contains_match {
-                    if longest
+                    if !longest
                         .as_ref()
-                        .is_none_or(|old| old.end - old.start <= cur.end - cur.start)
+                        .is_some_and(|old| old.end - old.start > cur.end - cur.start)
                     {
                         longest = Some(cur);
                     }
@@ -1467,9 +1461,9 @@ impl<'a> PathComponentSlice<'a> {
                     cur.end = i + 1;
                 }
             }
-            if longest
+            if !longest
                 .as_ref()
-                .is_none_or(|old| old.end - old.start <= cur.end - cur.start)
+                .is_some_and(|old| old.end - old.start > cur.end - cur.start)
             {
                 longest = Some(cur);
             }

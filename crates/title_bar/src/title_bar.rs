@@ -401,7 +401,7 @@ impl TitleBar {
                         .child(
                             Label::new(nickname.clone())
                                 .size(LabelSize::Small)
-                                .truncate(),
+                                .text_ellipsis(),
                         ),
                 )
                 .tooltip(move |window, cx| {

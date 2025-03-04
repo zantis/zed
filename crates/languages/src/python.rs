@@ -684,7 +684,7 @@ impl<'a> EnvironmentApi<'a> {
     }
 }
 
-impl pet_core::os_environment::Environment for EnvironmentApi<'_> {
+impl<'a> pet_core::os_environment::Environment for EnvironmentApi<'a> {
     fn get_user_home(&self) -> Option<PathBuf> {
         self.user_home()
     }

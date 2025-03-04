@@ -26,7 +26,7 @@ pub fn prompt(
     workspace: WeakEntity<Workspace>,
     window: &mut Window,
     cx: &mut App,
-) -> Task<Result<Option<usize>>> {
+) -> Task<Result<usize>> {
     if options.is_empty() {
         return Task::ready(Err(anyhow!("No options")));
     }
@@ -43,10 +43,7 @@ pub fn prompt(
             })
         })?;
 
-        match rx.await {
-            Ok(selection) => Some(selection).transpose(),
-            Err(_) => anyhow::Ok(None), // User cancelled
-        }
+        rx.await?
     })
 }
 

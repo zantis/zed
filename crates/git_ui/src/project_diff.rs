@@ -1,26 +1,24 @@
-use crate::git_panel::{GitPanel, GitPanelAddon, GitStatusEntry};
+use std::any::{Any, TypeId};
+
+use ::git::UnstageAndNext;
 use anyhow::Result;
 use buffer_diff::{BufferDiff, DiffHunkSecondaryStatus};
 use collections::HashSet;
 use editor::{
-    actions::{GoToHunk, GoToPreviousHunk},
+    actions::{GoToHunk, GoToPrevHunk},
     scroll::Autoscroll,
     Editor, EditorEvent, ToPoint,
 };
 use feature_flags::FeatureFlagViewExt;
 use futures::StreamExt;
-use git::{
-    status::FileStatus, ShowCommitEditor, StageAll, StageAndNext, ToggleStaged, UnstageAll,
-    UnstageAndNext,
-};
+use git::{status::FileStatus, Commit, StageAll, StageAndNext, ToggleStaged, UnstageAll};
 use gpui::{
     actions, Action, AnyElement, AnyView, App, AppContext as _, AsyncWindowContext, Entity,
     EventEmitter, FocusHandle, Focusable, Render, Subscription, Task, WeakEntity,
 };
-use language::{Anchor, Buffer, Capability, OffsetRangeExt};
+use language::{Anchor, Buffer, Capability, OffsetRangeExt, Point};
 use multi_buffer::{MultiBuffer, PathKey};
 use project::{git::GitStore, Project, ProjectPath};
-use std::any::{Any, TypeId};
 use theme::ActiveTheme;
 use ui::{prelude::*, vertical_divider, Tooltip};
 use util::ResultExt as _;
@@ -30,6 +28,8 @@ use workspace::{
     ItemNavHistory, SerializableItem, ToolbarItemEvent, ToolbarItemLocation, ToolbarItemView,
     Workspace,
 };
+
+use crate::git_panel::{GitPanel, GitPanelAddon, GitStatusEntry};
 
 actions!(git, [Diff]);
 
@@ -47,7 +47,6 @@ pub struct ProjectDiff {
     _subscription: Subscription,
 }
 
-#[derive(Debug)]
 struct DiffBuffer {
     path_key: PathKey,
     buffer: Entity<Buffer>,
@@ -106,7 +105,7 @@ impl ProjectDiff {
         };
         if let Some(entry) = entry {
             project_diff.update(cx, |project_diff, cx| {
-                project_diff.move_to_entry(entry, window, cx);
+                project_diff.scroll_to(entry, window, cx);
             })
         }
     }
@@ -168,7 +167,7 @@ impl ProjectDiff {
         }
     }
 
-    pub fn move_to_entry(
+    pub fn scroll_to(
         &mut self,
         entry: GitStatusEntry,
         window: &mut Window,
@@ -189,16 +188,16 @@ impl ProjectDiff {
 
         let path_key = PathKey::namespaced(namespace, entry.repo_path.0.clone());
 
-        self.move_to_path(path_key, window, cx)
+        self.scroll_to_path(path_key, window, cx)
     }
 
-    fn move_to_path(&mut self, path_key: PathKey, window: &mut Window, cx: &mut Context<Self>) {
+    fn scroll_to_path(&mut self, path_key: PathKey, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(position) = self.multibuffer.read(cx).location_for_path(&path_key, cx) {
             self.editor.update(cx, |editor, cx| {
                 editor.change_selections(Some(Autoscroll::focused()), window, cx, |s| {
                     s.select_ranges([position..position]);
                 })
-            });
+            })
         } else {
             self.pending_scroll = Some(path_key);
         }
@@ -230,16 +229,14 @@ impl ProjectDiff {
         let mut has_unstaged_hunks = false;
         for hunk in editor.diff_hunks_in_ranges(&ranges, &snapshot) {
             match hunk.secondary_status {
-                DiffHunkSecondaryStatus::HasSecondaryHunk
-                | DiffHunkSecondaryStatus::SecondaryHunkAdditionPending => {
+                DiffHunkSecondaryStatus::HasSecondaryHunk => {
                     has_unstaged_hunks = true;
                 }
                 DiffHunkSecondaryStatus::OverlapsWithSecondaryHunk => {
                     has_staged_hunks = true;
                     has_unstaged_hunks = true;
                 }
-                DiffHunkSecondaryStatus::None
-                | DiffHunkSecondaryStatus::SecondaryHunkRemovalPending => {
+                DiffHunkSecondaryStatus::None => {
                     has_staged_hunks = true;
                 }
             }
@@ -283,7 +280,6 @@ impl ProjectDiff {
                 let snapshot = multibuffer.snapshot(cx);
                 let mut point = anchor.to_point(&snapshot);
                 point.row = (point.row + 1).min(snapshot.max_row().0);
-                point.column = 0;
 
                 let Some((_, buffer, _)) = self.multibuffer.read(cx).excerpt_containing(point, cx)
                 else {
@@ -380,34 +376,29 @@ impl ProjectDiff {
 
         let snapshot = buffer.read(cx).snapshot();
         let diff = diff.read(cx);
-        let diff_hunk_ranges = diff
-            .hunks_intersecting_range(Anchor::MIN..Anchor::MAX, &snapshot, cx)
-            .map(|diff_hunk| diff_hunk.buffer_range.to_point(&snapshot))
-            .collect::<Vec<_>>();
+        let diff_hunk_ranges = if diff.base_text().is_none() {
+            vec![Point::zero()..snapshot.max_point()]
+        } else {
+            diff.hunks_intersecting_range(Anchor::MIN..Anchor::MAX, &snapshot, cx)
+                .map(|diff_hunk| diff_hunk.buffer_range.to_point(&snapshot))
+                .collect::<Vec<_>>()
+        };
 
-        let (was_empty, is_excerpt_newly_added) = self.multibuffer.update(cx, |multibuffer, cx| {
-            let was_empty = multibuffer.is_empty();
-            let is_newly_added = multibuffer.set_excerpts_for_path(
+        let is_excerpt_newly_added = self.multibuffer.update(cx, |multibuffer, cx| {
+            multibuffer.set_excerpts_for_path(
                 path_key.clone(),
                 buffer,
                 diff_hunk_ranges,
                 editor::DEFAULT_MULTIBUFFER_CONTEXT,
                 cx,
-            );
-            (was_empty, is_newly_added)
+            )
         });
 
-        self.editor.update(cx, |editor, cx| {
-            if was_empty {
-                editor.change_selections(None, window, cx, |selections| {
-                    // TODO select the very beginning (possibly inside a deletion)
-                    selections.select_ranges([0..0])
-                });
-            }
-            if is_excerpt_newly_added && diff_buffer.file_status.is_deleted() {
+        if is_excerpt_newly_added && diff_buffer.file_status.is_deleted() {
+            self.editor.update(cx, |editor, cx| {
                 editor.fold_buffer(snapshot.text.remote_id(), cx)
-            }
-        });
+            });
+        }
 
         if self.multibuffer.read(cx).is_empty()
             && self
@@ -423,7 +414,7 @@ impl ProjectDiff {
             });
         }
         if self.pending_scroll.as_ref() == Some(&path_key) {
-            self.move_to_path(path_key, window, cx);
+            self.scroll_to_path(path_key, window, cx);
         }
     }
 
@@ -815,9 +806,7 @@ impl Render for ProjectDiffToolbar {
                             Button::new("stage", "Stage")
                                 .tooltip(Tooltip::for_action_title_in(
                                     "Stage",
-                                    &StageAndNext {
-                                        whole_excerpt: false,
-                                    },
+                                    &StageAndNext,
                                     &focus_handle,
                                 ))
                                 // don't actually disable the button so it's mashable
@@ -827,22 +816,14 @@ impl Render for ProjectDiffToolbar {
                                     Color::Disabled
                                 })
                                 .on_click(cx.listener(|this, _, window, cx| {
-                                    this.dispatch_action(
-                                        &StageAndNext {
-                                            whole_excerpt: false,
-                                        },
-                                        window,
-                                        cx,
-                                    )
+                                    this.dispatch_action(&StageAndNext, window, cx)
                                 })),
                         )
                         .child(
                             Button::new("unstage", "Unstage")
                                 .tooltip(Tooltip::for_action_title_in(
                                     "Unstage",
-                                    &UnstageAndNext {
-                                        whole_excerpt: false,
-                                    },
+                                    &UnstageAndNext,
                                     &focus_handle,
                                 ))
                                 .color(if button_states.unstage {
@@ -851,13 +832,7 @@ impl Render for ProjectDiffToolbar {
                                     Color::Disabled
                                 })
                                 .on_click(cx.listener(|this, _, window, cx| {
-                                    this.dispatch_action(
-                                        &UnstageAndNext {
-                                            whole_excerpt: false,
-                                        },
-                                        window,
-                                        cx,
-                                    )
+                                    this.dispatch_action(&UnstageAndNext, window, cx)
                                 })),
                         )
                     }),
@@ -871,20 +846,12 @@ impl Render for ProjectDiffToolbar {
                             .shape(ui::IconButtonShape::Square)
                             .tooltip(Tooltip::for_action_title_in(
                                 "Go to previous hunk",
-                                &GoToPreviousHunk {
-                                    center_cursor: false,
-                                },
+                                &GoToPrevHunk,
                                 &focus_handle,
                             ))
                             .disabled(!button_states.prev_next)
                             .on_click(cx.listener(|this, _, window, cx| {
-                                this.dispatch_action(
-                                    &GoToPreviousHunk {
-                                        center_cursor: true,
-                                    },
-                                    window,
-                                    cx,
-                                )
+                                this.dispatch_action(&GoToPrevHunk, window, cx)
                             })),
                     )
                     .child(
@@ -892,20 +859,12 @@ impl Render for ProjectDiffToolbar {
                             .shape(ui::IconButtonShape::Square)
                             .tooltip(Tooltip::for_action_title_in(
                                 "Go to next hunk",
-                                &GoToHunk {
-                                    center_cursor: false,
-                                },
+                                &GoToHunk,
                                 &focus_handle,
                             ))
                             .disabled(!button_states.prev_next)
                             .on_click(cx.listener(|this, _, window, cx| {
-                                this.dispatch_action(
-                                    &GoToHunk {
-                                        center_cursor: true,
-                                    },
-                                    window,
-                                    cx,
-                                )
+                                this.dispatch_action(&GoToHunk, window, cx)
                             })),
                     ),
             )
@@ -954,311 +913,13 @@ impl Render for ProjectDiffToolbar {
                             .disabled(!button_states.commit)
                             .tooltip(Tooltip::for_action_title_in(
                                 "Commit",
-                                &ShowCommitEditor,
+                                &Commit,
                                 &focus_handle,
                             ))
                             .on_click(cx.listener(|this, _, window, cx| {
-                                this.dispatch_action(&ShowCommitEditor, window, cx);
+                                this.dispatch_action(&Commit, window, cx);
                             })),
                     ),
             )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::path::Path;
-
-    use collections::HashMap;
-    use editor::test::editor_test_context::assert_state_with_diff;
-    use git::status::{StatusCode, TrackedStatus};
-    use gpui::TestAppContext;
-    use project::FakeFs;
-    use serde_json::json;
-    use settings::SettingsStore;
-    use unindent::Unindent as _;
-    use util::path;
-
-    use super::*;
-
-    #[ctor::ctor]
-    fn init_logger() {
-        env_logger::init();
-    }
-
-    fn init_test(cx: &mut TestAppContext) {
-        cx.update(|cx| {
-            let store = SettingsStore::test(cx);
-            cx.set_global(store);
-            theme::init(theme::LoadThemes::JustBase, cx);
-            language::init(cx);
-            Project::init_settings(cx);
-            workspace::init_settings(cx);
-            editor::init(cx);
-            crate::init(cx);
-        });
-    }
-
-    #[gpui::test]
-    async fn test_save_after_restore(cx: &mut TestAppContext) {
-        init_test(cx);
-
-        let fs = FakeFs::new(cx.executor());
-        fs.insert_tree(
-            path!("/project"),
-            json!({
-                ".git": {},
-                "foo.txt": "FOO\n",
-            }),
-        )
-        .await;
-        let project = Project::test(fs.clone(), [path!("/project").as_ref()], cx).await;
-        let (workspace, cx) =
-            cx.add_window_view(|window, cx| Workspace::test_new(project.clone(), window, cx));
-        let diff = cx.new_window_entity(|window, cx| {
-            ProjectDiff::new(project.clone(), workspace, window, cx)
-        });
-        cx.run_until_parked();
-
-        fs.set_head_for_repo(
-            path!("/project/.git").as_ref(),
-            &[("foo.txt".into(), "foo\n".into())],
-        );
-        fs.set_index_for_repo(
-            path!("/project/.git").as_ref(),
-            &[("foo.txt".into(), "foo\n".into())],
-        );
-        fs.with_git_state(path!("/project/.git").as_ref(), true, |state| {
-            state.statuses = HashMap::from_iter([(
-                "foo.txt".into(),
-                TrackedStatus {
-                    index_status: StatusCode::Unmodified,
-                    worktree_status: StatusCode::Modified,
-                }
-                .into(),
-            )]);
-        });
-        cx.run_until_parked();
-
-        let editor = diff.update(cx, |diff, _| diff.editor.clone());
-        assert_state_with_diff(
-            &editor,
-            cx,
-            &"
-                - foo
-                + ˇFOO
-            "
-            .unindent(),
-        );
-
-        editor.update_in(cx, |editor, window, cx| {
-            editor.git_restore(&Default::default(), window, cx);
-        });
-        fs.with_git_state(path!("/project/.git").as_ref(), true, |state| {
-            state.statuses = HashMap::default();
-        });
-        cx.run_until_parked();
-
-        assert_state_with_diff(&editor, cx, &"ˇ".unindent());
-
-        let text = String::from_utf8(fs.read_file_sync("/project/foo.txt").unwrap()).unwrap();
-        assert_eq!(text, "foo\n");
-    }
-
-    #[gpui::test]
-    async fn test_scroll_to_beginning_with_deletion(cx: &mut TestAppContext) {
-        init_test(cx);
-
-        let fs = FakeFs::new(cx.executor());
-        fs.insert_tree(
-            path!("/project"),
-            json!({
-                ".git": {},
-                "bar": "BAR\n",
-                "foo": "FOO\n",
-            }),
-        )
-        .await;
-        let project = Project::test(fs.clone(), [path!("/project").as_ref()], cx).await;
-        let (workspace, cx) =
-            cx.add_window_view(|window, cx| Workspace::test_new(project.clone(), window, cx));
-        let diff = cx.new_window_entity(|window, cx| {
-            ProjectDiff::new(project.clone(), workspace, window, cx)
-        });
-        cx.run_until_parked();
-
-        fs.set_head_for_repo(
-            path!("/project/.git").as_ref(),
-            &[
-                ("bar".into(), "bar\n".into()),
-                ("foo".into(), "foo\n".into()),
-            ],
-        );
-        fs.with_git_state(path!("/project/.git").as_ref(), true, |state| {
-            state.statuses = HashMap::from_iter([
-                (
-                    "bar".into(),
-                    TrackedStatus {
-                        index_status: StatusCode::Unmodified,
-                        worktree_status: StatusCode::Modified,
-                    }
-                    .into(),
-                ),
-                (
-                    "foo".into(),
-                    TrackedStatus {
-                        index_status: StatusCode::Unmodified,
-                        worktree_status: StatusCode::Modified,
-                    }
-                    .into(),
-                ),
-            ]);
-        });
-        cx.run_until_parked();
-
-        let editor = cx.update_window_entity(&diff, |diff, window, cx| {
-            diff.move_to_path(
-                PathKey::namespaced(TRACKED_NAMESPACE, Path::new("foo").into()),
-                window,
-                cx,
-            );
-            diff.editor.clone()
-        });
-        assert_state_with_diff(
-            &editor,
-            cx,
-            &"
-                - bar
-                + BAR
-
-                - ˇfoo
-                + FOO
-            "
-            .unindent(),
-        );
-
-        let editor = cx.update_window_entity(&diff, |diff, window, cx| {
-            diff.move_to_path(
-                PathKey::namespaced(TRACKED_NAMESPACE, Path::new("bar").into()),
-                window,
-                cx,
-            );
-            diff.editor.clone()
-        });
-        assert_state_with_diff(
-            &editor,
-            cx,
-            &"
-                - ˇbar
-                + BAR
-
-                - foo
-                + FOO
-            "
-            .unindent(),
-        );
-    }
-
-    #[gpui::test]
-    async fn test_hunks_after_restore_then_modify(cx: &mut TestAppContext) {
-        init_test(cx);
-
-        let fs = FakeFs::new(cx.executor());
-        fs.insert_tree(
-            path!("/project"),
-            json!({
-                ".git": {},
-                "foo": "modified\n",
-            }),
-        )
-        .await;
-        let project = Project::test(fs.clone(), [path!("/project").as_ref()], cx).await;
-        let (workspace, cx) =
-            cx.add_window_view(|window, cx| Workspace::test_new(project.clone(), window, cx));
-        let buffer = project
-            .update(cx, |project, cx| {
-                project.open_local_buffer(path!("/project/foo"), cx)
-            })
-            .await
-            .unwrap();
-        let buffer_editor = cx.new_window_entity(|window, cx| {
-            Editor::for_buffer(buffer, Some(project.clone()), window, cx)
-        });
-        let diff = cx.new_window_entity(|window, cx| {
-            ProjectDiff::new(project.clone(), workspace, window, cx)
-        });
-        cx.run_until_parked();
-
-        fs.set_head_for_repo(
-            path!("/project/.git").as_ref(),
-            &[("foo".into(), "original\n".into())],
-        );
-        fs.with_git_state(path!("/project/.git").as_ref(), true, |state| {
-            state.statuses = HashMap::from_iter([(
-                "foo".into(),
-                TrackedStatus {
-                    index_status: StatusCode::Unmodified,
-                    worktree_status: StatusCode::Modified,
-                }
-                .into(),
-            )]);
-        });
-        cx.run_until_parked();
-
-        let diff_editor = diff.update(cx, |diff, _| diff.editor.clone());
-
-        assert_state_with_diff(
-            &diff_editor,
-            cx,
-            &"
-                - original
-                + ˇmodified
-            "
-            .unindent(),
-        );
-
-        let prev_buffer_hunks =
-            cx.update_window_entity(&buffer_editor, |buffer_editor, window, cx| {
-                let snapshot = buffer_editor.snapshot(window, cx);
-                let snapshot = &snapshot.buffer_snapshot;
-                let prev_buffer_hunks = buffer_editor
-                    .diff_hunks_in_ranges(&[editor::Anchor::min()..editor::Anchor::max()], snapshot)
-                    .collect::<Vec<_>>();
-                buffer_editor.git_restore(&Default::default(), window, cx);
-                prev_buffer_hunks
-            });
-        assert_eq!(prev_buffer_hunks.len(), 1);
-        cx.run_until_parked();
-
-        let new_buffer_hunks =
-            cx.update_window_entity(&buffer_editor, |buffer_editor, window, cx| {
-                let snapshot = buffer_editor.snapshot(window, cx);
-                let snapshot = &snapshot.buffer_snapshot;
-                let new_buffer_hunks = buffer_editor
-                    .diff_hunks_in_ranges(&[editor::Anchor::min()..editor::Anchor::max()], snapshot)
-                    .collect::<Vec<_>>();
-                buffer_editor.git_restore(&Default::default(), window, cx);
-                new_buffer_hunks
-            });
-        assert_eq!(new_buffer_hunks.as_slice(), &[]);
-
-        cx.update_window_entity(&buffer_editor, |buffer_editor, window, cx| {
-            buffer_editor.set_text("different\n", window, cx);
-            buffer_editor.save(false, project.clone(), window, cx)
-        })
-        .await
-        .unwrap();
-
-        cx.run_until_parked();
-
-        assert_state_with_diff(
-            &diff_editor,
-            cx,
-            &"
-                - original
-                + ˇdifferent
-            "
-            .unindent(),
-        );
     }
 }
