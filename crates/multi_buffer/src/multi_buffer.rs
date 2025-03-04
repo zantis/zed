@@ -3498,12 +3498,17 @@ impl MultiBufferSnapshot {
                         if hunk.is_created_file() && !self.all_diff_hunks_expanded {
                             return None;
                         }
-                        Some((hunk.range.clone(), hunk))
+                        Some((
+                            Point::new(hunk.row_range.start, 0)..Point::new(hunk.row_range.end, 0),
+                            hunk,
+                        ))
                     }),
             )
         })
         .filter_map(move |(range, hunk, excerpt)| {
-            if range.start != range.end && range.end == query_range.start && !hunk.range.is_empty()
+            if range.start != range.end
+                && range.end == query_range.start
+                && !hunk.row_range.is_empty()
             {
                 return None;
             }
@@ -3836,12 +3841,12 @@ impl MultiBufferSnapshot {
                     &excerpt.buffer,
                 ) {
                     let hunk_range = hunk.buffer_range.to_offset(&excerpt.buffer);
-                    if hunk.range.end >= Point::new(buffer_end_row, 0) {
+                    if hunk.row_range.end >= buffer_end_row {
                         continue;
                     }
 
-                    let hunk_start = hunk.range.start;
-                    let hunk_end = hunk.range.end;
+                    let hunk_start = Point::new(hunk.row_range.start, 0);
+                    let hunk_end = Point::new(hunk.row_range.end, 0);
 
                     cursor.seek_to_buffer_position_in_current_excerpt(&DimensionPair {
                         key: hunk_range.start,

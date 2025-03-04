@@ -2274,7 +2274,7 @@ impl ReferenceMultibuffer {
                 }
 
                 if !hunk.buffer_range.start.is_valid(&buffer) {
-                    log::trace!("skipping hunk with deleted start: {:?}", hunk.range);
+                    log::trace!("skipping hunk with deleted start: {:?}", hunk.row_range);
                     continue;
                 }
 

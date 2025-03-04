@@ -5439,6 +5439,7 @@ dependencies = [
  "panel",
  "picker",
  "postage",
+ "pretty_assertions",
  "project",
  "schemars",
  "serde",
@@ -16777,7 +16778,7 @@ dependencies = [
 
 [[package]]
 name = "zed"
-version = "0.178.0"
+version = "0.177.0"
 dependencies = [
  "activity_indicator",
  "anyhow",

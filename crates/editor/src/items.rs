@@ -618,8 +618,11 @@ impl Item for Editor {
         ItemSettings::get_global(cx)
             .file_icons
             .then(|| {
-                path_for_buffer(&self.buffer, 0, true, cx)
-                    .and_then(|path| FileIcons::get_icon(path.as_ref(), cx))
+                self.buffer
+                    .read(cx)
+                    .as_singleton()
+                    .and_then(|buffer| buffer.read(cx).project_path(cx))
+                    .and_then(|path| FileIcons::get_icon(path.path.as_ref(), cx))
             })
             .flatten()
             .map(Icon::from_path)
