@@ -6,7 +6,7 @@ use editor::{
     scroll::Autoscroll,
     Anchor, Bias, DisplayPoint, Editor, RowExt, ToOffset, ToPoint,
 };
-use gpui::{action_with_deprecated_aliases, actions, impl_actions, px, Context, Window};
+use gpui::{actions, impl_actions, px, Context, Window};
 use language::{CharKind, Point, Selection, SelectionGoal};
 use multi_buffer::MultiBufferRow;
 use schemars::JsonSchema;
@@ -24,7 +24,7 @@ use crate::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Motion {
     Left,
-    WrappingLeft,
+    Backspace,
     Down {
         display_lines: bool,
     },
@@ -32,7 +32,7 @@ pub enum Motion {
         display_lines: bool,
     },
     Right,
-    WrappingRight,
+    Space,
     NextWordStart {
         ignore_punctuation: bool,
     },
@@ -304,19 +304,12 @@ actions!(
     ]
 );
 
-action_with_deprecated_aliases!(vim, WrappingLeft, ["vim::Backspace"]);
-action_with_deprecated_aliases!(vim, WrappingRight, ["vim::Space"]);
-
 pub fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
     Vim::action(editor, cx, |vim, _: &Left, window, cx| {
         vim.motion(Motion::Left, window, cx)
     });
-    Vim::action(editor, cx, |vim, _: &WrappingLeft, window, cx| {
-        vim.motion(Motion::WrappingLeft, window, cx)
-    });
-    // Deprecated.
     Vim::action(editor, cx, |vim, _: &Backspace, window, cx| {
-        vim.motion(Motion::WrappingLeft, window, cx)
+        vim.motion(Motion::Backspace, window, cx)
     });
     Vim::action(editor, cx, |vim, action: &Down, window, cx| {
         vim.motion(
@@ -339,12 +332,8 @@ pub fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
     Vim::action(editor, cx, |vim, _: &Right, window, cx| {
         vim.motion(Motion::Right, window, cx)
     });
-    Vim::action(editor, cx, |vim, _: &WrappingRight, window, cx| {
-        vim.motion(Motion::WrappingRight, window, cx)
-    });
-    // Deprecated.
     Vim::action(editor, cx, |vim, _: &Space, window, cx| {
-        vim.motion(Motion::WrappingRight, window, cx)
+        vim.motion(Motion::Space, window, cx)
     });
     Vim::action(
         editor,
@@ -650,11 +639,11 @@ impl Motion {
             | UnmatchedBackward { .. }
             | FindForward { .. }
             | Left
-            | WrappingLeft
+            | Backspace
             | Right
             | SentenceBackward
             | SentenceForward
-            | WrappingRight
+            | Space
             | StartOfLine { .. }
             | EndOfLineDownward
             | GoToColumn
@@ -690,9 +679,9 @@ impl Motion {
             | FindForward { .. }
             | RepeatFind { .. }
             | Left
-            | WrappingLeft
+            | Backspace
             | Right
-            | WrappingRight
+            | Space
             | StartOfLine { .. }
             | StartOfParagraph
             | EndOfParagraph
@@ -758,9 +747,9 @@ impl Motion {
             | NextLineStart
             | PreviousLineStart => true,
             Left
-            | WrappingLeft
+            | Backspace
             | Right
-            | WrappingRight
+            | Space
             | StartOfLine { .. }
             | StartOfLineDownward
             | StartOfParagraph
@@ -807,7 +796,7 @@ impl Motion {
         let infallible = self.infallible();
         let (new_point, goal) = match self {
             Left => (left(map, point, times), SelectionGoal::None),
-            WrappingLeft => (wrapping_left(map, point, times), SelectionGoal::None),
+            Backspace => (backspace(map, point, times), SelectionGoal::None),
             Down {
                 display_lines: false,
             } => up_down_buffer_rows(map, point, goal, times as isize, text_layout_details),
@@ -821,7 +810,7 @@ impl Motion {
                 display_lines: true,
             } => up_display(map, point, goal, times, text_layout_details),
             Right => (right(map, point, times), SelectionGoal::None),
-            WrappingRight => (wrapping_right(map, point, times), SelectionGoal::None),
+            Space => (space(map, point, times), SelectionGoal::None),
             NextWordStart { ignore_punctuation } => (
                 next_word_start(map, point, *ignore_punctuation, times),
                 SelectionGoal::None,
@@ -1230,7 +1219,7 @@ impl Motion {
                 // DisplayPoint
 
                 if !inclusive
-                    && self != &Motion::WrappingLeft
+                    && self != &Motion::Backspace
                     && end_point.row > start_point.row
                     && end_point.column == 0
                 {
@@ -1285,7 +1274,7 @@ fn left(map: &DisplaySnapshot, mut point: DisplayPoint, times: usize) -> Display
     point
 }
 
-pub(crate) fn wrapping_left(
+pub(crate) fn backspace(
     map: &DisplaySnapshot,
     mut point: DisplayPoint,
     times: usize,
@@ -1299,9 +1288,9 @@ pub(crate) fn wrapping_left(
     point
 }
 
-fn wrapping_right(map: &DisplaySnapshot, mut point: DisplayPoint, times: usize) -> DisplayPoint {
+fn space(map: &DisplaySnapshot, mut point: DisplayPoint, times: usize) -> DisplayPoint {
     for _ in 0..times {
-        point = wrapping_right_single(map, point);
+        point = wrapping_right(map, point);
         if point == map.max_point() {
             break;
         }
@@ -1309,7 +1298,7 @@ fn wrapping_right(map: &DisplaySnapshot, mut point: DisplayPoint, times: usize) 
     point
 }
 
-fn wrapping_right_single(map: &DisplaySnapshot, mut point: DisplayPoint) -> DisplayPoint {
+fn wrapping_right(map: &DisplaySnapshot, mut point: DisplayPoint) -> DisplayPoint {
     let max_column = map.line_len(point.row()).saturating_sub(1);
     if point.column() < max_column {
         *point.column_mut() += 1;
