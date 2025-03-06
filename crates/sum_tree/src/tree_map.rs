@@ -70,10 +70,6 @@ impl<K: Clone + Ord, V: Clone> TreeMap<K, V> {
         self.0.insert_or_replace(MapEntry { key, value }, &());
     }
 
-    pub fn clear(&mut self) {
-        self.0 = SumTree::default();
-    }
-
     pub fn remove(&mut self, key: &K) -> Option<V> {
         let mut removed = None;
         let mut cursor = self.0.cursor::<MapKeyRef<'_, K>>(&());
@@ -159,14 +155,6 @@ impl<K: Clone + Ord, V: Clone> TreeMap<K, V> {
 
     pub fn values(&self) -> impl Iterator<Item = &V> + '_ {
         self.0.iter().map(|entry| &entry.value)
-    }
-
-    pub fn first(&self) -> Option<(&K, &V)> {
-        self.0.first().map(|entry| (&entry.key, &entry.value))
-    }
-
-    pub fn last(&self) -> Option<(&K, &V)> {
-        self.0.last().map(|entry| (&entry.key, &entry.value))
     }
 
     pub fn insert_tree(&mut self, other: TreeMap<K, V>) {

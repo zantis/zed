@@ -85,8 +85,8 @@ use gpui::{
     ClipboardEntry, ClipboardItem, Context, DispatchPhase, Edges, Entity, EntityInputHandler,
     EventEmitter, FocusHandle, FocusOutEvent, Focusable, FontId, FontWeight, Global,
     HighlightStyle, Hsla, KeyContext, Modifiers, MouseButton, MouseDownEvent, PaintQuad,
-    ParentElement, Pixels, Render, SharedString, Size, Stateful, Styled, StyledText, Subscription,
-    Task, TextStyle, TextStyleRefinement, UTF16Selection, UnderlineStyle, UniformListScrollHandle,
+    ParentElement, Pixels, Render, SharedString, Size, Styled, StyledText, Subscription, Task,
+    TextStyle, TextStyleRefinement, UTF16Selection, UnderlineStyle, UniformListScrollHandle,
     WeakEntity, WeakFocusHandle, Window,
 };
 use highlight_matching_bracket::refresh_matching_bracket_highlights;
@@ -2920,7 +2920,7 @@ impl Editor {
                 }
 
                 if let Some(bracket_pair) = bracket_pair {
-                    let snapshot_settings = snapshot.language_settings_at(selection.start, cx);
+                    let snapshot_settings = snapshot.settings_at(selection.start, cx);
                     let autoclose = self.use_autoclose && snapshot_settings.use_autoclose;
                     let auto_surround =
                         self.use_auto_surround && snapshot_settings.use_auto_surround;
@@ -2985,7 +2985,7 @@ impl Editor {
                         }
 
                         let always_treat_brackets_as_autoclosed = snapshot
-                            .language_settings_at(selection.start, cx)
+                            .settings_at(selection.start, cx)
                             .always_treat_brackets_as_autoclosed;
                         if always_treat_brackets_as_autoclosed
                             && is_bracket_pair_end
@@ -3268,7 +3268,7 @@ impl Editor {
                                     return None;
                                 }
 
-                                if !multi_buffer.language_settings(cx).extend_comment_on_newline {
+                                if !multi_buffer.settings_at(0, cx).extend_comment_on_newline {
                                     return None;
                                 }
 
@@ -3597,7 +3597,7 @@ impl Editor {
                 }
 
                 let always_treat_brackets_as_autoclosed = buffer
-                    .language_settings_at(selection.start, cx)
+                    .settings_at(selection.start, cx)
                     .always_treat_brackets_as_autoclosed;
 
                 if !always_treat_brackets_as_autoclosed {
@@ -6337,9 +6337,6 @@ impl Editor {
 
         const BORDER_WIDTH: Pixels = px(1.);
 
-        let keybind = self.render_edit_prediction_accept_keybind(window, cx);
-        let has_keybind = keybind.is_some();
-
         let mut element = h_flex()
             .items_start()
             .child(
@@ -6370,19 +6367,7 @@ impl Editor {
                     .border(BORDER_WIDTH)
                     .border_color(cx.theme().colors().border)
                     .rounded_r_lg()
-                    .id("edit_prediction_diff_popover_keybind")
-                    .when(!has_keybind, |el| {
-                        let status_colors = cx.theme().status();
-
-                        el.bg(status_colors.error_background)
-                            .border_color(status_colors.error.opacity(0.6))
-                            .child(Icon::new(IconName::Info).color(Color::Error))
-                            .cursor_default()
-                            .hoverable_tooltip(move |_window, cx| {
-                                cx.new(|_| MissingEditPredictionKeybindingTooltip).into()
-                            })
-                    })
-                    .children(keybind),
+                    .children(self.render_edit_prediction_accept_keybind(window, cx)),
             )
             .into_any();
 
@@ -6480,11 +6465,7 @@ impl Editor {
         }
     }
 
-    fn render_edit_prediction_accept_keybind(
-        &self,
-        window: &mut Window,
-        cx: &App,
-    ) -> Option<AnyElement> {
+    fn render_edit_prediction_accept_keybind(&self, window: &mut Window, cx: &App) -> Option<Div> {
         let accept_binding = self.accept_edit_prediction_keybind(window, cx);
         let accept_keystroke = accept_binding.keystroke()?;
 
@@ -6520,7 +6501,6 @@ impl Editor {
                     .size(Some(IconSize::XSmall.rems().into())),
                 )
             })
-            .into_any()
             .into()
     }
 
@@ -6530,14 +6510,10 @@ impl Editor {
         icon: Option<IconName>,
         window: &mut Window,
         cx: &App,
-    ) -> Option<Stateful<Div>> {
+    ) -> Option<Div> {
         let padding_right = if icon.is_some() { px(4.) } else { px(8.) };
 
-        let keybind = self.render_edit_prediction_accept_keybind(window, cx);
-        let has_keybind = keybind.is_some();
-
         let result = h_flex()
-            .id("ep-line-popover")
             .py_0p5()
             .pl_1()
             .pr(padding_right)
@@ -6547,35 +6523,8 @@ impl Editor {
             .bg(Self::edit_prediction_line_popover_bg_color(cx))
             .border_color(Self::edit_prediction_callout_popover_border_color(cx))
             .shadow_sm()
-            .when(!has_keybind, |el| {
-                let status_colors = cx.theme().status();
-
-                el.bg(status_colors.error_background)
-                    .border_color(status_colors.error.opacity(0.6))
-                    .pl_2()
-                    .child(Icon::new(IconName::ZedPredictError).color(Color::Error))
-                    .cursor_default()
-                    .hoverable_tooltip(move |_window, cx| {
-                        cx.new(|_| MissingEditPredictionKeybindingTooltip).into()
-                    })
-            })
-            .children(keybind)
-            .child(
-                Label::new(label)
-                    .size(LabelSize::Small)
-                    .when(!has_keybind, |el| {
-                        el.color(cx.theme().status().error.into()).strikethrough()
-                    }),
-            )
-            .when(!has_keybind, |el| {
-                el.child(
-                    h_flex().ml_1().child(
-                        Icon::new(IconName::Info)
-                            .size(IconSize::Small)
-                            .color(cx.theme().status().error.into()),
-                    ),
-                )
-            })
+            .children(self.render_edit_prediction_accept_keybind(window, cx))
+            .child(Label::new(label).size(LabelSize::Small))
             .when_some(icon, |element, icon| {
                 element.child(
                     div()
@@ -6672,9 +6621,6 @@ impl Editor {
                             .elevation_2(cx)
                             .border(BORDER_WIDTH)
                             .border_color(cx.theme().colors().border)
-                            .when(accept_keystroke.is_none(), |el| {
-                                el.border_color(cx.theme().status().error)
-                            })
                             .rounded(RADIUS)
                             .rounded_tl(px(0.))
                             .overflow_hidden()
@@ -6703,37 +6649,16 @@ impl Editor {
                                         el.child(
                                             Label::new("Hold")
                                                 .size(LabelSize::Small)
-                                                .when(accept_keystroke.is_none(), |el| {
-                                                    el.strikethrough()
-                                                })
                                                 .line_height_style(LineHeightStyle::UiLabel),
                                         )
                                     })
-                                    .id("edit_prediction_cursor_popover_keybind")
-                                    .when(accept_keystroke.is_none(), |el| {
-                                        let status_colors = cx.theme().status();
-
-                                        el.bg(status_colors.error_background)
-                                            .border_color(status_colors.error.opacity(0.6))
-                                            .child(Icon::new(IconName::Info).color(Color::Error))
-                                            .cursor_default()
-                                            .hoverable_tooltip(move |_window, cx| {
-                                                cx.new(|_| MissingEditPredictionKeybindingTooltip)
-                                                    .into()
-                                            })
-                                    })
-                                    .when_some(
-                                        accept_keystroke.as_ref(),
-                                        |el, accept_keystroke| {
-                                            el.child(h_flex().children(ui::render_modifiers(
-                                                &accept_keystroke.modifiers,
-                                                PlatformStyle::platform(),
-                                                Some(Color::Default),
-                                                Some(IconSize::XSmall.rems().into()),
-                                                false,
-                                            )))
-                                        },
-                                    ),
+                                    .child(h_flex().children(ui::render_modifiers(
+                                        &accept_keystroke?.modifiers,
+                                        PlatformStyle::platform(),
+                                        Some(Color::Default),
+                                        Some(IconSize::XSmall.rems().into()),
+                                        false,
+                                    ))),
                             )
                             .into_any(),
                     );
@@ -7371,7 +7296,7 @@ impl Editor {
             }
 
             // Otherwise, insert a hard or soft tab.
-            let settings = buffer.language_settings_at(cursor, cx);
+            let settings = buffer.settings_at(cursor, cx);
             let tab_size = if settings.hard_tabs {
                 IndentSize::tab()
             } else {
@@ -7435,7 +7360,7 @@ impl Editor {
         delta_for_start_row: u32,
         cx: &App,
     ) -> u32 {
-        let settings = buffer.language_settings_at(selection.start, cx);
+        let settings = buffer.settings_at(selection.start, cx);
         let tab_size = settings.tab_size.get();
         let indent_kind = if settings.hard_tabs {
             IndentKind::Tab
@@ -7515,7 +7440,7 @@ impl Editor {
             let buffer = self.buffer.read(cx);
             let snapshot = buffer.snapshot(cx);
             for selection in &selections {
-                let settings = buffer.language_settings_at(selection.start, cx);
+                let settings = buffer.settings_at(selection.start, cx);
                 let tab_size = settings.tab_size.get();
                 let mut rows = selection.spanned_rows(false, &display_map);
 
@@ -7849,7 +7774,7 @@ impl Editor {
             for hunk in &hunks {
                 self.prepare_restore_change(&mut revert_changes, hunk, cx);
             }
-            self.do_stage_or_unstage(false, buffer_id, hunks.into_iter(), cx);
+            self.do_stage_or_unstage(false, buffer_id, hunks.into_iter(), window, cx);
         }
         drop(chunk_by);
         if !revert_changes.is_empty() {
@@ -8527,7 +8452,7 @@ impl Editor {
                 continue;
             }
 
-            let tab_size = buffer.language_settings_at(selection.head(), cx).tab_size;
+            let tab_size = buffer.settings_at(selection.head(), cx).tab_size;
 
             // Since not all lines in the selection may be at the same indent
             // level, choose the indent size that is the most common between all
@@ -8573,7 +8498,7 @@ impl Editor {
                 inside_comment = true;
             }
 
-            let language_settings = buffer.language_settings_at(selection.head(), cx);
+            let language_settings = buffer.settings_at(selection.head(), cx);
             let allow_rewrap_based_on_language = match language_settings.allow_rewrap {
                 RewrapBehavior::InComments => inside_comment,
                 RewrapBehavior::InSelections => !selection.is_empty(),
@@ -8629,7 +8554,7 @@ impl Editor {
             };
 
             let wrap_column = buffer
-                .language_settings_at(Point::new(start_row, 0), cx)
+                .settings_at(Point::new(start_row, 0), cx)
                 .preferred_line_length as usize;
             let wrapped_text = wrap_with_prefix(
                 line_prefix,
@@ -8815,9 +8740,8 @@ impl Editor {
 
                 this.buffer.update(cx, |buffer, cx| {
                     let snapshot = buffer.read(cx);
-                    auto_indent_on_paste = snapshot
-                        .language_settings_at(cursor_offset, cx)
-                        .auto_indent_on_paste;
+                    auto_indent_on_paste =
+                        snapshot.settings_at(cursor_offset, cx).auto_indent_on_paste;
 
                     let mut start_offset = 0;
                     let mut edits = Vec::new();
@@ -13663,13 +13587,13 @@ impl Editor {
     pub fn toggle_staged_selected_diff_hunks(
         &mut self,
         _: &::git::ToggleStaged,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let snapshot = self.buffer.read(cx).snapshot(cx);
         let ranges: Vec<_> = self.selections.disjoint.iter().map(|s| s.range()).collect();
         let stage = self.has_stageable_diff_hunks_in_ranges(&ranges, &snapshot);
-        self.stage_or_unstage_diff_hunks(stage, ranges, cx);
+        self.stage_or_unstage_diff_hunks(stage, &ranges, window, cx);
     }
 
     pub fn stage_and_next(
@@ -13693,53 +13617,16 @@ impl Editor {
     pub fn stage_or_unstage_diff_hunks(
         &mut self,
         stage: bool,
-        ranges: Vec<Range<Anchor>>,
+        ranges: &[Range<Anchor>],
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let task = self.save_buffers_for_ranges_if_needed(&ranges, cx);
-        cx.spawn(|this, mut cx| async move {
-            task.await?;
-            this.update(&mut cx, |this, cx| {
-                let snapshot = this.buffer.read(cx).snapshot(cx);
-                let chunk_by = this
-                    .diff_hunks_in_ranges(&ranges, &snapshot)
-                    .chunk_by(|hunk| hunk.buffer_id);
-                for (buffer_id, hunks) in &chunk_by {
-                    this.do_stage_or_unstage(stage, buffer_id, hunks, cx);
-                }
-            })
-        })
-        .detach_and_log_err(cx);
-    }
-
-    fn save_buffers_for_ranges_if_needed(
-        &mut self,
-        ranges: &[Range<Anchor>],
-        cx: &mut Context<'_, Editor>,
-    ) -> Task<Result<()>> {
-        let multibuffer = self.buffer.read(cx);
-        let snapshot = multibuffer.read(cx);
-        let buffer_ids: HashSet<_> = ranges
-            .iter()
-            .flat_map(|range| snapshot.buffer_ids_for_range(range.clone()))
-            .collect();
-        drop(snapshot);
-
-        let mut buffers = HashSet::default();
-        for buffer_id in buffer_ids {
-            if let Some(buffer_entity) = multibuffer.buffer(buffer_id) {
-                let buffer = buffer_entity.read(cx);
-                if buffer.file().is_some_and(|file| file.disk_state().exists()) && buffer.is_dirty()
-                {
-                    buffers.insert(buffer_entity);
-                }
-            }
-        }
-
-        if let Some(project) = &self.project {
-            project.update(cx, |project, cx| project.save_buffers(buffers, cx))
-        } else {
-            Task::ready(Ok(()))
+        let snapshot = self.buffer.read(cx).snapshot(cx);
+        let chunk_by = self
+            .diff_hunks_in_ranges(&ranges, &snapshot)
+            .chunk_by(|hunk| hunk.buffer_id);
+        for (buffer_id, hunks) in &chunk_by {
+            self.do_stage_or_unstage(stage, buffer_id, hunks, window, cx);
         }
     }
 
@@ -13752,7 +13639,7 @@ impl Editor {
         let ranges = self.selections.disjoint_anchor_ranges().collect::<Vec<_>>();
 
         if ranges.iter().any(|range| range.start != range.end) {
-            self.stage_or_unstage_diff_hunks(stage, ranges, cx);
+            self.stage_or_unstage_diff_hunks(stage, &ranges[..], window, cx);
             return;
         }
 
@@ -13771,7 +13658,7 @@ impl Editor {
         if run_twice {
             self.go_to_next_hunk(&GoToHunk, window, cx);
         }
-        self.stage_or_unstage_diff_hunks(stage, ranges, cx);
+        self.stage_or_unstage_diff_hunks(stage, &ranges[..], window, cx);
         self.go_to_next_hunk(&GoToHunk, window, cx);
     }
 
@@ -13780,16 +13667,31 @@ impl Editor {
         stage: bool,
         buffer_id: BufferId,
         hunks: impl Iterator<Item = MultiBufferDiffHunk>,
+        window: &mut Window,
         cx: &mut App,
-    ) -> Option<()> {
-        let project = self.project.as_ref()?;
-        let buffer = project.read(cx).buffer_for_id(buffer_id, cx)?;
-        let diff = self.buffer.read(cx).diff_for(buffer_id)?;
+    ) {
+        let Some(project) = self.project.as_ref() else {
+            return;
+        };
+        let Some(buffer) = project.read(cx).buffer_for_id(buffer_id, cx) else {
+            return;
+        };
+        let Some(diff) = self.buffer.read(cx).diff_for(buffer_id) else {
+            return;
+        };
         let buffer_snapshot = buffer.read(cx).snapshot();
         let file_exists = buffer_snapshot
             .file()
             .is_some_and(|file| file.disk_state().exists());
-        diff.update(cx, |diff, cx| {
+        let Some((repo, path)) = project
+            .read(cx)
+            .repository_and_path_for_buffer_id(buffer_id, cx)
+        else {
+            log::debug!("no git repo for buffer id");
+            return;
+        };
+
+        let new_index_text = diff.update(cx, |diff, cx| {
             diff.stage_or_unstage_hunks(
                 stage,
                 &hunks
@@ -13805,7 +13707,20 @@ impl Editor {
                 cx,
             )
         });
-        None
+
+        if file_exists {
+            let buffer_store = project.read(cx).buffer_store().clone();
+            buffer_store
+                .update(cx, |buffer_store, cx| buffer_store.save_buffer(buffer, cx))
+                .detach_and_log_err(cx);
+        }
+
+        let recv = repo
+            .read(cx)
+            .set_index_text(&path, new_index_text.map(|rope| rope.to_string()));
+
+        cx.background_spawn(async move { recv.await? })
+            .detach_and_notify_err(window, cx);
     }
 
     pub fn expand_selected_diff_hunks(&mut self, cx: &mut Context<Self>) {
@@ -14058,16 +13973,12 @@ impl Editor {
             return wrap_guides;
         }
 
-        let settings = self.buffer.read(cx).language_settings(cx);
+        let settings = self.buffer.read(cx).settings_at(0, cx);
         if settings.show_wrap_guides {
-            match self.soft_wrap_mode(cx) {
-                SoftWrap::Column(soft_wrap) => {
-                    wrap_guides.push((soft_wrap as usize, true));
-                }
-                SoftWrap::Bounded(soft_wrap) => {
-                    wrap_guides.push((soft_wrap as usize, true));
-                }
-                SoftWrap::GitDiff | SoftWrap::None | SoftWrap::EditorWidth => {}
+            if let SoftWrap::Column(soft_wrap) = self.soft_wrap_mode(cx) {
+                wrap_guides.push((soft_wrap as usize, true));
+            } else if let SoftWrap::Bounded(soft_wrap) = self.soft_wrap_mode(cx) {
+                wrap_guides.push((soft_wrap as usize, true));
             }
             wrap_guides.extend(settings.wrap_guides.iter().map(|guide| (*guide, false)))
         }
@@ -14076,7 +13987,7 @@ impl Editor {
     }
 
     pub fn soft_wrap_mode(&self, cx: &App) -> SoftWrap {
-        let settings = self.buffer.read(cx).language_settings(cx);
+        let settings = self.buffer.read(cx).settings_at(0, cx);
         let mode = self.soft_wrap_mode_override.unwrap_or(settings.soft_wrap);
         match mode {
             language_settings::SoftWrap::PreferLine | language_settings::SoftWrap::None => {
@@ -14175,7 +14086,7 @@ impl Editor {
         let currently_enabled = self.should_show_indent_guides().unwrap_or_else(|| {
             self.buffer
                 .read(cx)
-                .language_settings(cx)
+                .settings_at(0, cx)
                 .indent_guides
                 .enabled
         });
@@ -15824,7 +15735,7 @@ impl Editor {
         let copilot_enabled_for_language = self
             .buffer
             .read(cx)
-            .language_settings(cx)
+            .settings_at(0, cx)
             .show_edit_predictions;
 
         let project = project.read(cx);
@@ -16320,7 +16231,7 @@ fn get_uncommitted_diff_for_buffer(
         }
     });
     cx.spawn(|mut cx| async move {
-        let diffs = future::join_all(tasks).await;
+        let diffs = futures::future::join_all(tasks).await;
         buffer
             .update(&mut cx, |buffer, cx| {
                 for diff in diffs.into_iter().flatten() {
@@ -18382,38 +18293,4 @@ fn all_edits_insertions_or_deletions(
         }
     }
     all_insertions || all_deletions
-}
-
-struct MissingEditPredictionKeybindingTooltip;
-
-impl Render for MissingEditPredictionKeybindingTooltip {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
-        ui::tooltip_container(window, cx, |container, _, cx| {
-            container
-                .flex_shrink_0()
-                .max_w_80()
-                .min_h(rems_from_px(124.))
-                .justify_between()
-                .child(
-                    v_flex()
-                        .flex_1()
-                        .text_ui_sm(cx)
-                        .child(Label::new("Conflict with Accept Keybinding"))
-                        .child("Your keymap currently overrides the default accept keybinding. To continue, assign one keybinding for the `editor::AcceptEditPrediction` action.")
-                )
-                .child(
-                    h_flex()
-                        .pb_1()
-                        .gap_1()
-                        .items_end()
-                        .w_full()
-                        .child(Button::new("open-keymap", "Assign Keybinding").size(ButtonSize::Compact).on_click(|_ev, window, cx| {
-                            window.dispatch_action(zed_actions::OpenKeymap.boxed_clone(), cx)
-                        }))
-                        .child(Button::new("see-docs", "See Docs").size(ButtonSize::Compact).on_click(|_ev, _window, cx| {
-                            cx.open_url("https://zed.dev/docs/completions#edit-predictions-missing-keybinding");
-                        })),
-                )
-        })
-    }
 }
