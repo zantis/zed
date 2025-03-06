@@ -255,7 +255,6 @@ impl TaskTemplate {
                 shell: self.shell.clone(),
                 show_summary: self.show_summary,
                 show_command: self.show_command,
-                show_rerun: true,
             }),
         })
     }

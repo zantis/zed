@@ -110,7 +110,7 @@ impl RenderOnce for DropdownMenuTrigger {
         h_flex()
             .id("dropdown-menu-trigger")
             .justify_between()
-            .rounded_sm()
+            .rounded_md()
             .bg(cx.theme().colors().editor_background)
             .pl_2()
             .pr_1p5()

@@ -40,7 +40,7 @@ pub enum ToggleStyle {
 /// Each checkbox works independently from other checkboxes in the list,
 /// therefore checking an additional box does not affect any other selections.
 #[derive(IntoElement, IntoComponent)]
-#[component(scope = "Input")]
+#[component(scope = "input")]
 pub struct Checkbox {
     id: ElementId,
     toggle_state: ToggleState,
@@ -197,7 +197,7 @@ impl RenderOnce for Checkbox {
                     .items_center()
                     .m(DynamicSpacing::Base04.px(cx))
                     .size(DynamicSpacing::Base16.rems(cx))
-                    .rounded_xs()
+                    .rounded_sm()
                     .bg(bg_color)
                     .border_1()
                     .border_color(border_color)
@@ -240,7 +240,7 @@ impl RenderOnce for Checkbox {
 
 /// A [`Checkbox`] that has a [`Label`].
 #[derive(IntoElement, IntoComponent)]
-#[component(scope = "Input")]
+#[component(scope = "input")]
 pub struct CheckboxWithLabel {
     id: ElementId,
     label: Label,
@@ -318,7 +318,7 @@ impl RenderOnce for CheckboxWithLabel {
 ///
 /// Switches are used to represent opposite states, such as enabled or disabled.
 #[derive(IntoElement, IntoComponent)]
-#[component(scope = "Input")]
+#[component(scope = "input")]
 pub struct Switch {
     id: ElementId,
     toggle_state: ToggleState,

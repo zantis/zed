@@ -160,7 +160,7 @@ impl Vim {
                     .buffer()
                     .read(cx)
                     .snapshot(cx)
-                    .language_settings_at(cursor_offset, cx)
+                    .settings_at(cursor_offset, cx)
                     .auto_indent_on_paste
                 {
                     editor.edit_with_block_indent(edits, original_start_columns, cx);

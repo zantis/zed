@@ -16,19 +16,15 @@ use editor::{
     scroll::ScrollbarAutoHide, Editor, EditorElement, EditorMode, EditorSettings, MultiBuffer,
     ShowScrollbar,
 };
-use futures::StreamExt as _;
 use git::repository::{
-    Branch, CommitDetails, CommitSummary, DiffType, PushOptions, Remote, RemoteCommandOutput,
-    ResetMode, Upstream, UpstreamTracking, UpstreamTrackingStatus,
+    Branch, CommitDetails, CommitSummary, PushOptions, Remote, RemoteCommandOutput, ResetMode,
+    Upstream, UpstreamTracking, UpstreamTrackingStatus,
 };
 use git::{repository::RepoPath, status::FileStatus, Commit, ToggleStaged};
 use git::{RestoreTrackedFiles, StageAll, TrashUntrackedFiles, UnstageAll};
 use gpui::*;
 use itertools::Itertools;
 use language::{Buffer, File};
-use language_model::{
-    LanguageModelRegistry, LanguageModelRequest, LanguageModelRequestMessage, Role,
-};
 use menu::{Confirm, SecondaryConfirm, SelectFirst, SelectLast, SelectNext, SelectPrevious};
 use multi_buffer::ExcerptInfo;
 use panel::{
@@ -203,7 +199,6 @@ pub struct GitPanel {
     conflicted_staged_count: usize,
     current_modifiers: Modifiers,
     add_coauthors: bool,
-    generate_commit_message_task: Option<Task<Option<()>>>,
     entries: Vec<GitListEntry>,
     focus_handle: FocusHandle,
     fs: Arc<dyn Fs>,
@@ -334,7 +329,6 @@ impl GitPanel {
                 conflicted_staged_count: 0,
                 current_modifiers: window.modifiers(),
                 add_coauthors: true,
-                generate_commit_message_task: None,
                 entries: Vec::new(),
                 focus_handle: cx.focus_handle(),
                 fs,
@@ -1393,92 +1387,6 @@ impl GitPanel {
         Some(format!("{} {}", action_text, file_name))
     }
 
-    fn generate_commit_message_action(
-        &mut self,
-        _: &git::GenerateCommitMessage,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.generate_commit_message(cx);
-    }
-
-    /// Generates a commit message using an LLM.
-    fn generate_commit_message(&mut self, cx: &mut Context<Self>) {
-        let Some(provider) = LanguageModelRegistry::read_global(cx).active_provider() else {
-            return;
-        };
-        let Some(model) = LanguageModelRegistry::read_global(cx).active_model() else {
-            return;
-        };
-
-        if !provider.is_authenticated(cx) {
-            return;
-        }
-
-        let Some(repo) = self.active_repository.as_ref() else {
-            return;
-        };
-
-        let diff = repo.update(cx, |repo, cx| {
-            if self.has_staged_changes() {
-                repo.diff(DiffType::HeadToIndex, cx)
-            } else {
-                repo.diff(DiffType::HeadToWorktree, cx)
-            }
-        });
-
-        self.generate_commit_message_task = Some(cx.spawn(|this, mut cx| {
-            async move {
-                let _defer = util::defer({
-                    let mut cx = cx.clone();
-                    let this = this.clone();
-                    move || {
-                        this.update(&mut cx, |this, _cx| {
-                            this.generate_commit_message_task.take();
-                        })
-                        .ok();
-                    }
-                });
-
-                let mut diff_text = diff.await??;
-                const ONE_MB: usize = 1_000_000;
-                if diff_text.len() > ONE_MB {
-                    diff_text = diff_text.chars().take(ONE_MB).collect()
-                }
-
-                const PROMPT: &str = include_str!("commit_message_prompt.txt");
-
-                let request = LanguageModelRequest {
-                    messages: vec![LanguageModelRequestMessage {
-                        role: Role::User,
-                        content: vec![format!("{PROMPT}\n{diff_text}").into()],
-                        cache: false,
-                    }],
-                    tools: Vec::new(),
-                    stop: Vec::new(),
-                    temperature: None,
-                };
-
-                let stream = model.stream_completion_text(request, &cx);
-                let mut messages = stream.await?;
-
-                while let Some(message) = messages.stream.next().await {
-                    let text = message?;
-
-                    this.update(&mut cx, |this, cx| {
-                        this.commit_message_buffer(cx).update(cx, |buffer, cx| {
-                            let insert_position = buffer.anchor_before(buffer.len());
-                            buffer.edit([(insert_position..insert_position, text)], None, cx);
-                        });
-                    })?;
-                }
-
-                anyhow::Ok(())
-            }
-            .log_err()
-        }));
-    }
-
     fn update_editor_placeholder(&mut self, cx: &mut Context<Self>) {
         let suggested_commit_message = self.suggest_commit_message();
         let placeholder_text = suggested_commit_message
@@ -2134,32 +2042,6 @@ impl GitPanel {
         self.has_staged_changes()
     }
 
-    pub(crate) fn render_generate_commit_message_button(&self, cx: &Context<Self>) -> AnyElement {
-        if self.generate_commit_message_task.is_some() {
-            return Icon::new(IconName::ArrowCircle)
-                .size(IconSize::XSmall)
-                .color(Color::Info)
-                .with_animation(
-                    "arrow-circle",
-                    Animation::new(Duration::from_secs(2)).repeat(),
-                    |icon, delta| icon.transform(Transformation::rotate(percentage(delta))),
-                )
-                .into_any_element();
-        }
-
-        IconButton::new("generate-commit-message", IconName::ZedAssistant)
-            .shape(ui::IconButtonShape::Square)
-            .tooltip(Tooltip::for_action_title_in(
-                "Generate commit message",
-                &git::GenerateCommitMessage,
-                &self.commit_editor.focus_handle(cx),
-            ))
-            .on_click(cx.listener(move |this, _event, _window, cx| {
-                this.generate_commit_message(cx);
-            }))
-            .into_any_element()
-    }
-
     pub(crate) fn render_co_authors(&self, cx: &Context<Self>) -> Option<AnyElement> {
         let potential_co_authors = self.potential_co_authors(cx);
         if potential_co_authors.is_empty() {
@@ -2295,11 +2177,9 @@ impl GitPanel {
                             .absolute()
                             .bottom_0()
                             .right_2()
-                            .gap_0p5()
                             .h(footer_size)
                             .flex_none()
                             .children(enable_coauthors)
-                            .child(self.render_generate_commit_message_button(cx))
                             .child(
                                 panel_filled_button(title)
                                     .tooltip(move |window, cx| {
@@ -2395,28 +2275,20 @@ impl GitPanel {
                         }),
                 )
                 .child(div().flex_1())
-                .when(commit.has_parent, |this| {
-                    let has_unstaged = self.has_unstaged_changes();
-                    this.child(
-                        panel_icon_button("undo", IconName::Undo)
-                            .icon_size(IconSize::Small)
-                            .icon_color(Color::Muted)
-                            .tooltip(move |window, cx| {
-                                Tooltip::with_meta(
-                                    "Uncommit",
-                                    Some(&git::Uncommit),
-                                    if has_unstaged {
-                                        "git reset HEAD^ --soft"
-                                    } else {
-                                        "git reset HEAD^"
-                                    },
-                                    window,
-                                    cx,
-                                )
-                            })
-                            .on_click(cx.listener(|this, _, window, cx| this.uncommit(window, cx))),
-                    )
-                }),
+                .child(
+                    panel_icon_button("undo", IconName::Undo)
+                        .icon_size(IconSize::Small)
+                        .icon_color(Color::Muted)
+                        .tooltip(Tooltip::for_action_title(
+                            if self.has_staged_changes() {
+                                "git reset HEAD^ --soft"
+                            } else {
+                                "git reset HEAD^"
+                            },
+                            &git::Uncommit,
+                        ))
+                        .on_click(cx.listener(|this, _, window, cx| this.uncommit(window, cx))),
+                ),
         )
     }
 
@@ -2964,7 +2836,6 @@ impl Render for GitPanel {
             .on_action(cx.listener(Self::restore_tracked_files))
             .on_action(cx.listener(Self::clean_all))
             .on_action(cx.listener(Self::expand_commit_editor))
-            .on_action(cx.listener(Self::generate_commit_message_action))
             .when(has_write_access && has_co_authors, |git_panel| {
                 git_panel.on_action(cx.listener(Self::toggle_fill_co_authors))
             })
@@ -3254,7 +3125,7 @@ impl SplitButton {
 impl RenderOnce for SplitButton {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         h_flex()
-            .rounded_sm()
+            .rounded_md()
             .border_1()
             .border_color(cx.theme().colors().text_muted.alpha(0.12))
             .child(self.left)
@@ -3301,7 +3172,7 @@ fn render_git_action_menu(id: impl Into<ElementId>) -> impl IntoElement {
 }
 
 #[derive(IntoElement, IntoComponent)]
-#[component(scope = "Version Control")]
+#[component(scope = "git_panel")]
 pub struct PanelRepoFooter {
     id: SharedString,
     active_repository: SharedString,
@@ -3710,7 +3581,6 @@ impl ComponentPreview for PanelRepoFooter {
                     sha: "abc123".into(),
                     subject: "Modify stuff".into(),
                     commit_timestamp: 1710932954,
-                    has_parent: true,
                 }),
             }
         }
@@ -3727,7 +3597,6 @@ impl ComponentPreview for PanelRepoFooter {
                     sha: "abc123".into(),
                     subject: "Modify stuff".into(),
                     commit_timestamp: 1710932954,
-                    has_parent: true,
                 }),
             }
         }

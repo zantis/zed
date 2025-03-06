@@ -24,7 +24,7 @@ pub fn h_container() -> ContentGroup {
 
 /// A flexible container component that can hold other elements.
 #[derive(IntoElement, IntoComponent)]
-#[component(scope = "Layout")]
+#[component(scope = "layout")]
 pub struct ContentGroup {
     base: Div,
     border: bool,
@@ -82,7 +82,7 @@ impl RenderOnce for ContentGroup {
             .when(self.border, |this| {
                 this.border_1().border_color(cx.theme().colors().border)
             })
-            .rounded_sm()
+            .rounded_md()
             .p_2()
             .children(self.children)
     }

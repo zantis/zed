@@ -1724,7 +1724,7 @@ impl EditorElement {
                 .h(line_height)
                 .w_full()
                 .px_1()
-                .rounded_xs()
+                .rounded_sm()
                 .opacity(opacity)
                 .bg(severity_to_color(&diagnostic_to_render.severity)
                     .color(cx)
@@ -2717,7 +2717,7 @@ impl EditorElement {
                     .flex_basis(Length::Definite(DefiniteLength::Fraction(0.667)))
                     .pl_0p5()
                     .pr_5()
-                    .rounded_sm()
+                    .rounded_md()
                     .shadow_md()
                     .border_1()
                     .map(|div| {
@@ -2741,7 +2741,7 @@ impl EditorElement {
                         header.child(
                             div()
                                 .hover(|style| style.bg(colors.element_selected))
-                                .rounded_xs()
+                                .rounded_sm()
                                 .child(
                                     ButtonLike::new("toggle-buffer-fold")
                                         .style(ui::ButtonStyle::Transparent)
@@ -4692,7 +4692,7 @@ impl EditorElement {
             .read(cx)
             .buffer
             .read(cx)
-            .language_settings(cx)
+            .settings_at(0, cx)
             .show_whitespaces;
 
         for (ix, line_with_invisibles) in layout.position_map.line_layouts.iter().enumerate() {
