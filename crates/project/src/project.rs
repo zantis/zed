@@ -5,6 +5,7 @@ pub mod debounced_delay;
 pub mod git;
 pub mod image_store;
 pub mod lsp_command;
+pub mod lsp_ext_command;
 pub mod lsp_store;
 pub mod prettier_store;
 pub mod project_settings;
@@ -410,48 +411,7 @@ pub struct CodeAction {
     /// The range of the buffer where this code action is applicable.
     pub range: Range<Anchor>,
     /// The raw code action provided by the language server.
-    /// Can be either an action or a command.
-    pub lsp_action: ActionVariant,
-}
-
-/// An action sent back by a language server.
-#[derive(Clone, Debug)]
-pub enum ActionVariant {
-    /// An action with the full data, may have a command or may not.
-    /// May require resolving.
-    Action(Box<lsp::CodeAction>),
-    /// A command data to run as an action.
-    Command(lsp::Command),
-}
-
-impl ActionVariant {
-    pub fn title(&self) -> &str {
-        match self {
-            Self::Action(action) => &action.title,
-            Self::Command(command) => &command.title,
-        }
-    }
-
-    fn action_kind(&self) -> Option<lsp::CodeActionKind> {
-        match self {
-            Self::Action(action) => action.kind.clone(),
-            Self::Command(_) => Some(lsp::CodeActionKind::new("command")),
-        }
-    }
-
-    fn edit(&self) -> Option<&lsp::WorkspaceEdit> {
-        match self {
-            Self::Action(action) => action.edit.as_ref(),
-            Self::Command(_) => None,
-        }
-    }
-
-    fn command(&self) -> Option<&lsp::Command> {
-        match self {
-            Self::Action(action) => action.command.as_ref(),
-            Self::Command(command) => Some(command),
-        }
-    }
+    pub lsp_action: lsp::CodeAction,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -560,12 +520,6 @@ enum EntitySubscription {
     SettingsObserver(PendingEntitySubscription<SettingsObserver>),
 }
 
-#[derive(Debug, Clone)]
-pub struct DirectoryItem {
-    pub path: PathBuf,
-    pub is_dir: bool,
-}
-
 #[derive(Clone)]
 pub enum DirectoryLister {
     Project(Entity<Project>),
@@ -594,10 +548,10 @@ impl DirectoryLister {
                 return worktree.read(cx).abs_path().to_string_lossy().to_string();
             }
         };
-        format!("~{}", std::path::MAIN_SEPARATOR_STR)
+        "~/".to_string()
     }
 
-    pub fn list_directory(&self, path: String, cx: &mut App) -> Task<Result<Vec<DirectoryItem>>> {
+    pub fn list_directory(&self, path: String, cx: &mut App) -> Task<Result<Vec<PathBuf>>> {
         match self {
             DirectoryLister::Project(project) => {
                 project.update(cx, |project, cx| project.list_directory(path, cx))
@@ -610,12 +564,8 @@ impl DirectoryLister {
                     let query = Path::new(expanded.as_ref());
                     let mut response = fs.read_dir(query).await?;
                     while let Some(path) = response.next().await {
-                        let path = path?;
-                        if let Some(file_name) = path.file_name() {
-                            results.push(DirectoryItem {
-                                path: PathBuf::from(file_name.to_os_string()),
-                                is_dir: fs.is_dir(&path).await,
-                            });
+                        if let Some(file_name) = path?.file_name() {
+                            results.push(PathBuf::from(file_name.to_os_string()));
                         }
                     }
                     Ok(results)
@@ -3505,39 +3455,34 @@ impl Project {
             }
         }
 
-        let buffer_worktree_id = buffer.read(cx).file().map(|file| file.worktree_id(cx));
-        let worktrees_with_ids: Vec<_> = self
-            .worktrees(cx)
-            .map(|worktree| {
-                let id = worktree.read(cx).id();
-                (worktree, id)
-            })
-            .collect();
-
+        let worktrees = self.worktrees(cx).collect::<Vec<_>>();
         cx.spawn(|_, mut cx| async move {
-            if let Some(buffer_worktree_id) = buffer_worktree_id {
-                if let Some((worktree, _)) = worktrees_with_ids
-                    .iter()
-                    .find(|(_, id)| *id == buffer_worktree_id)
-                {
-                    for candidate in candidates.iter() {
-                        if let Some(path) =
-                            Self::resolve_path_in_worktree(&worktree, candidate, &mut cx)
-                        {
-                            return Some(path);
-                        }
-                    }
-                }
-            }
-            for (worktree, id) in worktrees_with_ids {
-                if Some(id) == buffer_worktree_id {
-                    continue;
-                }
+            for worktree in worktrees {
                 for candidate in candidates.iter() {
-                    if let Some(path) =
-                        Self::resolve_path_in_worktree(&worktree, candidate, &mut cx)
-                    {
-                        return Some(path);
+                    let path = worktree
+                        .update(&mut cx, |worktree, _| {
+                            let root_entry_path = &worktree.root_entry()?.path;
+
+                            let resolved = resolve_path(root_entry_path, candidate);
+
+                            let stripped =
+                                resolved.strip_prefix(root_entry_path).unwrap_or(&resolved);
+
+                            worktree.entry_for_path(stripped).map(|entry| {
+                                let project_path = ProjectPath {
+                                    worktree_id: worktree.id(),
+                                    path: entry.path.clone(),
+                                };
+                                ResolvedPath::ProjectPath {
+                                    project_path,
+                                    is_dir: entry.is_dir(),
+                                }
+                            })
+                        })
+                        .ok()?;
+
+                    if path.is_some() {
+                        return path;
                     }
                 }
             }
@@ -3545,35 +3490,11 @@ impl Project {
         })
     }
 
-    fn resolve_path_in_worktree(
-        worktree: &Entity<Worktree>,
-        path: &PathBuf,
-        cx: &mut AsyncApp,
-    ) -> Option<ResolvedPath> {
-        worktree
-            .update(cx, |worktree, _| {
-                let root_entry_path = &worktree.root_entry()?.path;
-                let resolved = resolve_path(root_entry_path, path);
-                let stripped = resolved.strip_prefix(root_entry_path).unwrap_or(&resolved);
-                worktree.entry_for_path(stripped).map(|entry| {
-                    let project_path = ProjectPath {
-                        worktree_id: worktree.id(),
-                        path: entry.path.clone(),
-                    };
-                    ResolvedPath::ProjectPath {
-                        project_path,
-                        is_dir: entry.is_dir(),
-                    }
-                })
-            })
-            .ok()?
-    }
-
     pub fn list_directory(
         &self,
         query: String,
         cx: &mut Context<Self>,
-    ) -> Task<Result<Vec<DirectoryItem>>> {
+    ) -> Task<Result<Vec<PathBuf>>> {
         if self.is_local() {
             DirectoryLister::Local(self.fs.clone()).list_directory(query, cx)
         } else if let Some(session) = self.ssh_client.as_ref() {
@@ -3581,23 +3502,12 @@ impl Project {
             let request = proto::ListRemoteDirectory {
                 dev_server_id: SSH_PROJECT_ID,
                 path: path_buf.to_proto(),
-                config: Some(proto::ListRemoteDirectoryConfig { is_dir: true }),
             };
 
             let response = session.read(cx).proto_client().request(request);
             cx.background_spawn(async move {
-                let proto::ListRemoteDirectoryResponse {
-                    entries,
-                    entry_info,
-                } = response.await?;
-                Ok(entries
-                    .into_iter()
-                    .zip(entry_info)
-                    .map(|(entry, info)| DirectoryItem {
-                        path: PathBuf::from(entry),
-                        is_dir: info.is_dir,
-                    })
-                    .collect())
+                let response = response.await?;
+                Ok(response.entries.into_iter().map(PathBuf::from).collect())
             })
         } else {
             Task::ready(Err(anyhow!("cannot list directory in remote project")))

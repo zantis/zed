@@ -14,7 +14,7 @@ pub enum IconButtonShape {
 }
 
 #[derive(IntoElement, IntoComponent)]
-#[component(scope = "Input")]
+#[component(scope = "input")]
 pub struct IconButton {
     base: ButtonLike,
     shape: IconButtonShape,

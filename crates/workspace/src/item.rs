@@ -802,7 +802,6 @@ impl<T: Item> ItemHandle for Entity<T> {
                         }
 
                         ItemEvent::UpdateTab => {
-                            workspace.update_item_dirty_state(item, window, cx);
                             pane.update(cx, |_, cx| {
                                 cx.emit(pane::Event::ChangeItemTitle);
                                 cx.notify();

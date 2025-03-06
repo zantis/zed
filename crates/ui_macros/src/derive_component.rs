@@ -33,15 +33,14 @@ pub fn derive_into_component(input: TokenStream) -> TokenStream {
     let name = &input.ident;
 
     let scope_impl = if let Some(s) = scope_val {
-        let scope_str = s.clone();
         quote! {
-            fn scope() -> Option<component::ComponentScope> {
-                Some(component::ComponentScope::from(#scope_str))
+            fn scope() -> Option<&'static str> {
+                Some(#s)
             }
         }
     } else {
         quote! {
-            fn scope() -> Option<component::ComponentScope> {
+            fn scope() -> Option<&'static str> {
                 None
             }
         }

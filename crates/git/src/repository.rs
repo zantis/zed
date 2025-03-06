@@ -108,7 +108,6 @@ pub struct CommitSummary {
     pub subject: SharedString,
     /// This is a unix timestamp
     pub commit_timestamp: i64,
-    pub has_parent: bool,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -217,14 +216,6 @@ pub trait GitRepository: Send + Sync {
 
     /// returns a list of remote branches that contain HEAD
     fn check_for_pushed_commit(&self) -> Result<Vec<SharedString>>;
-
-    /// Run git diff
-    fn diff(&self, diff: DiffType) -> Result<String>;
-}
-
-pub enum DiffType {
-    HeadToIndex,
-    HeadToWorktree,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
@@ -493,7 +484,6 @@ impl GitRepository for RealGitRepository {
         let fields = [
             "%(HEAD)",
             "%(objectname)",
-            "%(parent)",
             "%(refname)",
             "%(upstream)",
             "%(upstream:track)",
@@ -583,28 +573,6 @@ impl GitRepository for RealGitRepository {
             remote_url,
             self.hosting_provider_registry.clone(),
         )
-    }
-
-    fn diff(&self, diff: DiffType) -> Result<String> {
-        let working_directory = self.working_directory()?;
-        let args = match diff {
-            DiffType::HeadToIndex => Some("--staged"),
-            DiffType::HeadToWorktree => None,
-        };
-
-        let output = new_std_command(&self.git_binary_path)
-            .current_dir(&working_directory)
-            .args(["diff"])
-            .args(args)
-            .output()?;
-
-        if !output.status.success() {
-            return Err(anyhow!(
-                "Failed to run git diff:\n{}",
-                String::from_utf8_lossy(&output.stderr)
-            ));
-        }
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 
     fn stage_paths(&self, paths: &[RepoPath]) -> Result<()> {
@@ -1078,10 +1046,6 @@ impl GitRepository for FakeGitRepository {
     fn check_for_pushed_commit(&self) -> Result<Vec<SharedString>> {
         unimplemented!()
     }
-
-    fn diff(&self, _diff: DiffType) -> Result<String> {
-        unimplemented!()
-    }
 }
 
 fn check_path_to_repo_path_errors(relative_file_path: &Path) -> Result<()> {
@@ -1212,7 +1176,6 @@ fn parse_branch_input(input: &str) -> Result<Vec<Branch>> {
         let mut fields = line.split('\x00');
         let is_current_branch = fields.next().context("no HEAD")? == "*";
         let head_sha: SharedString = fields.next().context("no objectname")?.to_string().into();
-        let parent_sha: SharedString = fields.next().context("no parent")?.to_string().into();
         let ref_name: SharedString = fields
             .next()
             .context("no refname")?
@@ -1236,7 +1199,6 @@ fn parse_branch_input(input: &str) -> Result<Vec<Branch>> {
                 sha: head_sha,
                 subject,
                 commit_timestamp: commiterdate,
-                has_parent: !parent_sha.is_empty(),
             }),
             upstream: if upstream_name.is_empty() {
                 None
@@ -1289,7 +1251,7 @@ fn parse_upstream_track(upstream_track: &str) -> Result<UpstreamTracking> {
 fn test_branches_parsing() {
     // suppress "help: octal escapes are not supported, `\0` is always null"
     #[allow(clippy::octal_escapes)]
-    let input = "*\0060964da10574cd9bf06463a53bf6e0769c5c45e\0\0refs/heads/zed-patches\0refs/remotes/origin/zed-patches\0\01733187470\0generated protobuf\n";
+    let input = "*\0060964da10574cd9bf06463a53bf6e0769c5c45e\0refs/heads/zed-patches\0refs/remotes/origin/zed-patches\0\01733187470\0generated protobuf\n";
     assert_eq!(
         parse_branch_input(&input).unwrap(),
         vec![Branch {
@@ -1306,7 +1268,6 @@ fn test_branches_parsing() {
                 sha: "060964da10574cd9bf06463a53bf6e0769c5c45e".into(),
                 subject: "generated protobuf".into(),
                 commit_timestamp: 1733187470,
-                has_parent: false,
             })
         }]
     )

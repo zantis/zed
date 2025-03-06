@@ -1,4 +1,3 @@
-use std::fmt::Display;
 use std::ops::{Deref, DerefMut};
 use std::sync::LazyLock;
 
@@ -9,7 +8,7 @@ use parking_lot::RwLock;
 use theme::ActiveTheme;
 
 pub trait Component {
-    fn scope() -> Option<ComponentScope>;
+    fn scope() -> Option<&'static str>;
     fn name() -> &'static str {
         std::any::type_name::<Self>()
     }
@@ -32,7 +31,7 @@ pub static COMPONENT_DATA: LazyLock<RwLock<ComponentRegistry>> =
     LazyLock::new(|| RwLock::new(ComponentRegistry::new()));
 
 pub struct ComponentRegistry {
-    components: Vec<(Option<ComponentScope>, &'static str, Option<&'static str>)>,
+    components: Vec<(Option<&'static str>, &'static str, Option<&'static str>)>,
     previews: HashMap<&'static str, fn(&mut Window, &mut App) -> AnyElement>,
 }
 
@@ -79,7 +78,7 @@ pub struct ComponentId(pub &'static str);
 #[derive(Clone)]
 pub struct ComponentMetadata {
     name: SharedString,
-    scope: Option<ComponentScope>,
+    scope: Option<SharedString>,
     description: Option<SharedString>,
     preview: Option<fn(&mut Window, &mut App) -> AnyElement>,
 }
@@ -89,7 +88,7 @@ impl ComponentMetadata {
         self.name.clone()
     }
 
-    pub fn scope(&self) -> Option<ComponentScope> {
+    pub fn scope(&self) -> Option<SharedString> {
         self.scope.clone()
     }
 
@@ -153,14 +152,14 @@ pub fn components() -> AllComponents {
     let data = COMPONENT_DATA.read();
     let mut all_components = AllComponents::new();
 
-    for (ref scope, name, description) in &data.components {
+    for &(scope, name, description) in &data.components {
+        let scope = scope.map(Into::into);
         let preview = data.previews.get(name).cloned();
-        let component_name = SharedString::new_static(name);
         all_components.insert(
             ComponentId(name),
             ComponentMetadata {
-                name: component_name,
-                scope: scope.clone(),
+                name: name.into(),
+                scope,
                 description: description.map(Into::into),
                 preview,
             },
@@ -168,59 +167,6 @@ pub fn components() -> AllComponents {
     }
 
     all_components
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ComponentScope {
-    Layout,
-    Input,
-    Notification,
-    Editor,
-    Collaboration,
-    VersionControl,
-    Unknown(SharedString),
-}
-
-impl Display for ComponentScope {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ComponentScope::Layout => write!(f, "Layout"),
-            ComponentScope::Input => write!(f, "Input"),
-            ComponentScope::Notification => write!(f, "Notification"),
-            ComponentScope::Editor => write!(f, "Editor"),
-            ComponentScope::Collaboration => write!(f, "Collaboration"),
-            ComponentScope::VersionControl => write!(f, "Version Control"),
-            ComponentScope::Unknown(name) => write!(f, "Unknown: {}", name),
-        }
-    }
-}
-
-impl From<&str> for ComponentScope {
-    fn from(value: &str) -> Self {
-        match value {
-            "Layout" => ComponentScope::Layout,
-            "Input" => ComponentScope::Input,
-            "Notification" => ComponentScope::Notification,
-            "Editor" => ComponentScope::Editor,
-            "Collaboration" => ComponentScope::Collaboration,
-            "Version Control" | "VersionControl" => ComponentScope::VersionControl,
-            _ => ComponentScope::Unknown(SharedString::new(value)),
-        }
-    }
-}
-
-impl From<String> for ComponentScope {
-    fn from(value: String) -> Self {
-        match value.as_str() {
-            "Layout" => ComponentScope::Layout,
-            "Input" => ComponentScope::Input,
-            "Notification" => ComponentScope::Notification,
-            "Editor" => ComponentScope::Editor,
-            "Collaboration" => ComponentScope::Collaboration,
-            "Version Control" | "VersionControl" => ComponentScope::VersionControl,
-            _ => ComponentScope::Unknown(SharedString::new(value)),
-        }
-    }
 }
 
 /// Which side of the preview to show labels on
@@ -231,8 +177,8 @@ pub enum ExampleLabelSide {
     /// Right side
     Right,
     /// Top side
-    #[default]
     Top,
+    #[default]
     /// Bottom side
     Bottom,
 }
@@ -262,7 +208,6 @@ impl RenderOnce for ComponentExample {
             .text_size(px(10.))
             .text_color(cx.theme().colors().text_muted)
             .when(self.grow, |this| this.flex_1())
-            .when(!self.grow, |this| this.flex_none())
             .child(self.element)
             .child(self.variant_name)
             .into_any_element()
