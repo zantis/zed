@@ -1,7 +1,6 @@
 use crate::askpass_modal::AskPassModal;
 use crate::commit_modal::CommitModal;
 use crate::git_panel_settings::StatusStyle;
-use crate::project_diff::Diff;
 use crate::remote_output_toast::{RemoteAction, RemoteOutputToast};
 use crate::repository_selector::filtered_repository_entries;
 use crate::{branch_picker, render_remote_button};
@@ -232,7 +231,6 @@ pub struct GitPanel {
     fs: Arc<dyn Fs>,
     hide_scrollbar_task: Option<Task<()>>,
     new_count: usize,
-    entry_count: usize,
     new_staged_count: usize,
     pending: Vec<PendingOperation>,
     pending_commit: Option<Task<()>>,
@@ -383,7 +381,6 @@ impl GitPanel {
             context_menu: None,
             workspace,
             modal_open: false,
-            entry_count: 0,
         };
         git_panel.schedule_update(false, window, cx);
         git_panel.show_scrollbar = git_panel.should_show_scrollbar(cx);
@@ -1082,7 +1079,7 @@ impl GitPanel {
         });
     }
 
-    pub fn stage_all(&mut self, _: &StageAll, _window: &mut Window, cx: &mut Context<Self>) {
+    fn stage_all(&mut self, _: &StageAll, _window: &mut Window, cx: &mut Context<Self>) {
         let entries = self
             .entries
             .iter()
@@ -1093,7 +1090,7 @@ impl GitPanel {
         self.change_file_stage(true, entries, cx);
     }
 
-    pub fn unstage_all(&mut self, _: &UnstageAll, _window: &mut Window, cx: &mut Context<Self>) {
+    fn unstage_all(&mut self, _: &UnstageAll, _window: &mut Window, cx: &mut Context<Self>) {
         let entries = self
             .entries
             .iter()
@@ -2142,12 +2139,10 @@ impl GitPanel {
         self.tracked_count = 0;
         self.new_staged_count = 0;
         self.tracked_staged_count = 0;
-        self.entry_count = 0;
         for entry in &self.entries {
             let Some(status_entry) = entry.status_entry() else {
                 continue;
             };
-            self.entry_count += 1;
             if repo.has_conflict(&status_entry.repo_path) {
                 self.conflicted_count += 1;
                 if self.entry_staging(status_entry).has_staged() {
@@ -2409,43 +2404,6 @@ impl GitPanel {
         })
     }
 
-    fn render_panel_header(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let text;
-        let action;
-        let tooltip;
-        if self.total_staged_count() == self.entry_count {
-            text = "Unstage All";
-            action = git::UnstageAll.boxed_clone();
-            tooltip = "git reset";
-        } else {
-            text = "Stage All";
-            action = git::StageAll.boxed_clone();
-            tooltip = "git add --all ."
-        }
-
-        self.panel_header_container(window, cx)
-            .child(
-                Button::new("diff", "Open diff")
-                    .tooltip(Tooltip::for_action_title("Open diff", &Diff))
-                    .on_click(|_, _, cx| {
-                        cx.defer(|cx| {
-                            cx.dispatch_action(&Diff);
-                        })
-                    }),
-            )
-            .child(div().flex_grow()) // spacer
-            .child(
-                Button::new("stage-unstage-all", text)
-                    .tooltip(Tooltip::for_action_title(tooltip, action.as_ref()))
-                    .on_click(move |_, _, cx| {
-                        let action = action.boxed_clone();
-                        cx.defer(move |cx| {
-                            cx.dispatch_action(action.as_ref());
-                        })
-                    }),
-            )
-    }
-
     pub fn render_footer(
         &self,
         window: &mut Window,
@@ -2615,28 +2573,20 @@ impl GitPanel {
                         }),
                 )
                 .child(div().flex_1())
-                .when(commit.has_parent, |this| {
-                    let has_unstaged = self.has_unstaged_changes();
-                    this.child(
-                        panel_icon_button("undo", IconName::Undo)
-                            .icon_size(IconSize::Small)
-                            .icon_color(Color::Muted)
-                            .tooltip(move |window, cx| {
-                                Tooltip::with_meta(
-                                    "Uncommit",
-                                    Some(&git::Uncommit),
-                                    if has_unstaged {
-                                        "git reset HEAD^ --soft"
-                                    } else {
-                                        "git reset HEAD^"
-                                    },
-                                    window,
-                                    cx,
-                                )
-                            })
-                            .on_click(cx.listener(|this, _, window, cx| this.uncommit(window, cx))),
-                    )
-                }),
+                .child(
+                    panel_icon_button("undo", IconName::Undo)
+                        .icon_size(IconSize::Small)
+                        .icon_color(Color::Muted)
+                        .tooltip(Tooltip::for_action_title(
+                            if self.has_staged_changes() {
+                                "git reset HEAD^ --soft"
+                            } else {
+                                "git reset HEAD^"
+                            },
+                            &git::Uncommit,
+                        ))
+                        .on_click(cx.listener(|this, _, window, cx| this.uncommit(window, cx))),
+                ),
         )
     }
 
@@ -3210,7 +3160,6 @@ impl Render for GitPanel {
             .child(
                 v_flex()
                     .size_full()
-                    .child(self.render_panel_header(window, cx))
                     .map(|this| {
                         if has_entries {
                             this.child(self.render_entries(has_write_access, window, cx))
@@ -3604,7 +3553,6 @@ impl ComponentPreview for PanelRepoFooter {
                     sha: "abc123".into(),
                     subject: "Modify stuff".into(),
                     commit_timestamp: 1710932954,
-                    has_parent: true,
                 }),
             }
         }
@@ -3621,7 +3569,6 @@ impl ComponentPreview for PanelRepoFooter {
                     sha: "abc123".into(),
                     subject: "Modify stuff".into(),
                     commit_timestamp: 1710932954,
-                    has_parent: true,
                 }),
             }
         }

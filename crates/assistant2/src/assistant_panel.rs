@@ -15,8 +15,7 @@ use editor::Editor;
 use fs::Fs;
 use gpui::{
     prelude::*, Action, AnyElement, App, AsyncWindowContext, Corner, Entity, EventEmitter,
-    FocusHandle, Focusable, FontWeight, KeyContext, Pixels, Subscription, Task, UpdateGlobal,
-    WeakEntity,
+    FocusHandle, Focusable, FontWeight, Pixels, Subscription, Task, UpdateGlobal, WeakEntity,
 };
 use language::LanguageRegistry;
 use language_model::{LanguageModelProviderTosView, LanguageModelRegistry};
@@ -92,6 +91,7 @@ pub struct AssistantPanel {
     context_editor: Option<Entity<ContextEditor>>,
     configuration: Option<Entity<AssistantConfiguration>>,
     configuration_subscription: Option<Subscription>,
+    tools: Arc<ToolWorkingSet>,
     local_timezone: UtcOffset,
     active_view: ActiveView,
     history_store: Entity<HistoryStore>,
@@ -132,7 +132,7 @@ impl AssistantPanel {
             log::info!("[assistant2-debug] finished initializing ContextStore");
 
             workspace.update_in(&mut cx, |workspace, window, cx| {
-                cx.new(|cx| Self::new(workspace, thread_store, context_store, window, cx))
+                cx.new(|cx| Self::new(workspace, thread_store, context_store, tools, window, cx))
             })
         })
     }
@@ -141,6 +141,7 @@ impl AssistantPanel {
         workspace: &Workspace,
         thread_store: Entity<ThreadStore>,
         context_store: Entity<assistant_context_editor::ContextStore>,
+        tools: Arc<ToolWorkingSet>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -166,30 +167,30 @@ impl AssistantPanel {
         let history_store =
             cx.new(|cx| HistoryStore::new(thread_store.clone(), context_store.clone(), cx));
 
-        let thread = cx.new(|cx| {
-            ActiveThread::new(
-                workspace.clone(),
-                thread.clone(),
-                thread_store.clone(),
-                language_registry.clone(),
-                window,
-                cx,
-            )
-        });
-
         Self {
             active_view: ActiveView::Thread,
-            workspace,
-            project: project.clone(),
+            workspace: workspace.clone(),
+            project,
             fs: fs.clone(),
-            language_registry,
+            language_registry: language_registry.clone(),
             thread_store: thread_store.clone(),
-            thread,
+            thread: cx.new(|cx| {
+                ActiveThread::new(
+                    thread.clone(),
+                    thread_store.clone(),
+                    workspace,
+                    language_registry,
+                    tools.clone(),
+                    window,
+                    cx,
+                )
+            }),
             message_editor,
             context_store,
             context_editor: None,
             configuration: None,
             configuration_subscription: None,
+            tools,
             local_timezone: UtcOffset::from_whole_seconds(
                 chrono::Local::now().offset().local_minus_utc(),
             )
@@ -242,10 +243,11 @@ impl AssistantPanel {
         self.active_view = ActiveView::Thread;
         self.thread = cx.new(|cx| {
             ActiveThread::new(
-                self.workspace.clone(),
                 thread.clone(),
                 self.thread_store.clone(),
+                self.workspace.clone(),
                 self.language_registry.clone(),
+                self.tools.clone(),
                 window,
                 cx,
             )
@@ -376,10 +378,11 @@ impl AssistantPanel {
                 this.active_view = ActiveView::Thread;
                 this.thread = cx.new(|cx| {
                     ActiveThread::new(
-                        this.workspace.clone(),
                         thread.clone(),
                         this.thread_store.clone(),
+                        this.workspace.clone(),
                         this.language_registry.clone(),
+                        this.tools.clone(),
                         window,
                         cx,
                     )
@@ -990,21 +993,12 @@ impl AssistantPanel {
             )
             .into_any()
     }
-
-    fn key_context(&self) -> KeyContext {
-        let mut key_context = KeyContext::new_with_defaults();
-        key_context.add("AssistantPanel2");
-        if matches!(self.active_view, ActiveView::PromptEditor) {
-            key_context.add("prompt_editor");
-        }
-        key_context
-    }
 }
 
 impl Render for AssistantPanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
-            .key_context(self.key_context())
+            .key_context("AssistantPanel2")
             .justify_between()
             .size_full()
             .on_action(cx.listener(Self::cancel))
@@ -1019,7 +1013,12 @@ impl Render for AssistantPanel {
             .map(|parent| match self.active_view {
                 ActiveView::Thread => parent
                     .child(self.render_active_thread_or_empty_state(window, cx))
-                    .child(h_flex().child(self.message_editor.clone()))
+                    .child(
+                        h_flex()
+                            .border_t_1()
+                            .border_color(cx.theme().colors().border)
+                            .child(self.message_editor.clone()),
+                    )
                     .children(self.render_last_error(cx)),
                 ActiveView::History => parent.child(self.history.clone()),
                 ActiveView::PromptEditor => parent.children(self.context_editor.clone()),

@@ -47,8 +47,6 @@ bitflags! {
         const CASE_SENSITIVE = 0b010;
         const INCLUDE_IGNORED = 0b100;
         const REGEX = 0b1000;
-        /// If set, reverse direction when finding the active match
-        const BACKWARDS = 0b10000;
     }
 }
 

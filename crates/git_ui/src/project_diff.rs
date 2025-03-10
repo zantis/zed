@@ -171,7 +171,7 @@ impl ProjectDiff {
             let this = cx.weak_entity();
             |cx| Self::handle_status_updates(this, recv, cx)
         });
-        // Kick off a refresh immediately
+        // Kick of a refresh immediately
         *send.borrow_mut() = ();
 
         Self {

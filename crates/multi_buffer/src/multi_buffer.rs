@@ -504,7 +504,7 @@ struct BufferEdit {
     range: Range<usize>,
     new_text: Arc<str>,
     is_insertion: bool,
-    original_indent_column: Option<u32>,
+    original_start_column: u32,
     excerpt_id: ExcerptId,
 }
 
@@ -767,15 +767,15 @@ impl MultiBuffer {
                 return;
             }
 
-            let original_indent_columns = match &mut autoindent_mode {
+            let original_start_columns = match &mut autoindent_mode {
                 Some(AutoindentMode::Block {
-                    original_indent_columns,
-                }) => mem::take(original_indent_columns),
+                    original_start_columns,
+                }) => mem::take(original_start_columns),
                 _ => Default::default(),
             };
 
             let (buffer_edits, edited_excerpt_ids) =
-                this.convert_edits_to_buffer_edits(edits, &snapshot, &original_indent_columns);
+                this.convert_edits_to_buffer_edits(edits, &snapshot, &original_start_columns);
             drop(snapshot);
 
             let mut buffer_ids = Vec::new();
@@ -794,7 +794,7 @@ impl MultiBuffer {
                             mut range,
                             mut new_text,
                             mut is_insertion,
-                            original_indent_column,
+                            original_start_column: original_indent_column,
                             excerpt_id,
                         }) = edits.next()
                         {
@@ -837,7 +837,7 @@ impl MultiBuffer {
                         let deletion_autoindent_mode =
                             if let Some(AutoindentMode::Block { .. }) = autoindent_mode {
                                 Some(AutoindentMode::Block {
-                                    original_indent_columns: Default::default(),
+                                    original_start_columns: Default::default(),
                                 })
                             } else {
                                 autoindent_mode.clone()
@@ -845,7 +845,7 @@ impl MultiBuffer {
                         let insertion_autoindent_mode =
                             if let Some(AutoindentMode::Block { .. }) = autoindent_mode {
                                 Some(AutoindentMode::Block {
-                                    original_indent_columns,
+                                    original_start_columns: original_indent_columns,
                                 })
                             } else {
                                 autoindent_mode.clone()
@@ -867,13 +867,13 @@ impl MultiBuffer {
         &self,
         edits: Vec<(Range<usize>, Arc<str>)>,
         snapshot: &MultiBufferSnapshot,
-        original_indent_columns: &[Option<u32>],
+        original_start_columns: &[u32],
     ) -> (HashMap<BufferId, Vec<BufferEdit>>, Vec<ExcerptId>) {
         let mut buffer_edits: HashMap<BufferId, Vec<BufferEdit>> = Default::default();
         let mut edited_excerpt_ids = Vec::new();
         let mut cursor = snapshot.cursor::<usize>();
         for (ix, (range, new_text)) in edits.into_iter().enumerate() {
-            let original_indent_column = original_indent_columns.get(ix).copied().flatten();
+            let original_start_column = original_start_columns.get(ix).copied().unwrap_or(0);
 
             cursor.seek(&range.start);
             let mut start_region = cursor.region().expect("start offset out of bounds");
@@ -924,7 +924,7 @@ impl MultiBuffer {
                             range: buffer_start..buffer_end,
                             new_text,
                             is_insertion: true,
-                            original_indent_column,
+                            original_start_column,
                             excerpt_id: start_region.excerpt.id,
                         });
                 }
@@ -940,7 +940,7 @@ impl MultiBuffer {
                             range: start_excerpt_range,
                             new_text: new_text.clone(),
                             is_insertion: true,
-                            original_indent_column,
+                            original_start_column,
                             excerpt_id: start_region.excerpt.id,
                         });
                 }
@@ -953,7 +953,7 @@ impl MultiBuffer {
                             range: end_excerpt_range,
                             new_text: new_text.clone(),
                             is_insertion: false,
-                            original_indent_column,
+                            original_start_column,
                             excerpt_id: end_region.excerpt.id,
                         });
                 }
@@ -973,7 +973,7 @@ impl MultiBuffer {
                                 range: region.buffer_range,
                                 new_text: new_text.clone(),
                                 is_insertion: false,
-                                original_indent_column,
+                                original_start_column,
                                 excerpt_id: region.excerpt.id,
                             });
                     }
@@ -1085,11 +1085,6 @@ impl MultiBuffer {
             buffer.update(cx, |buffer, _| buffer.start_transaction_at(now));
         }
         self.history.start_transaction(now)
-    }
-
-    pub fn last_transaction_id(&self) -> Option<TransactionId> {
-        let last_transaction = self.history.undo_stack.last()?;
-        return Some(last_transaction.id);
     }
 
     pub fn end_transaction(&mut self, cx: &mut Context<Self>) -> Option<TransactionId> {
@@ -2341,27 +2336,7 @@ impl MultiBuffer {
             .and_then(|(buffer, offset)| buffer.read(cx).language_at(offset))
     }
 
-    pub fn language_settings<'a>(&'a self, cx: &'a App) -> Cow<'a, LanguageSettings> {
-        let buffer_id = self
-            .snapshot
-            .borrow()
-            .excerpts
-            .first()
-            .map(|excerpt| excerpt.buffer.remote_id());
-        buffer_id
-            .and_then(|buffer_id| self.buffer(buffer_id))
-            .map(|buffer| {
-                let buffer = buffer.read(cx);
-                language_settings(buffer.language().map(|l| l.name()), buffer.file(), cx)
-            })
-            .unwrap_or_else(move || self.language_settings_at(0, cx))
-    }
-
-    pub fn language_settings_at<'a, T: ToOffset>(
-        &'a self,
-        point: T,
-        cx: &'a App,
-    ) -> Cow<'a, LanguageSettings> {
+    pub fn settings_at<'a, T: ToOffset>(&self, point: T, cx: &'a App) -> Cow<'a, LanguageSettings> {
         let mut language = None;
         let mut file = None;
         if let Some((buffer, offset)) = self.point_to_buffer_offset(point, cx) {
@@ -3546,7 +3521,10 @@ impl MultiBufferSnapshot {
     ) -> impl Iterator<Item = MultiBufferDiffHunk> + '_ {
         let query_range = range.start.to_point(self)..range.end.to_point(self);
         self.lift_buffer_metadata(query_range.clone(), move |buffer, buffer_range| {
-            let diff = self.diffs.get(&buffer.remote_id())?;
+            let Some(diff) = self.diffs.get(&buffer.remote_id()) else {
+                log::debug!("no diff found for {:?}", buffer.remote_id());
+                return None;
+            };
             let buffer_start = buffer.anchor_before(buffer_range.start);
             let buffer_end = buffer.anchor_after(buffer_range.end);
             Some(
@@ -4274,7 +4252,7 @@ impl MultiBufferSnapshot {
     pub fn indent_and_comment_for_line(&self, row: MultiBufferRow, cx: &App) -> String {
         let mut indent = self.indent_size_for_line(row).chars().collect::<String>();
 
-        if self.language_settings(cx).extend_comment_on_newline {
+        if self.settings_at(0, cx).extend_comment_on_newline {
             if let Some(language_scope) = self.language_scope_at(Point::new(row.0, 0)) {
                 let delimiters = language_scope.line_comment_prefixes();
                 for delimiter in delimiters {
@@ -5607,21 +5585,7 @@ impl MultiBufferSnapshot {
             .and_then(|(buffer, offset)| buffer.language_at(offset))
     }
 
-    fn language_settings<'a>(&'a self, cx: &'a App) -> Cow<'a, LanguageSettings> {
-        self.excerpts
-            .first()
-            .map(|excerpt| &excerpt.buffer)
-            .map(|buffer| {
-                language_settings(
-                    buffer.language().map(|language| language.name()),
-                    buffer.file(),
-                    cx,
-                )
-            })
-            .unwrap_or_else(move || self.language_settings_at(0, cx))
-    }
-
-    pub fn language_settings_at<'a, T: ToOffset>(
+    pub fn settings_at<'a, T: ToOffset>(
         &'a self,
         point: T,
         cx: &'a App,

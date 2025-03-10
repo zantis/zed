@@ -632,7 +632,7 @@ impl ExtensionsPage {
                                                     .px_0p5()
                                                     .border_1()
                                                     .border_color(cx.theme().colors().border)
-                                                    .rounded_sm()
+                                                    .rounded_md()
                                                     .child(
                                                         Label::new(label).size(LabelSize::XSmall),
                                                     )
