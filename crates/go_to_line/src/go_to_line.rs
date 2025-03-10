@@ -152,10 +152,7 @@ impl GoToLine {
         cx: &mut Context<Self>,
     ) {
         match event {
-            editor::EditorEvent::Blurred => {
-                self.prev_scroll_position.take();
-                cx.emit(DismissEvent)
-            }
+            editor::EditorEvent::Blurred => cx.emit(DismissEvent),
             editor::EditorEvent::BufferEdited { .. } => self.highlight_current_line(cx),
             _ => {}
         }
