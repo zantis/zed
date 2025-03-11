@@ -843,6 +843,7 @@ impl Pane {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn open_item(
         &mut self,
         project_entry_id: Option<ProjectEntryId>,
@@ -927,6 +928,7 @@ impl Pane {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn add_item_inner(
         &mut self,
         item: Box<dyn ItemHandle>,
@@ -3297,7 +3299,7 @@ impl Render for Pane {
                 pane.child(self.render_tab_bar(window, cx))
             })
             .child({
-                let has_worktrees = project.read(cx).visible_worktrees(cx).next().is_some();
+                let has_worktrees = project.read(cx).worktrees(cx).next().is_some();
                 // main content
                 div()
                     .flex_1()

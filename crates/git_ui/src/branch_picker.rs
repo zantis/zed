@@ -12,7 +12,9 @@ use project::git::Repository;
 use std::sync::Arc;
 use time::OffsetDateTime;
 use time_format::format_local_timestamp;
-use ui::{prelude::*, HighlightedLabel, KeyBinding, ListItem, ListItemSpacing, Tooltip};
+use ui::{
+    prelude::*, HighlightedLabel, KeyBinding, ListItem, ListItemSpacing, PopoverMenuHandle, Tooltip,
+};
 use util::ResultExt;
 use workspace::notifications::DetachAndPromptErr;
 use workspace::{ModalView, Workspace};
@@ -77,6 +79,7 @@ enum BranchListStyle {
 
 pub struct BranchList {
     width: Rems,
+    pub popover_handle: PopoverMenuHandle<Self>,
     pub picker: Entity<Picker<BranchListDelegate>>,
     _subscription: Subscription,
 }
@@ -89,6 +92,7 @@ impl BranchList {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let popover_handle = PopoverMenuHandle::default();
         let all_branches_request = repository
             .clone()
             .map(|repository| repository.read(cx).branches());
@@ -126,6 +130,7 @@ impl BranchList {
         Self {
             picker,
             width,
+            popover_handle,
             _subscription,
         }
     }

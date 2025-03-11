@@ -1,5 +1,5 @@
 use std::{
-    borrow::{Borrow, Cow},
+    borrow::Cow,
     sync::atomic::{self, AtomicBool},
 };
 
@@ -50,24 +50,22 @@ impl<'a> Matcher<'a> {
 
     /// Filter and score fuzzy match candidates. Results are returned unsorted, in the same order as
     /// the input candidates.
-    pub fn match_candidates<C, R, F, T>(
+    pub fn match_candidates<C: MatchCandidate, R, F>(
         &mut self,
         prefix: &[char],
         lowercase_prefix: &[char],
-        candidates: impl Iterator<Item = T>,
+        candidates: impl Iterator<Item = C>,
         results: &mut Vec<R>,
         cancel_flag: &AtomicBool,
         build_match: F,
     ) where
-        C: MatchCandidate,
-        T: Borrow<C>,
         F: Fn(&C, f64, &Vec<usize>) -> R,
     {
         let mut candidate_chars = Vec::new();
         let mut lowercase_candidate_chars = Vec::new();
 
         for candidate in candidates {
-            if !candidate.borrow().has_chars(self.query_char_bag) {
+            if !candidate.has_chars(self.query_char_bag) {
                 continue;
             }
 
@@ -77,7 +75,7 @@ impl<'a> Matcher<'a> {
 
             candidate_chars.clear();
             lowercase_candidate_chars.clear();
-            for c in candidate.borrow().to_string().chars() {
+            for c in candidate.to_string().chars() {
                 candidate_chars.push(c);
                 lowercase_candidate_chars.append(&mut c.to_lowercase().collect::<Vec<_>>());
             }
@@ -100,11 +98,7 @@ impl<'a> Matcher<'a> {
             );
 
             if score > 0.0 {
-                results.push(build_match(
-                    candidate.borrow(),
-                    score,
-                    &self.match_positions,
-                ));
+                results.push(build_match(&candidate, score, &self.match_positions));
             }
         }
     }
@@ -170,6 +164,7 @@ impl<'a> Matcher<'a> {
         score
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn recursive_score_match(
         &mut self,
         path: &[char],

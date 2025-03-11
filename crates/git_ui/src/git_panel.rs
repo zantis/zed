@@ -2361,7 +2361,10 @@ impl GitPanel {
                             cx,
                         )
                     } else {
-                        Tooltip::simple("No changes to commit", cx)
+                        Tooltip::simple(
+                            "You must have either staged changes or tracked files to generate a commit message",
+                            cx,
+                        )
                     }
                 })
                 .disabled(!can_commit)
@@ -2411,7 +2414,10 @@ impl GitPanel {
         if self.has_unstaged_conflicts() {
             (false, "You must resolve conflicts before committing")
         } else if !self.has_staged_changes() && !self.has_tracked_changes() {
-            (false, "No changes to commit")
+            (
+                false,
+                "You must have either staged changes or tracked files to commit",
+            )
         } else if self.pending_commit.is_some() {
             (false, "Commit in progress")
         } else if self.custom_or_suggested_commit_message(cx).is_none() {
@@ -2669,28 +2675,20 @@ impl GitPanel {
                         }),
                 )
                 .child(div().flex_1())
-                .when(commit.has_parent, |this| {
-                    let has_unstaged = self.has_unstaged_changes();
-                    this.child(
-                        panel_icon_button("undo", IconName::Undo)
-                            .icon_size(IconSize::Small)
-                            .icon_color(Color::Muted)
-                            .tooltip(move |window, cx| {
-                                Tooltip::with_meta(
-                                    "Uncommit",
-                                    Some(&git::Uncommit),
-                                    if has_unstaged {
-                                        "git reset HEAD^ --soft"
-                                    } else {
-                                        "git reset HEAD^"
-                                    },
-                                    window,
-                                    cx,
-                                )
-                            })
-                            .on_click(cx.listener(|this, _, window, cx| this.uncommit(window, cx))),
-                    )
-                }),
+                .child(
+                    panel_icon_button("undo", IconName::Undo)
+                        .icon_size(IconSize::Small)
+                        .icon_color(Color::Muted)
+                        .tooltip(Tooltip::for_action_title(
+                            if self.has_staged_changes() {
+                                "git reset HEAD^ --soft"
+                            } else {
+                                "git reset HEAD^"
+                            },
+                            &git::Uncommit,
+                        ))
+                        .on_click(cx.listener(|this, _, window, cx| this.uncommit(window, cx))),
+                ),
         )
     }
 
@@ -3573,7 +3571,6 @@ impl RenderOnce for PanelRepoFooter {
             .h(px(36.))
             .items_center()
             .justify_between()
-            .gap_1()
             .child(
                 h_flex()
                     .flex_1()
@@ -3672,7 +3669,6 @@ impl ComponentPreview for PanelRepoFooter {
                     sha: "abc123".into(),
                     subject: "Modify stuff".into(),
                     commit_timestamp: 1710932954,
-                    has_parent: true,
                 }),
             }
         }
@@ -3689,7 +3685,6 @@ impl ComponentPreview for PanelRepoFooter {
                     sha: "abc123".into(),
                     subject: "Modify stuff".into(),
                     commit_timestamp: 1710932954,
-                    has_parent: true,
                 }),
             }
         }

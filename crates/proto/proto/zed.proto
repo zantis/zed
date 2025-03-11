@@ -1,3 +1,4 @@
+
 syntax = "proto3";
 package zed.messages;
 
@@ -585,23 +586,13 @@ message JoinProject {
     uint64 project_id = 1;
 }
 
-message ListRemoteDirectoryConfig {
-    bool is_dir = 1;
-}
-
 message ListRemoteDirectory {
     uint64 dev_server_id = 1;
     string path = 2;
-    ListRemoteDirectoryConfig config = 3;
-}
-
-message EntryInfo {
-    bool is_dir = 1;
 }
 
 message ListRemoteDirectoryResponse {
     repeated string entries = 1;
-    repeated EntryInfo entry_info = 2;
 }
 
 message JoinProjectResponse {
@@ -998,13 +989,6 @@ message Completion {
     uint64 server_id = 4;
     bytes lsp_completion = 5;
     bool resolved = 6;
-    Source source = 7;
-    optional bytes lsp_defaults = 8;
-
-    enum Source {
-        Lsp = 0;
-        Custom = 1;
-    }
 }
 
 message GetCodeActions {
@@ -1292,11 +1276,6 @@ message CodeAction {
     Anchor start = 2;
     Anchor end = 3;
     bytes lsp_action = 4;
-    Kind kind = 5;
-    enum Kind {
-        Action = 0;
-        Command = 1;
-    }
 }
 
 message ProjectTransaction {
