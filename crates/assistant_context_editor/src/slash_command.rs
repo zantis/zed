@@ -5,9 +5,9 @@ use assistant_slash_command::{AfterCompletion, SlashCommandLine, SlashCommandWor
 use editor::{CompletionProvider, Editor};
 use fuzzy::{match_strings, StringMatchCandidate};
 use gpui::{App, AppContext as _, Context, Entity, Task, WeakEntity, Window};
-use language::{Anchor, Buffer, ToPoint};
+use language::{Anchor, Buffer, LanguageServerId, ToPoint};
 use parking_lot::Mutex;
-use project::{lsp_store::CompletionDocumentation, CompletionIntent, CompletionSource};
+use project::{lsp_store::CompletionDocumentation, CompletionIntent};
 use rope::Point;
 use std::{
     cell::RefCell,
@@ -125,8 +125,10 @@ impl SlashCommandCompletionProvider {
                             )),
                             new_text,
                             label: command.label(cx),
+                            server_id: LanguageServerId(0),
+                            lsp_completion: Default::default(),
                             confirm,
-                            source: CompletionSource::Custom,
+                            resolved: true,
                         })
                     })
                     .collect()
@@ -134,6 +136,7 @@ impl SlashCommandCompletionProvider {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn complete_command_argument(
         &self,
         command_name: &str,
@@ -222,8 +225,10 @@ impl SlashCommandCompletionProvider {
                             label: new_argument.label,
                             new_text,
                             documentation: None,
+                            server_id: LanguageServerId(0),
+                            lsp_completion: Default::default(),
                             confirm,
-                            source: CompletionSource::Custom,
+                            resolved: true,
                         }
                     })
                     .collect())

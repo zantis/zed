@@ -122,7 +122,7 @@ impl CopilotCodeVerification {
             .p_1()
             .border_1()
             .border_muted(cx)
-            .rounded_sm()
+            .rounded_md()
             .cursor_pointer()
             .justify_between()
             .on_mouse_down(gpui::MouseButton::Left, {

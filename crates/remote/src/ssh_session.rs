@@ -1280,6 +1280,7 @@ impl From<SshRemoteClient> for AnyProtoClient {
 
 #[async_trait(?Send)]
 trait RemoteConnection: Send + Sync {
+    #[allow(clippy::too_many_arguments)]
     fn start_proxy(
         &self,
         unique_identifier: String,
@@ -1562,7 +1563,7 @@ impl SshRemoteConnection {
     }
 
     async fn platform(&self) -> Result<SshPlatform> {
-        let uname = self.socket.run_command("sh", &["-c", "uname -sm"]).await?;
+        let uname = self.socket.run_command("uname", &["-sm"]).await?;
         let Some((os, arch)) = uname.split_once(" ") else {
             Err(anyhow!("unknown uname: {uname:?}"))?
         };

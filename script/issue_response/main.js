@@ -46,16 +46,12 @@ async function main() {
   githubHandles.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
   const commenterFilters = githubHandles.map((name) => `-commenter:${name}`);
   const authorFilters = githubHandles.map((name) => `-author:${name}`);
-  const twoDaysAgo = new Date();
-  twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
-  const twoDaysAgoString = twoDaysAgo.toISOString().split("T")[0];
-  const dateRangeFilter = `2025-02-01..${twoDaysAgoString}`;
 
   const q = [
     `repo:${owner}/${repo}`,
     "is:issue",
     "state:open",
-    `created:${dateRangeFilter}`,
+    "created:>=2025-02-01",
     "sort:created-asc",
     ...commenterFilters,
     ...authorFilters,

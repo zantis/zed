@@ -11,8 +11,8 @@ use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use futures::{FutureExt, StreamExt};
 use gpui::{
-    percentage, svg, Action, Animation, AnimationExt, AnyView, App, AsyncApp, Entity, Render,
-    Subscription, Task, Transformation,
+    percentage, svg, Animation, AnimationExt, AnyView, App, AsyncApp, Entity, Render, Subscription,
+    Task, Transformation,
 };
 use language_model::{
     AuthenticateError, LanguageModel, LanguageModelCompletionEvent, LanguageModelId,
@@ -337,20 +337,9 @@ impl Render for ConfigurationView {
         if self.state.read(cx).is_authenticated(cx) {
             const LABEL: &str = "Authorized.";
             h_flex()
-                .justify_between()
-                .child(
-                    h_flex()
-                        .gap_1()
-                        .child(Icon::new(IconName::Check).color(Color::Success))
-                        .child(Label::new(LABEL)),
-                )
-                .child(
-                    Button::new("sign_out", "Sign Out")
-                        .style(ui::ButtonStyle::Filled)
-                        .on_click(|_, window, cx| {
-                            window.dispatch_action(copilot::SignOut.boxed_clone(), cx);
-                        }),
-                )
+                .gap_1()
+                .child(Icon::new(IconName::Check).color(Color::Success))
+                .child(Label::new(LABEL))
         } else {
             let loading_icon = svg()
                 .size_8()

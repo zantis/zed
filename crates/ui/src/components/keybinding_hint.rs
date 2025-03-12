@@ -187,7 +187,7 @@ impl RenderOnce for KeybindingHint {
             .child(
                 h_flex()
                     .items_center()
-                    .rounded_sm()
+                    .rounded_md()
                     .px_0p5()
                     .mr_0p5()
                     .border_1()

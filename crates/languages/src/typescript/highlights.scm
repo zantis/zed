@@ -80,8 +80,8 @@
 
 ; Literals
 
-(this) @variable.special
-(super) @variable.special
+(this) @keyword
+(super) @keyword
 
 [
   (null)

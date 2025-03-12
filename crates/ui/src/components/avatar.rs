@@ -152,7 +152,7 @@ impl RenderOnce for AvatarAudioStatusIndicator {
                     .px(padding_x)
                     .py(px(2.))
                     .bg(cx.theme().status().error_background)
-                    .rounded_sm()
+                    .rounded_md()
                     .child(
                         Icon::new(match self.audio_status {
                             AudioStatus::Muted => IconName::MicMute,

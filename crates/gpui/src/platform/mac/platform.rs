@@ -347,7 +347,20 @@ impl MacPlatform {
                                 msg_send![item, setAllowsAutomaticKeyEquivalentLocalization: NO];
                         }
                         item.setKeyEquivalentModifierMask_(mask);
-                    } else {
+                    }
+                    // For multi-keystroke bindings, render the keystroke as part of the title.
+                    else {
+                        use std::fmt::Write;
+
+                        let mut name = format!("{name} [");
+                        for (i, keystroke) in keystrokes.iter().enumerate() {
+                            if i > 0 {
+                                name.push(' ');
+                            }
+                            write!(&mut name, "{}", keystroke).unwrap();
+                        }
+                        name.push(']');
+
                         item = NSMenuItem::alloc(nil)
                             .initWithTitle_action_keyEquivalent_(
                                 ns_string(&name),
