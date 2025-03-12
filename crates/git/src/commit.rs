@@ -3,21 +3,20 @@ use anyhow::{anyhow, Result};
 use collections::HashMap;
 use std::path::Path;
 
-pub async fn get_messages(working_directory: &Path, shas: &[Oid]) -> Result<HashMap<Oid, String>> {
+pub fn get_messages(working_directory: &Path, shas: &[Oid]) -> Result<HashMap<Oid, String>> {
     if shas.is_empty() {
         return Ok(HashMap::default());
     }
 
     const MARKER: &str = "<MARKER>";
 
-    let output = util::command::new_smol_command("git")
+    let output = util::command::new_std_command("git")
         .current_dir(working_directory)
         .arg("show")
         .arg("-s")
         .arg(format!("--format=%B{}", MARKER))
         .args(shas.iter().map(ToString::to_string))
         .output()
-        .await
         .map_err(|e| anyhow!("Failed to start git blame process: {}", e))?;
 
     anyhow::ensure!(

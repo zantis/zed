@@ -476,7 +476,9 @@
       "ctrl-alt-delete": "editor::DeleteToNextSubwordEnd",
       "ctrl-alt-d": "editor::DeleteToNextSubwordEnd",
       "ctrl-alt-left": "editor::MoveToPreviousSubwordStart",
+      // "ctrl-alt-b": "editor::MoveToPreviousSubwordStart",
       "ctrl-alt-right": "editor::MoveToNextSubwordEnd",
+      "ctrl-alt-f": "editor::MoveToNextSubwordEnd",
       "ctrl-alt-shift-left": "editor::SelectToPreviousSubwordStart",
       "ctrl-alt-shift-b": "editor::SelectToPreviousSubwordStart",
       "ctrl-alt-shift-right": "editor::SelectToNextSubwordEnd",
@@ -612,26 +614,9 @@
     }
   },
   {
-    "context": "AssistantPanel2 && prompt_editor",
-    "use_key_equivalents": true,
-    "bindings": {
-      "cmd-n": "assistant2::NewPromptEditor",
-      "cmd-alt-t": "assistant2::NewThread"
-    }
-  },
-  {
     "context": "MessageEditor > Editor",
     "bindings": {
       "enter": "assistant2::Chat"
-    }
-  },
-  {
-    "context": "EditMessageEditor > Editor",
-    "use_key_equivalents": true,
-    "bindings": {
-      "escape": "menu::Cancel",
-      "enter": "menu::Confirm",
-      "alt-enter": "editor::Newline"
     }
   },
   {
@@ -862,22 +847,21 @@
       "alt-b": ["terminal::SendText", "\u001bb"],
       "alt-f": ["terminal::SendText", "\u001bf"],
       // Overrides for conflicting keybindings
-      "ctrl-b": ["terminal::SendKeystroke", "ctrl-b"],
-      "ctrl-c": ["terminal::SendKeystroke", "ctrl-c"],
-      "ctrl-e": ["terminal::SendKeystroke", "ctrl-e"],
-      "ctrl-o": ["terminal::SendKeystroke", "ctrl-o"],
       "ctrl-w": ["terminal::SendKeystroke", "ctrl-w"],
       "ctrl-shift-a": "editor::SelectAll",
       "find": "buffer_search::Deploy",
       "ctrl-shift-f": "buffer_search::Deploy",
       "ctrl-shift-l": "terminal::Clear",
       "ctrl-shift-w": "pane::CloseActiveItem",
+      "ctrl-e": ["terminal::SendKeystroke", "ctrl-e"],
       "up": ["terminal::SendKeystroke", "up"],
       "pageup": ["terminal::SendKeystroke", "pageup"],
       "down": ["terminal::SendKeystroke", "down"],
       "pagedown": ["terminal::SendKeystroke", "pagedown"],
       "escape": ["terminal::SendKeystroke", "escape"],
       "enter": ["terminal::SendKeystroke", "enter"],
+      "ctrl-b": ["terminal::SendKeystroke", "ctrl-b"],
+      "ctrl-c": ["terminal::SendKeystroke", "ctrl-c"],
       "shift-pageup": "terminal::ScrollPageUp",
       "shift-pagedown": "terminal::ScrollPageDown",
       "shift-up": "terminal::ScrollLineUp",

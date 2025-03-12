@@ -14,7 +14,7 @@ use collections::{btree_map, BTreeMap, BTreeSet, HashMap, HashSet};
 use extension::extension_builder::{CompileExtensionOptions, ExtensionBuilder};
 pub use extension::ExtensionManifest;
 use extension::{
-    ExtensionContextServerProxy, ExtensionEvents, ExtensionGrammarProxy, ExtensionHostProxy,
+    ExtensionContextServerProxy, ExtensionGrammarProxy, ExtensionHostProxy,
     ExtensionIndexedDocsProviderProxy, ExtensionLanguageProxy, ExtensionLanguageServerProxy,
     ExtensionSlashCommandProxy, ExtensionSnippetProxy, ExtensionThemeProxy,
 };
@@ -127,6 +127,7 @@ pub enum ExtensionOperation {
 
 #[derive(Clone)]
 pub enum Event {
+    ExtensionsUpdated,
     StartedReloading,
     ExtensionInstalled(Arc<str>),
     ExtensionFailedToLoad(Arc<str>),
@@ -217,6 +218,7 @@ impl ExtensionStore {
         cx.global::<GlobalExtensionStore>().0.clone()
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         extensions_dir: PathBuf,
         build_dir: Option<PathBuf>,
@@ -1213,9 +1215,7 @@ impl ExtensionStore {
 
         self.extension_index = new_index;
         cx.notify();
-        ExtensionEvents::global(cx).update(cx, |this, cx| {
-            this.emit(extension::Event::ExtensionsUpdated, cx)
-        });
+        cx.emit(Event::ExtensionsUpdated);
 
         cx.spawn(|this, mut cx| async move {
             cx.background_spawn({

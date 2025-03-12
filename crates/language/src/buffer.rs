@@ -110,7 +110,7 @@ pub struct Buffer {
     pending_autoindent: Option<Task<()>>,
     sync_parse_timeout: Duration,
     syntax_map: Mutex<SyntaxMap>,
-    reparse: Option<Task<()>>,
+    parsing_in_background: bool,
     parse_status: (watch::Sender<ParseStatus>, watch::Receiver<ParseStatus>),
     non_text_state_update_count: usize,
     diagnostics: SmallVec<[(LanguageServerId, DiagnosticSet); 2]>,
@@ -402,16 +402,17 @@ pub enum AutoindentMode {
     /// Apply the same indentation adjustment to all of the lines
     /// in a given insertion.
     Block {
-        /// The original indentation column of the first line of each
-        /// insertion, if it has been copied.
+        /// The original start column of each insertion, if it was
+        /// copied from elsewhere.
         ///
-        /// Knowing this makes it possible to preserve the relative indentation
-        /// of every line in the insertion from when it was copied.
+        /// Knowing this start column makes it possible to preserve the
+        /// relative indentation of every line in the insertion from
+        /// when it was copied.
         ///
-        /// If the original indent column is `a`, and the first line of insertion
+        /// If the start column is `a`, and the first line of insertion
         /// is then auto-indented to column `b`, then every other line of
         /// the insertion will be auto-indented to column `b - a`
-        original_indent_columns: Vec<Option<u32>>,
+        original_start_columns: Vec<u32>,
     },
 }
 
@@ -964,7 +965,7 @@ impl Buffer {
             file,
             capability,
             syntax_map,
-            reparse: None,
+            parsing_in_background: false,
             non_text_state_update_count: 0,
             sync_parse_timeout: Duration::from_millis(1),
             parse_status: async_watch::channel(ParseStatus::Idle),
@@ -1424,7 +1425,7 @@ impl Buffer {
     /// Whether the buffer is being parsed in the background.
     #[cfg(any(test, feature = "test-support"))]
     pub fn is_parsing(&self) -> bool {
-        self.reparse.is_some()
+        self.parsing_in_background
     }
 
     /// Indicates whether the buffer contains any regions that may be
@@ -1462,7 +1463,7 @@ impl Buffer {
     /// for the same buffer, we only initiate a new parse if we are not already
     /// parsing in the background.
     pub fn reparse(&mut self, cx: &mut Context<Self>) {
-        if self.reparse.is_some() {
+        if self.parsing_in_background {
             return;
         }
         let language = if let Some(language) = self.language.clone() {
@@ -1496,10 +1497,10 @@ impl Buffer {
         {
             Ok(new_syntax_snapshot) => {
                 self.did_finish_parsing(new_syntax_snapshot, cx);
-                self.reparse = None;
             }
             Err(parse_task) => {
-                self.reparse = Some(cx.spawn(move |this, mut cx| async move {
+                self.parsing_in_background = true;
+                cx.spawn(move |this, mut cx| async move {
                     let new_syntax_map = parse_task.await;
                     this.update(&mut cx, move |this, cx| {
                         let grammar_changed =
@@ -1515,13 +1516,14 @@ impl Buffer {
                             || grammar_changed
                             || this.version.changed_since(&parsed_version);
                         this.did_finish_parsing(new_syntax_map, cx);
-                        this.reparse = None;
+                        this.parsing_in_background = false;
                         if parse_again {
                             this.reparse(cx);
                         }
                     })
                     .ok();
-                }));
+                })
+                .detach();
             }
         }
     }
@@ -2233,20 +2235,15 @@ impl Buffer {
 
                     let mut original_indent_column = None;
                     if let AutoindentMode::Block {
-                        original_indent_columns,
+                        original_start_columns,
                     } = &mode
                     {
                         original_indent_column = Some(
-                            original_indent_columns
-                                .get(ix)
-                                .copied()
-                                .flatten()
-                                .unwrap_or_else(|| {
-                                    indent_size_for_text(
-                                        new_text[range_of_insertion_to_indent.clone()].chars(),
-                                    )
-                                    .len
-                                }),
+                            original_start_columns.get(ix).copied().unwrap_or(0)
+                                + indent_size_for_text(
+                                    new_text[range_of_insertion_to_indent.clone()].chars(),
+                                )
+                                .len,
                         );
 
                         // Avoid auto-indenting the line after the edit.
@@ -3112,25 +3109,6 @@ impl BufferSnapshot {
             .layers_for_range(offset..offset, &self.text, false)
             .filter(|l| l.node().end_byte() > offset)
             .last()
-    }
-
-    pub fn smallest_syntax_layer_containing<D: ToOffset>(
-        &self,
-        range: Range<D>,
-    ) -> Option<SyntaxLayer> {
-        let range = range.to_offset(self);
-        return self
-            .syntax
-            .layers_for_range(range, &self.text, false)
-            .max_by(|a, b| {
-                if a.depth != b.depth {
-                    a.depth.cmp(&b.depth)
-                } else if a.offset.0 != b.offset.0 {
-                    a.offset.0.cmp(&b.offset.0)
-                } else {
-                    a.node().end_byte().cmp(&b.node().end_byte()).reverse()
-                }
-            });
     }
 
     /// Returns the main [`Language`].
@@ -4144,63 +4122,6 @@ impl BufferSnapshot {
         } else {
             None
         }
-    }
-
-    pub fn words_in_range(
-        &self,
-        query: Option<&str>,
-        range: Range<usize>,
-    ) -> HashMap<String, Range<Anchor>> {
-        if query.map_or(false, |query| query.is_empty()) {
-            return HashMap::default();
-        }
-
-        let classifier = CharClassifier::new(self.language.clone().map(|language| LanguageScope {
-            language,
-            override_id: None,
-        }));
-
-        let mut query_ix = 0;
-        let query = query.map(|query| query.chars().collect::<Vec<_>>());
-        let query_len = query.as_ref().map_or(0, |query| query.len());
-
-        let mut words = HashMap::default();
-        let mut current_word_start_ix = None;
-        let mut chunk_ix = range.start;
-        for chunk in self.chunks(range, false) {
-            for (i, c) in chunk.text.char_indices() {
-                let ix = chunk_ix + i;
-                if classifier.is_word(c) {
-                    if current_word_start_ix.is_none() {
-                        current_word_start_ix = Some(ix);
-                    }
-
-                    if let Some(query) = &query {
-                        if query_ix < query_len {
-                            let query_c = query.get(query_ix).expect(
-                                "query_ix is a vec of chars, which we access only if before the end",
-                            );
-                            if c.to_lowercase().eq(query_c.to_lowercase()) {
-                                query_ix += 1;
-                            }
-                        }
-                    }
-                    continue;
-                } else if let Some(word_start) = current_word_start_ix.take() {
-                    if query_ix == query_len {
-                        let word_range = self.anchor_before(word_start)..self.anchor_after(ix);
-                        words.insert(
-                            self.text_for_range(word_start..ix).collect::<String>(),
-                            word_range,
-                        );
-                    }
-                }
-                query_ix = 0;
-            }
-            chunk_ix += chunk.text.len();
-        }
-
-        words
     }
 }
 

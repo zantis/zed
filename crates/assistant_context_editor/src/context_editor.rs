@@ -54,7 +54,7 @@ use ui::{
     Tooltip,
 };
 use util::{maybe, ResultExt};
-use workspace::searchable::{Direction, SearchableItemHandle};
+use workspace::searchable::SearchableItemHandle;
 use workspace::{
     item::{self, FollowableItem, Item, ItemHandle},
     notifications::NotificationId,
@@ -535,6 +535,7 @@ impl ContextEditor {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn run_command(
         &mut self,
         command_range: Range<language::Anchor>,
@@ -1240,7 +1241,7 @@ impl ContextEditor {
             .child("Press")
             .child(
                 h_flex()
-                    .rounded_sm()
+                    .rounded_md()
                     .px_1()
                     .mr_0p5()
                     .border_1()
@@ -2056,6 +2057,7 @@ impl ContextEditor {
             .unwrap_or_else(|| Cow::Borrowed(DEFAULT_TAB_TITLE))
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn render_patch_block(
         &mut self,
         range: Range<text::Anchor>,
@@ -2090,7 +2092,7 @@ impl ContextEditor {
                 .ml(gutter_width)
                 .pb_1()
                 .w(max_width - gutter_width)
-                .rounded_sm()
+                .rounded_md()
                 .border_1()
                 .border_color(theme.colors().border_variant)
                 .overflow_hidden()
@@ -3104,13 +3106,12 @@ impl SearchableItem for ContextEditor {
 
     fn active_match_index(
         &mut self,
-        direction: Direction,
         matches: &[Self::Match],
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<usize> {
         self.editor.update(cx, |editor, cx| {
-            editor.active_match_index(direction, matches, window, cx)
+            editor.active_match_index(matches, window, cx)
         })
     }
 }
@@ -3420,7 +3421,7 @@ fn invoked_slash_command_fold_placeholder(
                 .ml_6()
                 .gap_2()
                 .bg(cx.theme().colors().surface_background)
-                .rounded_sm()
+                .rounded_md()
                 .child(Label::new(format!("/{}", command.name.clone())))
                 .map(|parent| match &command.status {
                     InvokedSlashCommandStatus::Running(_) => {

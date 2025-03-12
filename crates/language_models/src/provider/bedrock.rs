@@ -969,7 +969,7 @@ impl Render for ConfigurationView {
                 .bg(bg_color)
                 .border_1()
                 .border_color(border_color)
-                .rounded_sm()
+                .rounded_md()
         };
 
         if self.load_credentials_task.is_some() {

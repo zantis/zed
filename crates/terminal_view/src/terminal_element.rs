@@ -21,7 +21,7 @@ use terminal::{
         },
     },
     terminal_settings::TerminalSettings,
-    IndexedCell, Terminal, TerminalBounds, TerminalContent,
+    HoveredWord, IndexedCell, Terminal, TerminalBounds, TerminalContent,
 };
 use theme::{ActiveTheme, Theme, ThemeSettings};
 use ui::{ParentElement, Tooltip};
@@ -45,6 +45,7 @@ pub struct LayoutState {
     display_offset: usize,
     hyperlink_tooltip: Option<AnyElement>,
     gutter: Pixels,
+    last_hovered_word: Option<HoveredWord>,
     block_below_cursor_element: Option<AnyElement>,
 }
 
@@ -156,6 +157,7 @@ pub struct TerminalElement {
     focus: FocusHandle,
     focused: bool,
     cursor_visible: bool,
+    can_navigate_to_selected_word: bool,
     interactivity: Interactivity,
     block_below_cursor: Option<Rc<BlockProperties>>,
 }
@@ -169,6 +171,7 @@ impl InteractiveElement for TerminalElement {
 impl StatefulInteractiveElement for TerminalElement {}
 
 impl TerminalElement {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         terminal: Entity<Terminal>,
         terminal_view: Entity<TerminalView>,
@@ -176,6 +179,7 @@ impl TerminalElement {
         focus: FocusHandle,
         focused: bool,
         cursor_visible: bool,
+        can_navigate_to_selected_word: bool,
         block_below_cursor: Option<Rc<BlockProperties>>,
     ) -> TerminalElement {
         TerminalElement {
@@ -185,6 +189,7 @@ impl TerminalElement {
             focused,
             focus: focus.clone(),
             cursor_visible,
+            can_navigate_to_selected_word,
             block_below_cursor,
             interactivity: Default::default(),
         }
@@ -691,29 +696,27 @@ impl Element for TerminalElement {
 
                 let background_color = theme.colors().terminal_background;
 
-                let (last_hovered_word, hover_target) = self.terminal.update(cx, |terminal, cx| {
+                let last_hovered_word = self.terminal.update(cx, |terminal, cx| {
                     terminal.set_size(dimensions);
                     terminal.sync(window, cx);
 
-                    if window.modifiers().secondary()
+                    if self.can_navigate_to_selected_word
+                        && window.modifiers().secondary()
                         && bounds.contains(&window.mouse_position())
-                        && self.terminal_view.read(cx).hover_target_tooltip.is_some()
                     {
-                        let hover_target = self.terminal_view.read(cx).hover_target_tooltip.clone();
-                        let last_hovered_word = terminal.last_content.last_hovered_word.clone();
-                        (last_hovered_word, hover_target)
+                        terminal.last_content.last_hovered_word.clone()
                     } else {
-                        (None, None)
+                        None
                     }
                 });
 
                 let scroll_top = self.terminal_view.read(cx).scroll_top;
-                let hyperlink_tooltip = hover_target.as_ref().map(|hover_target| {
+                let hyperlink_tooltip = last_hovered_word.clone().map(|hovered_word| {
                     let offset = bounds.origin + point(gutter, px(0.)) - point(px(0.), scroll_top);
                     let mut element = div()
                         .size_full()
                         .id("terminal-element")
-                        .tooltip(Tooltip::text(hover_target.clone()))
+                        .tooltip(Tooltip::text(hovered_word.word.clone()))
                         .into_any_element();
                     element.prepaint_as_root(offset, bounds.size.into(), window, cx);
                     element
@@ -849,6 +852,7 @@ impl Element for TerminalElement {
                     display_offset,
                     hyperlink_tooltip,
                     gutter,
+                    last_hovered_word,
                     block_below_cursor_element,
                 }
             },
@@ -881,10 +885,7 @@ impl Element for TerminalElement {
             };
 
             self.register_mouse_listeners(layout.mode, &layout.hitbox, window);
-            if window.modifiers().secondary()
-                && bounds.contains(&window.mouse_position())
-                && self.terminal_view.read(cx).hover_target_tooltip.is_some()
-            {
+            if self.can_navigate_to_selected_word && layout.last_hovered_word.is_some() {
                 window.set_cursor_style(gpui::CursorStyle::PointingHand, &layout.hitbox);
             } else {
                 window.set_cursor_style(gpui::CursorStyle::IBeam, &layout.hitbox);

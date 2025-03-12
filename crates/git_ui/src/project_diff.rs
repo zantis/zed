@@ -177,7 +177,7 @@ impl ProjectDiff {
             let this = cx.weak_entity();
             |cx| Self::handle_status_updates(this, recv, cx)
         });
-        // Kick off a refresh immediately
+        // Kick of a refresh immediately
         *send.borrow_mut() = ();
 
         Self {
@@ -815,30 +815,23 @@ impl ProjectDiffToolbar {
             cx.dispatch_action(action.as_ref());
         })
     }
-
-    fn stage_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn dispatch_panel_action(
+        &self,
+        action: &dyn Action,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.workspace
-            .update(cx, |workspace, cx| {
+            .read_with(cx, |workspace, cx| {
                 if let Some(panel) = workspace.panel::<GitPanel>(cx) {
-                    panel.update(cx, |panel, cx| {
-                        panel.stage_all(&Default::default(), window, cx);
-                    });
+                    panel.focus_handle(cx).focus(window)
                 }
             })
             .ok();
-    }
-
-    fn unstage_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.workspace
-            .update(cx, |workspace, cx| {
-                let Some(panel) = workspace.panel::<GitPanel>(cx) else {
-                    return;
-                };
-                panel.update(cx, |panel, cx| {
-                    panel.unstage_all(&Default::default(), window, cx);
-                });
-            })
-            .ok();
+        let action = action.boxed_clone();
+        cx.defer(move |cx| {
+            cx.dispatch_action(action.as_ref());
+        })
     }
 }
 
@@ -992,7 +985,7 @@ impl Render for ProjectDiffToolbar {
                                         &focus_handle,
                                     ))
                                     .on_click(cx.listener(|this, _, window, cx| {
-                                        this.unstage_all(window, cx)
+                                        this.dispatch_panel_action(&UnstageAll, window, cx)
                                     })),
                             )
                         },
@@ -1012,7 +1005,7 @@ impl Render for ProjectDiffToolbar {
                                             &focus_handle,
                                         ))
                                         .on_click(cx.listener(|this, _, window, cx| {
-                                            this.stage_all(window, cx)
+                                            this.dispatch_panel_action(&StageAll, window, cx)
                                         })),
                                 ),
                             )

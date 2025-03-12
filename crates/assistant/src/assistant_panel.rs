@@ -297,8 +297,7 @@ impl AssistantPanel {
                 &LanguageModelRegistry::global(cx),
                 window,
                 |this, _, event: &language_model::Event, window, cx| match event {
-                    language_model::Event::ActiveModelChanged
-                    | language_model::Event::EditorModelChanged => {
+                    language_model::Event::ActiveModelChanged => {
                         this.completion_provider_changed(window, cx);
                     }
                     language_model::Event::ProviderStateChanged => {

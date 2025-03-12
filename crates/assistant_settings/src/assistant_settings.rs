@@ -62,7 +62,6 @@ pub struct AssistantSettings {
     pub default_width: Pixels,
     pub default_height: Pixels,
     pub default_model: LanguageModelSelection,
-    pub editor_model: LanguageModelSelection,
     pub inline_alternatives: Vec<LanguageModelSelection>,
     pub using_outdated_settings_version: bool,
     pub enable_experimental_live_diffs: bool,
@@ -163,7 +162,6 @@ impl AssistantSettingsContent {
                                 })
                             }
                         }),
-                    editor_model: None,
                     inline_alternatives: None,
                     enable_experimental_live_diffs: None,
                 },
@@ -184,7 +182,6 @@ impl AssistantSettingsContent {
                         .id()
                         .to_string(),
                 }),
-                editor_model: None,
                 inline_alternatives: None,
                 enable_experimental_live_diffs: None,
             },
@@ -313,7 +310,6 @@ impl Default for VersionedAssistantSettingsContent {
             default_width: None,
             default_height: None,
             default_model: None,
-            editor_model: None,
             inline_alternatives: None,
             enable_experimental_live_diffs: None,
         })
@@ -344,8 +340,6 @@ pub struct AssistantSettingsContentV2 {
     default_height: Option<f32>,
     /// The default model to use when creating new chats.
     default_model: Option<LanguageModelSelection>,
-    /// The model to use when applying edits from the assistant.
-    editor_model: Option<LanguageModelSelection>,
     /// Additional models with which to generate alternatives when performing inline assists.
     inline_alternatives: Option<Vec<LanguageModelSelection>>,
     /// Enable experimental live diffs in the assistant panel.
@@ -476,7 +470,6 @@ impl Settings for AssistantSettings {
                 value.default_height.map(Into::into),
             );
             merge(&mut settings.default_model, value.default_model);
-            merge(&mut settings.editor_model, value.editor_model);
             merge(&mut settings.inline_alternatives, value.inline_alternatives);
             merge(
                 &mut settings.enable_experimental_live_diffs,
@@ -532,10 +525,6 @@ mod tests {
                     *settings = AssistantSettingsContent::Versioned(
                         VersionedAssistantSettingsContent::V2(AssistantSettingsContentV2 {
                             default_model: Some(LanguageModelSelection {
-                                provider: "test-provider".into(),
-                                model: "gpt-99".into(),
-                            }),
-                            editor_model: Some(LanguageModelSelection {
                                 provider: "test-provider".into(),
                                 model: "gpt-99".into(),
                             }),

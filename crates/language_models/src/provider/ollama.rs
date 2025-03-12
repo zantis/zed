@@ -480,7 +480,7 @@ impl Render for ConfigurationView {
                                     div()
                                         .bg(inline_code_bg)
                                         .px_1p5()
-                                        .rounded_sm()
+                                        .rounded_md()
                                         .child(Label::new("ollama run llama3.2")),
                                 ),
                         ),
