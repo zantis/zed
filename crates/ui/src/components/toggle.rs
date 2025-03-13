@@ -197,7 +197,7 @@ impl RenderOnce for Checkbox {
                     .items_center()
                     .m_1()
                     .size_4()
-                    .rounded_xs()
+                    .rounded_sm()
                     .bg(bg_color)
                     .border_1()
                     .border_color(border_color)

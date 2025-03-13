@@ -330,7 +330,6 @@ pub enum IconName {
     ZedPredictUp,
     ZedPredictDown,
     ZedPredictDisabled,
-    ZedPredictError,
     ZedXCopilot,
 }
 

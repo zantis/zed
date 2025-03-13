@@ -4,7 +4,7 @@ use crate::{
 };
 use gpui::BackgroundExecutor;
 use std::{
-    borrow::{Borrow, Cow},
+    borrow::Cow,
     cmp::{self, Ordering},
     iter,
     ops::Range,
@@ -113,17 +113,14 @@ impl Ord for StringMatch {
     }
 }
 
-pub async fn match_strings<T>(
-    candidates: &[T],
+pub async fn match_strings(
+    candidates: &[StringMatchCandidate],
     query: &str,
     smart_case: bool,
     max_results: usize,
     cancel_flag: &AtomicBool,
     executor: BackgroundExecutor,
-) -> Vec<StringMatch>
-where
-    T: Borrow<StringMatchCandidate> + Sync,
-{
+) -> Vec<StringMatch> {
     if candidates.is_empty() || max_results == 0 {
         return Default::default();
     }
@@ -132,10 +129,10 @@ where
         return candidates
             .iter()
             .map(|candidate| StringMatch {
-                candidate_id: candidate.borrow().id,
+                candidate_id: candidate.id,
                 score: 0.,
                 positions: Default::default(),
-                string: candidate.borrow().string.clone(),
+                string: candidate.string.clone(),
             })
             .collect();
     }
@@ -166,12 +163,10 @@ where
                     matcher.match_candidates(
                         &[],
                         &[],
-                        candidates[segment_start..segment_end]
-                            .iter()
-                            .map(|c| c.borrow()),
+                        candidates[segment_start..segment_end].iter(),
                         results,
                         cancel_flag,
-                        |candidate: &&StringMatchCandidate, score, positions| StringMatch {
+                        |candidate, score, positions| StringMatch {
                             candidate_id: candidate.id,
                             score,
                             positions: positions.clone(),

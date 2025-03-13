@@ -110,7 +110,7 @@ pub struct Buffer {
     pending_autoindent: Option<Task<()>>,
     sync_parse_timeout: Duration,
     syntax_map: Mutex<SyntaxMap>,
-    reparse: Option<Task<()>>,
+    parsing_in_background: bool,
     parse_status: (watch::Sender<ParseStatus>, watch::Receiver<ParseStatus>),
     non_text_state_update_count: usize,
     diagnostics: SmallVec<[(LanguageServerId, DiagnosticSet); 2]>,
@@ -964,7 +964,7 @@ impl Buffer {
             file,
             capability,
             syntax_map,
-            reparse: None,
+            parsing_in_background: false,
             non_text_state_update_count: 0,
             sync_parse_timeout: Duration::from_millis(1),
             parse_status: async_watch::channel(ParseStatus::Idle),
@@ -1424,7 +1424,7 @@ impl Buffer {
     /// Whether the buffer is being parsed in the background.
     #[cfg(any(test, feature = "test-support"))]
     pub fn is_parsing(&self) -> bool {
-        self.reparse.is_some()
+        self.parsing_in_background
     }
 
     /// Indicates whether the buffer contains any regions that may be
@@ -1462,7 +1462,7 @@ impl Buffer {
     /// for the same buffer, we only initiate a new parse if we are not already
     /// parsing in the background.
     pub fn reparse(&mut self, cx: &mut Context<Self>) {
-        if self.reparse.is_some() {
+        if self.parsing_in_background {
             return;
         }
         let language = if let Some(language) = self.language.clone() {
@@ -1496,10 +1496,10 @@ impl Buffer {
         {
             Ok(new_syntax_snapshot) => {
                 self.did_finish_parsing(new_syntax_snapshot, cx);
-                self.reparse = None;
             }
             Err(parse_task) => {
-                self.reparse = Some(cx.spawn(move |this, mut cx| async move {
+                self.parsing_in_background = true;
+                cx.spawn(move |this, mut cx| async move {
                     let new_syntax_map = parse_task.await;
                     this.update(&mut cx, move |this, cx| {
                         let grammar_changed =
@@ -1515,13 +1515,14 @@ impl Buffer {
                             || grammar_changed
                             || this.version.changed_since(&parsed_version);
                         this.did_finish_parsing(new_syntax_map, cx);
-                        this.reparse = None;
+                        this.parsing_in_background = false;
                         if parse_again {
                             this.reparse(cx);
                         }
                     })
                     .ok();
-                }));
+                })
+                .detach();
             }
         }
     }
@@ -3112,25 +3113,6 @@ impl BufferSnapshot {
             .layers_for_range(offset..offset, &self.text, false)
             .filter(|l| l.node().end_byte() > offset)
             .last()
-    }
-
-    pub fn smallest_syntax_layer_containing<D: ToOffset>(
-        &self,
-        range: Range<D>,
-    ) -> Option<SyntaxLayer> {
-        let range = range.to_offset(self);
-        return self
-            .syntax
-            .layers_for_range(range, &self.text, false)
-            .max_by(|a, b| {
-                if a.depth != b.depth {
-                    a.depth.cmp(&b.depth)
-                } else if a.offset.0 != b.offset.0 {
-                    a.offset.0.cmp(&b.offset.0)
-                } else {
-                    a.node().end_byte().cmp(&b.node().end_byte()).reverse()
-                }
-            });
     }
 
     /// Returns the main [`Language`].

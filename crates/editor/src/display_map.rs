@@ -43,7 +43,7 @@ use gpui::{App, Context, Entity, Font, HighlightStyle, LineLayout, Pixels, Under
 pub use inlay_map::Inlay;
 use inlay_map::{InlayMap, InlaySnapshot};
 pub use inlay_map::{InlayOffset, InlayPoint};
-pub use invisibles::{is_invisible, replacement};
+use invisibles::{is_invisible, replacement};
 use language::{
     language_settings::language_settings, ChunkRenderer, OffsetUtf16, Point,
     Subscription as BufferSubscription,
@@ -113,6 +113,7 @@ pub struct DisplayMap {
 }
 
 impl DisplayMap {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         buffer: Entity<MultiBuffer>,
         font: Font,

@@ -441,7 +441,7 @@ impl Render for ConfigurationView {
                                     div()
                                         .bg(inline_code_bg)
                                         .px_1p5()
-                                        .rounded_sm()
+                                        .rounded_md()
                                         .child(Label::new("lms get qwen2.5-coder-7b")),
                                 ),
                         ),

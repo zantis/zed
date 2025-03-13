@@ -327,7 +327,7 @@ impl PickerDelegate for PromptPickerDelegate {
     ) -> Div {
         h_flex()
             .bg(cx.theme().colors().editor_background)
-            .rounded_sm()
+            .rounded_md()
             .overflow_hidden()
             .flex_none()
             .py_1()
@@ -993,7 +993,7 @@ impl PromptLibrary {
                                             .on_action(cx.listener(Self::move_down_from_title))
                                             .border_1()
                                             .border_color(transparent_black())
-                                            .rounded_sm()
+                                            .rounded_md()
                                             .group_hover("active-editor-header", |this| {
                                                 this.border_color(
                                                     cx.theme().colors().border_variant,

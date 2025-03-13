@@ -11,6 +11,7 @@ use crate::{
 use crate::{picker_prompt, project_diff, ProjectDiff};
 use anyhow::Result;
 use askpass::AskPassDelegate;
+use assistant_settings::AssistantSettings;
 use db::kvp::KEY_VALUE_STORE;
 use editor::commit_tooltip::CommitTooltip;
 
@@ -28,9 +29,9 @@ use git::{repository::RepoPath, status::FileStatus, Commit, ToggleStaged};
 use git::{ExpandCommitEditor, RestoreTrackedFiles, StageAll, TrashUntrackedFiles, UnstageAll};
 use gpui::{
     actions, anchored, deferred, percentage, uniform_list, Action, Animation, AnimationExt as _,
-    ClickEvent, Corner, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable, KeyContext,
-    ListHorizontalSizingBehavior, ListSizingBehavior, Modifiers, ModifiersChangedEvent,
-    MouseButton, MouseDownEvent, Point, PromptLevel, ScrollStrategy, Stateful, Subscription, Task,
+    Axis, ClickEvent, Corner, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable,
+    KeyContext, ListHorizontalSizingBehavior, ListSizingBehavior, Modifiers, ModifiersChangedEvent,
+    MouseButton, MouseDownEvent, Point, PromptLevel, ScrollStrategy, Subscription, Task,
     Transformation, UniformListScrollHandle, WeakEntity,
 };
 use itertools::Itertools;
@@ -49,7 +50,7 @@ use project::{
     Fs, Project, ProjectPath,
 };
 use serde::{Deserialize, Serialize};
-use settings::Settings as _;
+use settings::{Settings as _, SettingsStore};
 use std::cell::RefCell;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -205,6 +206,21 @@ pub struct GitStatusEntry {
     pub(crate) staging: StageStatus,
 }
 
+impl GitStatusEntry {
+    fn display_name(&self) -> String {
+        self.worktree_path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| self.worktree_path.to_string_lossy().into_owned())
+    }
+
+    fn parent_dir(&self) -> Option<String> {
+        self.worktree_path
+            .parent()
+            .map(|parent| parent.to_string_lossy().into_owned())
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TargetStatus {
     Staged,
@@ -222,6 +238,61 @@ struct PendingOperation {
 
 type RemoteOperations = Rc<RefCell<HashSet<u32>>>;
 
+// computed state related to how to render scrollbars
+// one per axis
+// on render we just read this off the panel
+// we update it when
+// - settings change
+// - on focus in, on focus out, on hover, etc.
+#[derive(Debug)]
+struct ScrollbarProperties {
+    axis: Axis,
+    show_scrollbar: bool,
+    show_track: bool,
+    auto_hide: bool,
+    hide_task: Option<Task<()>>,
+    state: ScrollbarState,
+}
+
+impl ScrollbarProperties {
+    // Shows the scrollbar and cancels any pending hide task
+    fn show(&mut self, cx: &mut Context<GitPanel>) {
+        if !self.auto_hide {
+            return;
+        }
+        self.show_scrollbar = true;
+        self.hide_task.take();
+        cx.notify();
+    }
+
+    fn hide(&mut self, window: &mut Window, cx: &mut Context<GitPanel>) {
+        const SCROLLBAR_SHOW_INTERVAL: Duration = Duration::from_secs(1);
+
+        if !self.auto_hide {
+            return;
+        }
+
+        let axis = self.axis;
+        self.hide_task = Some(cx.spawn_in(window, |panel, mut cx| async move {
+            cx.background_executor()
+                .timer(SCROLLBAR_SHOW_INTERVAL)
+                .await;
+
+            if let Some(panel) = panel.upgrade() {
+                panel
+                    .update(&mut cx, |panel, cx| {
+                        match axis {
+                            Axis::Vertical => panel.vertical_scrollbar.show_scrollbar = false,
+                            Axis::Horizontal => panel.horizontal_scrollbar.show_scrollbar = false,
+                        }
+                        cx.notify();
+                    })
+                    .log_err();
+            }
+        }));
+    }
+}
+
 pub struct GitPanel {
     remote_operation_id: u32,
     pending_remote_operations: RemoteOperations,
@@ -237,7 +308,8 @@ pub struct GitPanel {
     single_tracked_entry: Option<GitStatusEntry>,
     focus_handle: FocusHandle,
     fs: Arc<dyn Fs>,
-    hide_scrollbar_task: Option<Task<()>>,
+    horizontal_scrollbar: ScrollbarProperties,
+    vertical_scrollbar: ScrollbarProperties,
     new_count: usize,
     entry_count: usize,
     new_staged_count: usize,
@@ -246,10 +318,9 @@ pub struct GitPanel {
     pending_serialization: Task<Option<()>>,
     pub(crate) project: Entity<Project>,
     scroll_handle: UniformListScrollHandle,
-    scrollbar_state: ScrollbarState,
+    max_width_item_index: Option<usize>,
     selected_entry: Option<usize>,
     marked_entries: Vec<usize>,
-    show_scrollbar: bool,
     tracked_count: usize,
     tracked_staged_count: usize,
     update_visible_entries_task: Task<()>,
@@ -257,6 +328,7 @@ pub struct GitPanel {
     workspace: WeakEntity<Workspace>,
     context_menu: Option<(Entity<ContextMenu>, Point<Pixels>, Subscription)>,
     modal_open: bool,
+    _settings_subscription: Subscription,
 }
 
 struct RemoteOperationGuard {
@@ -270,6 +342,8 @@ impl Drop for RemoteOperationGuard {
     }
 }
 
+const MAX_PANEL_EDITOR_LINES: usize = 6;
+
 pub(crate) fn commit_message_editor(
     commit_message_buffer: Entity<Buffer>,
     placeholder: Option<&str>,
@@ -279,7 +353,7 @@ pub(crate) fn commit_message_editor(
     cx: &mut Context<'_, Editor>,
 ) -> Editor {
     let buffer = cx.new(|cx| MultiBuffer::singleton(commit_message_buffer, cx));
-    let max_lines = if in_panel { 6 } else { 18 };
+    let max_lines = if in_panel { MAX_PANEL_EDITOR_LINES } else { 18 };
     let mut commit_editor = Editor::new(
         EditorMode::AutoHeight { max_lines },
         buffer,
@@ -293,6 +367,7 @@ pub(crate) fn commit_message_editor(
     commit_editor.set_show_gutter(false, cx);
     commit_editor.set_show_wrap_guides(false, cx);
     commit_editor.set_show_indent_guides(false, cx);
+    commit_editor.set_hard_wrap(Some(72), cx);
     let placeholder = placeholder.unwrap_or("Enter commit message");
     commit_editor.set_placeholder_text(placeholder, cx);
     commit_editor
@@ -314,7 +389,7 @@ impl GitPanel {
         let focus_handle = cx.focus_handle();
         cx.on_focus(&focus_handle, window, Self::focus_in).detach();
         cx.on_focus_out(&focus_handle, window, |this, _, window, cx| {
-            this.hide_scrollbar(window, cx);
+            this.hide_scrollbars(window, cx);
         })
         .detach();
 
@@ -353,8 +428,31 @@ impl GitPanel {
         )
         .detach();
 
-        let scrollbar_state =
-            ScrollbarState::new(scroll_handle.clone()).parent_entity(&cx.entity());
+        let vertical_scrollbar = ScrollbarProperties {
+            axis: Axis::Vertical,
+            state: ScrollbarState::new(scroll_handle.clone()).parent_entity(&cx.entity()),
+            show_scrollbar: false,
+            show_track: false,
+            auto_hide: false,
+            hide_task: None,
+        };
+
+        let horizontal_scrollbar = ScrollbarProperties {
+            axis: Axis::Horizontal,
+            state: ScrollbarState::new(scroll_handle.clone()).parent_entity(&cx.entity()),
+            show_scrollbar: false,
+            show_track: false,
+            auto_hide: false,
+            hide_task: None,
+        };
+
+        let mut assistant_enabled = AssistantSettings::get_global(cx).enabled;
+        let _settings_subscription = cx.observe_global::<SettingsStore>(move |_, cx| {
+            if assistant_enabled != AssistantSettings::get_global(cx).enabled {
+                assistant_enabled = AssistantSettings::get_global(cx).enabled;
+                cx.notify();
+            }
+        });
 
         let mut git_panel = Self {
             pending_remote_operations: Default::default(),
@@ -369,7 +467,6 @@ impl GitPanel {
             entries: Vec::new(),
             focus_handle: cx.focus_handle(),
             fs,
-            hide_scrollbar_task: None,
             new_count: 0,
             new_staged_count: 0,
             pending: Vec::new(),
@@ -379,10 +476,9 @@ impl GitPanel {
             single_tracked_entry: None,
             project,
             scroll_handle,
-            scrollbar_state,
+            max_width_item_index: None,
             selected_entry: None,
             marked_entries: Vec::new(),
-            show_scrollbar: false,
             tracked_count: 0,
             tracked_staged_count: 0,
             update_visible_entries_task: Task::ready(()),
@@ -391,10 +487,92 @@ impl GitPanel {
             workspace,
             modal_open: false,
             entry_count: 0,
+            horizontal_scrollbar,
+            vertical_scrollbar,
+            _settings_subscription,
         };
         git_panel.schedule_update(false, window, cx);
-        git_panel.show_scrollbar = git_panel.should_show_scrollbar(cx);
         git_panel
+    }
+
+    fn hide_scrollbars(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.horizontal_scrollbar.hide(window, cx);
+        self.vertical_scrollbar.hide(window, cx);
+    }
+
+    fn update_scrollbar_properties(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        // TODO: This PR should have defined Editor's `scrollbar.axis`
+        // as an Option<ScrollbarAxis>, not a ScrollbarAxes as it would allow you to
+        // `.unwrap_or(EditorSettings::get_global(cx).scrollbar.show)`.
+        //
+        // Once this is fixed we can extend the GitPanelSettings with a `scrollbar.axis`
+        // so we can show each axis based on the settings.
+        //
+        // We should fix this. PR: https://github.com/zed-industries/zed/pull/19495
+
+        let show_setting = GitPanelSettings::get_global(cx)
+            .scrollbar
+            .show
+            .unwrap_or(EditorSettings::get_global(cx).scrollbar.show);
+
+        let scroll_handle = self.scroll_handle.0.borrow();
+
+        let autohide = |show: ShowScrollbar, cx: &mut Context<Self>| match show {
+            ShowScrollbar::Auto => true,
+            ShowScrollbar::System => cx
+                .try_global::<ScrollbarAutoHide>()
+                .map_or_else(|| cx.should_auto_hide_scrollbars(), |autohide| autohide.0),
+            ShowScrollbar::Always => false,
+            ShowScrollbar::Never => false,
+        };
+
+        let longest_item_width = scroll_handle.last_item_size.and_then(|size| {
+            (size.contents.width > size.item.width).then_some(size.contents.width)
+        });
+
+        // is there an item long enough that we should show a horizontal scrollbar?
+        let item_wider_than_container = if let Some(longest_item_width) = longest_item_width {
+            longest_item_width > px(scroll_handle.base_handle.bounds().size.width.0)
+        } else {
+            true
+        };
+
+        let show_horizontal = match (show_setting, item_wider_than_container) {
+            (_, false) => false,
+            (ShowScrollbar::Auto | ShowScrollbar::System | ShowScrollbar::Always, true) => true,
+            (ShowScrollbar::Never, true) => false,
+        };
+
+        let show_vertical = match show_setting {
+            ShowScrollbar::Auto | ShowScrollbar::System | ShowScrollbar::Always => true,
+            ShowScrollbar::Never => false,
+        };
+
+        let show_horizontal_track =
+            show_horizontal && matches!(show_setting, ShowScrollbar::Always);
+
+        // TODO: we probably should hide the scroll track when the list doesn't need to scroll
+        let show_vertical_track = show_vertical && matches!(show_setting, ShowScrollbar::Always);
+
+        self.vertical_scrollbar = ScrollbarProperties {
+            axis: self.vertical_scrollbar.axis,
+            state: self.vertical_scrollbar.state.clone(),
+            show_scrollbar: show_vertical,
+            show_track: show_vertical_track,
+            auto_hide: autohide(show_setting, cx),
+            hide_task: None,
+        };
+
+        self.horizontal_scrollbar = ScrollbarProperties {
+            axis: self.horizontal_scrollbar.axis,
+            state: self.horizontal_scrollbar.state.clone(),
+            show_scrollbar: show_horizontal,
+            show_track: show_horizontal_track,
+            auto_hide: autohide(show_setting, cx),
+            hide_task: None,
+        };
+
+        cx.notify();
     }
 
     pub fn entry_by_path(&self, path: &RepoPath) -> Option<usize> {
@@ -525,7 +703,10 @@ impl GitPanel {
         let mut dispatch_context = KeyContext::new_with_defaults();
         dispatch_context.add("GitPanel");
 
-        if self.is_focused(window, cx) {
+        if window
+            .focused(cx)
+            .map_or(false, |focused| self.focus_handle == focused)
+        {
             dispatch_context.add("menu");
             dispatch_context.add("ChangesList");
         }
@@ -537,12 +718,6 @@ impl GitPanel {
         dispatch_context
     }
 
-    fn is_focused(&self, window: &Window, cx: &Context<Self>) -> bool {
-        window
-            .focused(cx)
-            .map_or(false, |focused| self.focus_handle == focused)
-    }
-
     fn close_panel(&mut self, _: &Close, _window: &mut Window, cx: &mut Context<Self>) {
         cx.emit(PanelEvent::Close);
     }
@@ -551,53 +726,6 @@ impl GitPanel {
         if !self.focus_handle.contains_focused(window, cx) {
             cx.emit(Event::Focus);
         }
-    }
-
-    fn show_scrollbar(&self, cx: &mut Context<Self>) -> ShowScrollbar {
-        GitPanelSettings::get_global(cx)
-            .scrollbar
-            .show
-            .unwrap_or_else(|| EditorSettings::get_global(cx).scrollbar.show)
-    }
-
-    fn should_show_scrollbar(&self, cx: &mut Context<Self>) -> bool {
-        let show = self.show_scrollbar(cx);
-        match show {
-            ShowScrollbar::Auto => true,
-            ShowScrollbar::System => true,
-            ShowScrollbar::Always => true,
-            ShowScrollbar::Never => false,
-        }
-    }
-
-    fn should_autohide_scrollbar(&self, cx: &mut Context<Self>) -> bool {
-        let show = self.show_scrollbar(cx);
-        match show {
-            ShowScrollbar::Auto => true,
-            ShowScrollbar::System => cx
-                .try_global::<ScrollbarAutoHide>()
-                .map_or_else(|| cx.should_auto_hide_scrollbars(), |autohide| autohide.0),
-            ShowScrollbar::Always => false,
-            ShowScrollbar::Never => true,
-        }
-    }
-
-    fn hide_scrollbar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        const SCROLLBAR_SHOW_INTERVAL: Duration = Duration::from_secs(1);
-        if !self.should_autohide_scrollbar(cx) {
-            return;
-        }
-        self.hide_scrollbar_task = Some(cx.spawn_in(window, |panel, mut cx| async move {
-            cx.background_executor()
-                .timer(SCROLLBAR_SHOW_INTERVAL)
-                .await;
-            panel
-                .update(&mut cx, |panel, cx| {
-                    panel.show_scrollbar = false;
-                    cx.notify();
-                })
-                .log_err();
-        }))
     }
 
     fn handle_modifiers_changed(
@@ -1374,15 +1502,17 @@ impl GitPanel {
         telemetry::event!("Git Uncommitted");
 
         let confirmation = self.check_for_pushed_commits(window, cx);
-        let prior_head = self.load_commit_details("HEAD", cx);
+        let prior_head = self.load_commit_details("HEAD".to_string(), cx);
 
         let task = cx.spawn_in(window, |this, mut cx| async move {
             let result = maybe!(async {
                 if let Ok(true) = confirmation.await {
                     let prior_head = prior_head.await?;
 
-                    repo.update(&mut cx, |repo, cx| repo.reset("HEAD^", ResetMode::Soft, cx))?
-                        .await??;
+                    repo.update(&mut cx, |repo, cx| {
+                        repo.reset("HEAD^".to_string(), ResetMode::Soft, cx)
+                    })?
+                    .await??;
 
                     Ok(Some(prior_head))
                 } else {
@@ -1637,6 +1767,88 @@ impl GitPanel {
             .detach_and_log_err(cx);
     }
 
+    pub(crate) fn git_init(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let worktrees = self
+            .project
+            .read(cx)
+            .visible_worktrees(cx)
+            .collect::<Vec<_>>();
+
+        let worktree = if worktrees.len() == 1 {
+            Task::ready(Some(worktrees.first().unwrap().clone()))
+        } else if worktrees.len() == 0 {
+            let result = window.prompt(
+                PromptLevel::Warning,
+                "Unable to initialize a git repository",
+                Some("Open a directory first"),
+                &["Ok"],
+                cx,
+            );
+            cx.background_executor()
+                .spawn(async move {
+                    result.await.ok();
+                })
+                .detach();
+            return;
+        } else {
+            let worktree_directories = worktrees
+                .iter()
+                .map(|worktree| worktree.read(cx).abs_path())
+                .map(|worktree_abs_path| {
+                    if let Ok(path) = worktree_abs_path.strip_prefix(util::paths::home_dir()) {
+                        Path::new("~")
+                            .join(path)
+                            .to_string_lossy()
+                            .to_string()
+                            .into()
+                    } else {
+                        worktree_abs_path.to_string_lossy().to_string().into()
+                    }
+                })
+                .collect_vec();
+            let prompt = picker_prompt::prompt(
+                "Where would you like to initialize this git repository?",
+                worktree_directories,
+                self.workspace.clone(),
+                window,
+                cx,
+            );
+
+            cx.spawn(|_, _| async move { prompt.await.map(|ix| worktrees[ix].clone()) })
+        };
+
+        cx.spawn_in(window, |this, mut cx| async move {
+            let worktree = match worktree.await {
+                Some(worktree) => worktree,
+                None => {
+                    return;
+                }
+            };
+
+            let Ok(result) = this.update(&mut cx, |this, cx| {
+                let fallback_branch_name = GitPanelSettings::get_global(cx)
+                    .fallback_branch_name
+                    .clone();
+                this.project.read(cx).git_init(
+                    worktree.read(cx).abs_path(),
+                    fallback_branch_name,
+                    cx,
+                )
+            }) else {
+                return;
+            };
+
+            let result = result.await;
+
+            this.update_in(&mut cx, |this, _, cx| match result {
+                Ok(()) => {}
+                Err(e) => this.show_error_toast("init", e, cx),
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     pub(crate) fn pull(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.can_push_and_pull(cx) {
             return;
@@ -1841,7 +2053,7 @@ impl GitPanel {
                             cx,
                         )
                     })?
-                    .await?;
+                    .await;
 
                 Ok(selection.map(|selection| Remote {
                     name: current_remotes[selection].clone(),
@@ -1970,12 +2182,13 @@ impl GitPanel {
             cx.background_executor().timer(UPDATE_DEBOUNCE).await;
             if let Some(git_panel) = handle.upgrade() {
                 git_panel
-                    .update_in(&mut cx, |git_panel, _, cx| {
+                    .update_in(&mut cx, |git_panel, window, cx| {
                         if clear_pending {
                             git_panel.clear_pending();
                         }
                         git_panel.update_visible_entries(cx);
                         git_panel.update_editor_placeholder(cx);
+                        git_panel.update_scrollbar_properties(window, cx);
                     })
                     .ok();
             }
@@ -2036,6 +2249,7 @@ impl GitPanel {
         let mut conflict_entries = Vec::new();
         let mut last_staged = None;
         let mut staged_count = 0;
+        let mut max_width_item: Option<(RepoPath, usize)> = None;
 
         let Some(repo) = self.active_repository.as_ref() else {
             // Just clear entries if no repository is active.
@@ -2079,6 +2293,21 @@ impl GitPanel {
             if staging.has_staged() {
                 staged_count += 1;
                 last_staged = Some(entry.clone());
+            }
+
+            let width_estimate = Self::item_width_estimate(
+                entry.parent_dir().map(|s| s.len()).unwrap_or(0),
+                entry.display_name().len(),
+            );
+
+            match max_width_item.as_mut() {
+                Some((repo_path, estimate)) => {
+                    if width_estimate > *estimate {
+                        *repo_path = entry.repo_path.clone();
+                        *estimate = width_estimate;
+                    }
+                }
+                None => max_width_item = Some((entry.repo_path.clone(), width_estimate)),
             }
 
             if is_conflict {
@@ -2151,6 +2380,15 @@ impl GitPanel {
             }));
             self.entries
                 .extend(new_entries.into_iter().map(GitListEntry::GitStatusEntry));
+        }
+
+        if let Some((repo_path, _)) = max_width_item {
+            self.max_width_item_index = self.entries.iter().position(|entry| match entry {
+                GitListEntry::GitStatusEntry(git_status_entry) => {
+                    git_status_entry.repo_path == repo_path
+                }
+                GitListEntry::Header(_) => false,
+            });
         }
 
         self.update_counts(repo);
@@ -2374,6 +2612,12 @@ impl GitPanel {
         self.has_staged_changes()
     }
 
+    // eventually we'll need to take depth into account here
+    // if we add a tree view
+    fn item_width_estimate(path: usize, file_name: usize) -> usize {
+        path + file_name
+    }
+
     fn render_overflow_menu(&self, id: impl Into<ElementId>) -> impl IntoElement {
         let focus_handle = self.focus_handle.clone();
         PopoverMenu::new(id.into())
@@ -2515,7 +2759,13 @@ impl GitPanel {
         })
     }
 
-    fn render_panel_header(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_panel_header(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<impl IntoElement> {
+        self.active_repository.as_ref()?;
+
         let text;
         let action;
         let tooltip;
@@ -2535,39 +2785,42 @@ impl GitPanel {
             _ => format!("{} Changes", self.entry_count),
         };
 
-        self.panel_header_container(window, cx)
-            .px_2()
-            .child(
-                panel_button(change_string)
-                    .color(Color::Muted)
-                    .tooltip(Tooltip::for_action_title_in(
-                        "Open diff",
-                        &Diff,
-                        &self.focus_handle,
-                    ))
-                    .on_click(|_, _, cx| {
-                        cx.defer(|cx| {
-                            cx.dispatch_action(&Diff);
-                        })
-                    }),
-            )
-            .child(div().flex_grow()) // spacer
-            .child(self.render_overflow_menu("overflow_menu"))
-            .child(
-                panel_filled_button(text)
-                    .tooltip(Tooltip::for_action_title_in(
-                        tooltip,
-                        action.as_ref(),
-                        &self.focus_handle,
-                    ))
-                    .disabled(self.entry_count == 0)
-                    .on_click(move |_, _, cx| {
-                        let action = action.boxed_clone();
-                        cx.defer(move |cx| {
-                            cx.dispatch_action(action.as_ref());
-                        })
-                    }),
-            )
+        Some(
+            self.panel_header_container(window, cx)
+                .px_2()
+                .child(
+                    panel_button(change_string)
+                        .color(Color::Muted)
+                        .tooltip(Tooltip::for_action_title_in(
+                            "Open diff",
+                            &Diff,
+                            &self.focus_handle,
+                        ))
+                        .on_click(|_, _, cx| {
+                            cx.defer(|cx| {
+                                cx.dispatch_action(&Diff);
+                            })
+                        }),
+                )
+                .child(div().flex_grow()) // spacer
+                .child(self.render_overflow_menu("overflow_menu"))
+                .child(div().w_2()) // another spacer
+                .child(
+                    panel_filled_button(text)
+                        .tooltip(Tooltip::for_action_title_in(
+                            tooltip,
+                            action.as_ref(),
+                            &self.focus_handle,
+                        ))
+                        .disabled(self.entry_count == 0)
+                        .on_click(move |_, _, cx| {
+                            let action = action.boxed_clone();
+                            cx.defer(move |cx| {
+                                cx.dispatch_action(action.as_ref());
+                            })
+                        }),
+                ),
+        )
     }
 
     pub fn render_footer(
@@ -2590,8 +2843,12 @@ impl GitPanel {
         let branch = active_repository.read(cx).current_branch().cloned();
 
         let footer_size = px(32.);
-        let gap = px(8.0);
-        let max_height = window.line_height() * 5. + gap + footer_size;
+        let gap = px(9.0);
+        let max_height = panel_editor_style
+            .text
+            .line_height_in_pixels(window.rem_size())
+            * MAX_PANEL_EDITOR_LINES
+            + gap;
 
         let git_panel = cx.entity().clone();
         let display_name = SharedString::from(Arc::from(
@@ -2600,6 +2857,9 @@ impl GitPanel {
                 .display_name(project, cx)
                 .trim_end_matches("/"),
         ));
+        let editor_is_long = self.commit_editor.update(cx, |editor, cx| {
+            editor.max_point(cx).row().0 >= MAX_PANEL_EDITOR_LINES as u32
+        });
 
         let footer = v_flex()
             .child(PanelRepoFooter::new(
@@ -2612,11 +2872,10 @@ impl GitPanel {
                 panel_editor_container(window, cx)
                     .id("commit-editor-container")
                     .relative()
-                    .h(max_height)
                     .w_full()
+                    .h(max_height + footer_size)
                     .border_t_1()
                     .border_color(cx.theme().colors().border_variant)
-                    .bg(cx.theme().colors().editor_background)
                     .cursor_text()
                     .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                         window.focus(&this.commit_editor.focus_handle(cx));
@@ -2624,6 +2883,10 @@ impl GitPanel {
                     .child(
                         h_flex()
                             .id("commit-footer")
+                            .border_t_1()
+                            .when(editor_is_long, |el| {
+                                el.border_color(cx.theme().colors().border_variant)
+                            })
                             .absolute()
                             .bottom_0()
                             .left_0()
@@ -2664,6 +2927,12 @@ impl GitPanel {
                     .child(
                         div()
                             .pr_2p5()
+                            .on_action(|&editor::actions::MoveUp, _, cx| {
+                                cx.stop_propagation();
+                            })
+                            .on_action(|&editor::actions::MoveDown, _, cx| {
+                                cx.stop_propagation();
+                            })
                             .child(EditorElement::new(&self.commit_editor, panel_editor_style)),
                     )
                     .child(
@@ -2771,70 +3040,137 @@ impl GitPanel {
             .items_center()
             .child(
                 v_flex()
-                    .gap_3()
-                    .child(if self.active_repository.is_some() {
-                        "No changes to commit"
-                    } else {
-                        "No Git repositories"
-                    })
+                    .gap_2()
+                    .child(h_flex().w_full().justify_around().child(
+                        if self.active_repository.is_some() {
+                            "No changes to commit"
+                        } else {
+                            "No Git repositories"
+                        },
+                    ))
+                    .children(self.active_repository.is_none().then(|| {
+                        h_flex().w_full().justify_around().child(
+                            panel_filled_button("Initialize Repository")
+                                .tooltip(Tooltip::for_action_title_in(
+                                    "git init",
+                                    &git::Init,
+                                    &self.focus_handle,
+                                ))
+                                .on_click(move |_, _, cx| {
+                                    cx.defer(move |cx| {
+                                        cx.dispatch_action(&git::Init);
+                                    })
+                                }),
+                        )
+                    }))
                     .text_ui_sm(cx)
                     .mx_auto()
                     .text_color(Color::Placeholder.color(cx)),
             )
     }
 
-    fn render_scrollbar(&self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
-        let scroll_bar_style = self.show_scrollbar(cx);
-        let show_container = matches!(scroll_bar_style, ShowScrollbar::Always);
+    fn render_vertical_scrollbar(
+        &self,
+        show_horizontal_scrollbar_container: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        div()
+            .id("git-panel-vertical-scroll")
+            .occlude()
+            .flex_none()
+            .h_full()
+            .cursor_default()
+            .absolute()
+            .right_0()
+            .top_0()
+            .bottom_0()
+            .w(px(12.))
+            .when(show_horizontal_scrollbar_container, |this| {
+                this.pb_neg_3p5()
+            })
+            .on_mouse_move(cx.listener(|_, _, _, cx| {
+                cx.notify();
+                cx.stop_propagation()
+            }))
+            .on_hover(|_, _, cx| {
+                cx.stop_propagation();
+            })
+            .on_any_mouse_down(|_, _, cx| {
+                cx.stop_propagation();
+            })
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| {
+                    if !this.vertical_scrollbar.state.is_dragging()
+                        && !this.focus_handle.contains_focused(window, cx)
+                    {
+                        this.vertical_scrollbar.hide(window, cx);
+                        cx.notify();
+                    }
 
-        if !self.should_show_scrollbar(cx)
-            || !(self.show_scrollbar || self.scrollbar_state.is_dragging())
-        {
-            return None;
-        }
-
-        Some(
-            div()
-                .id("git-panel-vertical-scroll")
-                .occlude()
-                .flex_none()
-                .h_full()
-                .cursor_default()
-                .when(show_container, |this| this.pl_1().px_1p5())
-                .when(!show_container, |this| {
-                    this.absolute().right_1().top_1().bottom_1().w(px(12.))
-                })
-                .on_mouse_move(cx.listener(|_, _, _, cx| {
-                    cx.notify();
-                    cx.stop_propagation()
-                }))
-                .on_hover(|_, _, cx| {
                     cx.stop_propagation();
-                })
-                .on_any_mouse_down(|_, _, cx| {
-                    cx.stop_propagation();
-                })
-                .on_mouse_up(
-                    MouseButton::Left,
-                    cx.listener(|this, _, window, cx| {
-                        if !this.scrollbar_state.is_dragging()
-                            && !this.focus_handle.contains_focused(window, cx)
-                        {
-                            this.hide_scrollbar(window, cx);
-                            cx.notify();
-                        }
+                }),
+            )
+            .on_scroll_wheel(cx.listener(|_, _, _, cx| {
+                cx.notify();
+            }))
+            .children(Scrollbar::vertical(
+                // percentage as f32..end_offset as f32,
+                self.vertical_scrollbar.state.clone(),
+            ))
+    }
 
-                        cx.stop_propagation();
-                    }),
-                )
-                .on_scroll_wheel(cx.listener(|_, _, _, cx| {
-                    cx.notify();
-                }))
-                .children(Scrollbar::vertical(
-                    // percentage as f32..end_offset as f32,
-                    self.scrollbar_state.clone(),
-                )),
-        )
+    /// Renders the horizontal scrollbar.
+    ///
+    /// The right offset is used to determine how far to the right the
+    /// scrollbar should extend to, useful for ensuring it doesn't collide
+    /// with the vertical scrollbar when visible.
+    fn render_horizontal_scrollbar(
+        &self,
+        right_offset: Pixels,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        div()
+            .id("git-panel-horizontal-scroll")
+            .occlude()
+            .flex_none()
+            .w_full()
+            .cursor_default()
+            .absolute()
+            .bottom_neg_px()
+            .left_0()
+            .right_0()
+            .pr(right_offset)
+            .on_mouse_move(cx.listener(|_, _, _, cx| {
+                cx.notify();
+                cx.stop_propagation()
+            }))
+            .on_hover(|_, _, cx| {
+                cx.stop_propagation();
+            })
+            .on_any_mouse_down(|_, _, cx| {
+                cx.stop_propagation();
+            })
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| {
+                    if !this.horizontal_scrollbar.state.is_dragging()
+                        && !this.focus_handle.contains_focused(window, cx)
+                    {
+                        this.horizontal_scrollbar.hide(window, cx);
+                        cx.notify();
+                    }
+
+                    cx.stop_propagation();
+                }),
+            )
+            .on_scroll_wheel(cx.listener(|_, _, _, cx| {
+                cx.notify();
+            }))
+            .children(Scrollbar::horizontal(
+                // percentage as f32..end_offset as f32,
+                self.horizontal_scrollbar.state.clone(),
+            ))
     }
 
     fn render_buffer_header_controls(
@@ -2888,54 +3224,147 @@ impl GitPanel {
     ) -> impl IntoElement {
         let entry_count = self.entries.len();
 
-        h_flex()
+        let scroll_track_size = px(16.);
+
+        let h_scroll_offset = if self.vertical_scrollbar.show_scrollbar {
+            // magic number
+            px(3.)
+        } else {
+            px(0.)
+        };
+
+        v_flex()
+            .flex_1()
             .size_full()
-            .flex_grow()
             .overflow_hidden()
+            .relative()
+            // Show a border on the top and bottom of the container when
+            // the vertical scrollbar container is visible so we don't have a
+            // floating left border in the panel.
+            .when(self.vertical_scrollbar.show_track, |this| {
+                this.border_t_1()
+                    .border_b_1()
+                    .border_color(cx.theme().colors().border)
+            })
             .child(
-                uniform_list(cx.entity().clone(), "entries", entry_count, {
-                    move |this, range, window, cx| {
-                        let mut items = Vec::with_capacity(range.end - range.start);
+                h_flex()
+                    .flex_1()
+                    .size_full()
+                    .relative()
+                    .overflow_hidden()
+                    .child(
+                        uniform_list(cx.entity().clone(), "entries", entry_count, {
+                            move |this, range, window, cx| {
+                                let mut items = Vec::with_capacity(range.end - range.start);
 
-                        for ix in range {
-                            match &this.entries.get(ix) {
-                                Some(GitListEntry::GitStatusEntry(entry)) => {
-                                    items.push(this.render_entry(
-                                        ix,
-                                        entry,
-                                        has_write_access,
-                                        window,
-                                        cx,
-                                    ));
+                                for ix in range {
+                                    match &this.entries.get(ix) {
+                                        Some(GitListEntry::GitStatusEntry(entry)) => {
+                                            items.push(this.render_entry(
+                                                ix,
+                                                entry,
+                                                has_write_access,
+                                                window,
+                                                cx,
+                                            ));
+                                        }
+                                        Some(GitListEntry::Header(header)) => {
+                                            items.push(this.render_list_header(
+                                                ix,
+                                                header,
+                                                has_write_access,
+                                                window,
+                                                cx,
+                                            ));
+                                        }
+                                        None => {}
+                                    }
                                 }
-                                Some(GitListEntry::Header(header)) => {
-                                    items.push(this.render_list_header(
-                                        ix,
-                                        header,
-                                        has_write_access,
-                                        window,
-                                        cx,
-                                    ));
-                                }
-                                None => {}
+
+                                items
                             }
-                        }
-
-                        items
-                    }
-                })
-                .size_full()
-                .with_sizing_behavior(ListSizingBehavior::Auto)
-                .with_horizontal_sizing_behavior(ListHorizontalSizingBehavior::Unconstrained)
-                .track_scroll(self.scroll_handle.clone()),
+                        })
+                        .size_full()
+                        .flex_grow()
+                        .with_sizing_behavior(ListSizingBehavior::Auto)
+                        .with_horizontal_sizing_behavior(
+                            ListHorizontalSizingBehavior::Unconstrained,
+                        )
+                        .with_width_from_item(self.max_width_item_index)
+                        .track_scroll(self.scroll_handle.clone()),
+                    )
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                            this.deploy_panel_context_menu(event.position, window, cx)
+                        }),
+                    )
+                    .when(self.vertical_scrollbar.show_track, |this| {
+                        this.child(
+                            v_flex()
+                                .h_full()
+                                .flex_none()
+                                .w(scroll_track_size)
+                                .bg(cx.theme().colors().panel_background)
+                                .child(
+                                    div()
+                                        .size_full()
+                                        .flex_1()
+                                        .border_l_1()
+                                        .border_color(cx.theme().colors().border),
+                                ),
+                        )
+                    })
+                    .when(self.vertical_scrollbar.show_scrollbar, |this| {
+                        this.child(
+                            self.render_vertical_scrollbar(
+                                self.horizontal_scrollbar.show_track,
+                                cx,
+                            ),
+                        )
+                    }),
             )
-            .on_mouse_down(
-                MouseButton::Right,
-                cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-                    this.deploy_panel_context_menu(event.position, window, cx)
-                }),
-            )
-            .children(self.render_scrollbar(cx))
+            .when(self.horizontal_scrollbar.show_track, |this| {
+                this.child(
+                    h_flex()
+                        .w_full()
+                        .h(scroll_track_size)
+                        .flex_none()
+                        .relative()
+                        .child(
+                            div()
+                                .w_full()
+                                .flex_1()
+                                // for some reason the horizontal scrollbar is 1px
+                                // taller than the vertical scrollbar??
+                                .h(scroll_track_size - px(1.))
+                                .bg(cx.theme().colors().panel_background)
+                                .border_t_1()
+                                .border_color(cx.theme().colors().border),
+                        )
+                        .when(self.vertical_scrollbar.show_track, |this| {
+                            this.child(
+                                div()
+                                    .flex_none()
+                                    // -1px prevents a missing pixel between the two container borders
+                                    .w(scroll_track_size - px(1.))
+                                    .h_full(),
+                            )
+                            .child(
+                                // HACK: Fill the missing 1px 🥲
+                                div()
+                                    .absolute()
+                                    .right(scroll_track_size - px(1.))
+                                    .bottom(scroll_track_size - px(1.))
+                                    .size_px()
+                                    .bg(cx.theme().colors().border),
+                            )
+                        }),
+                )
+            })
+            .when(self.horizontal_scrollbar.show_scrollbar, |this| {
+                this.child(self.render_horizontal_scrollbar(h_scroll_offset, cx))
+            })
     }
 
     fn entry_label(&self, label: impl Into<SharedString>, color: Color) -> Label {
@@ -2975,7 +3404,7 @@ impl GitPanel {
 
     fn load_commit_details(
         &self,
-        sha: &str,
+        sha: String,
         cx: &mut Context<Self>,
     ) -> Task<anyhow::Result<CommitDetails>> {
         let Some(repo) = self.active_repository.clone() else {
@@ -3062,13 +3491,8 @@ impl GitPanel {
         window: &Window,
         cx: &Context<Self>,
     ) -> AnyElement {
-        let display_name = entry
-            .worktree_path
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| entry.worktree_path.to_string_lossy().into_owned());
+        let display_name = entry.display_name();
 
-        let worktree_path = entry.worktree_path.clone();
         let selected = self.selected_entry == Some(ix);
         let marked = self.marked_entries.contains(&ix);
         let status_style = GitPanelSettings::get_global(cx).status_style;
@@ -3206,12 +3630,15 @@ impl GitPanel {
                     .flex_none()
                     .occlude()
                     .cursor_pointer()
-                    .ml_neg_0p5()
                     .child(
                         Checkbox::new(checkbox_id, is_staged)
                             .disabled(!has_write_access)
                             .fill()
-                            .placeholder(!self.has_staged_changes() && !self.has_conflicts())
+                            .placeholder(
+                                !self.has_staged_changes()
+                                    && !self.has_conflicts()
+                                    && !entry.status.is_created(),
+                            )
                             .elevation(ElevationIndex::Surface)
                             .on_click({
                                 let entry = entry.clone();
@@ -3260,12 +3687,12 @@ impl GitPanel {
             .child(
                 h_flex()
                     .items_center()
-                    .overflow_hidden()
-                    .when_some(worktree_path.parent(), |this, parent| {
-                        let parent_str = parent.to_string_lossy();
-                        if !parent_str.is_empty() {
+                    .flex_1()
+                    // .overflow_hidden()
+                    .when_some(entry.parent_dir(), |this, parent| {
+                        if !parent.is_empty() {
                             this.child(
-                                self.entry_label(format!("{}/", parent_str), path_color)
+                                self.entry_label(format!("{}/", parent), path_color)
                                     .when(status.is_deleted(), |this| this.strikethrough()),
                             )
                         } else {
@@ -3286,9 +3713,14 @@ impl GitPanel {
 }
 
 fn current_language_model(cx: &Context<'_, GitPanel>) -> Option<Arc<dyn LanguageModel>> {
-    let provider = LanguageModelRegistry::read_global(cx).active_provider()?;
-    let model = LanguageModelRegistry::read_global(cx).active_model()?;
-    provider.is_authenticated(cx).then(|| model)
+    assistant_settings::AssistantSettings::get_global(cx)
+        .enabled
+        .then(|| {
+            let provider = LanguageModelRegistry::read_global(cx).active_provider()?;
+            let model = LanguageModelRegistry::read_global(cx).active_model()?;
+            provider.is_authenticated(cx).then(|| model)
+        })
+        .flatten()
 }
 
 impl Render for GitPanel {
@@ -3339,14 +3771,13 @@ impl Render for GitPanel {
             .when(has_write_access && has_co_authors, |git_panel| {
                 git_panel.on_action(cx.listener(Self::toggle_fill_co_authors))
             })
-            // .on_action(cx.listener(|this, &OpenSelected, cx| this.open_selected(&OpenSelected, cx)))
-            .on_hover(cx.listener(|this, hovered, window, cx| {
+            .on_hover(cx.listener(move |this, hovered, window, cx| {
                 if *hovered {
-                    this.show_scrollbar = true;
-                    this.hide_scrollbar_task.take();
+                    this.horizontal_scrollbar.show(cx);
+                    this.vertical_scrollbar.show(cx);
                     cx.notify();
                 } else if !this.focus_handle.contains_focused(window, cx) {
-                    this.hide_scrollbar(window, cx);
+                    this.hide_scrollbars(window, cx);
                 }
             }))
             .size_full()
@@ -3355,7 +3786,7 @@ impl Render for GitPanel {
             .child(
                 v_flex()
                     .size_full()
-                    .child(self.render_panel_header(window, cx))
+                    .children(self.render_panel_header(window, cx))
                     .map(|this| {
                         if has_entries {
                             this.child(self.render_entries(has_write_access, window, cx))
@@ -3380,8 +3811,12 @@ impl Render for GitPanel {
 }
 
 impl Focusable for GitPanel {
-    fn focus_handle(&self, _: &App) -> gpui::FocusHandle {
-        self.focus_handle.clone()
+    fn focus_handle(&self, cx: &App) -> gpui::FocusHandle {
+        if self.entries.is_empty() {
+            self.commit_editor.focus_handle(cx)
+        } else {
+            self.focus_handle.clone()
+        }
     }
 }
 
@@ -3479,7 +3914,7 @@ impl GitPanelMessageTooltip {
             cx.spawn_in(window, |this, mut cx| async move {
                 let details = git_panel
                     .update(&mut cx, |git_panel, cx| {
-                        git_panel.load_commit_details(&sha, cx)
+                        git_panel.load_commit_details(sha.to_string(), cx)
                     })?
                     .await?;
 
@@ -4023,6 +4458,7 @@ mod tests {
         cx.update(|cx| {
             let settings_store = SettingsStore::test(cx);
             cx.set_global(settings_store);
+            AssistantSettings::register(cx);
             WorktreeSettings::register(cx);
             workspace::init_settings(cx);
             theme::init(LoadThemes::JustBase, cx);
