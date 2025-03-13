@@ -28,7 +28,6 @@ mod hover_popover;
 mod indent_guides;
 mod inlay_hint_cache;
 pub mod items;
-mod jsx_tag_auto_close;
 mod linked_editing_ranges;
 mod lsp_ext;
 mod mouse_context_menu;
@@ -86,8 +85,8 @@ use gpui::{
     ClipboardEntry, ClipboardItem, Context, DispatchPhase, Edges, Entity, EntityInputHandler,
     EventEmitter, FocusHandle, FocusOutEvent, Focusable, FontId, FontWeight, Global,
     HighlightStyle, Hsla, KeyContext, Modifiers, MouseButton, MouseDownEvent, PaintQuad,
-    ParentElement, Pixels, Render, SharedString, Size, Stateful, Styled, StyledText, Subscription,
-    Task, TextStyle, TextStyleRefinement, UTF16Selection, UnderlineStyle, UniformListScrollHandle,
+    ParentElement, Pixels, Render, SharedString, Size, Styled, StyledText, Subscription, Task,
+    TextStyle, TextStyleRefinement, UTF16Selection, UnderlineStyle, UniformListScrollHandle,
     WeakEntity, WeakFocusHandle, Window,
 };
 use highlight_matching_bracket::refresh_matching_bracket_highlights;
@@ -101,7 +100,6 @@ use itertools::Itertools;
 use language::{
     language_settings::{
         self, all_language_settings, language_settings, InlayHintSettings, RewrapBehavior,
-        WordsCompletionMode,
     },
     point_from_lsp, text_diff_with_options, AutoindentMode, BracketMatch, BracketPair, Buffer,
     Capability, CharKind, CodeLabel, CursorShape, Diagnostic, DiffOptions, EditPredictionsMode,
@@ -139,9 +137,8 @@ use multi_buffer::{
 use project::{
     lsp_store::{CompletionDocumentation, FormatTrigger, LspFormatTarget, OpenLspBufferHandle},
     project_settings::{GitGutterSetting, ProjectSettings},
-    CodeAction, Completion, CompletionIntent, CompletionSource, DocumentHighlight, InlayHint,
-    Location, LocationLink, PrepareRenameResponse, Project, ProjectItem, ProjectTransaction,
-    TaskSourceKind,
+    CodeAction, Completion, CompletionIntent, DocumentHighlight, InlayHint, Location, LocationLink,
+    PrepareRenameResponse, Project, ProjectItem, ProjectTransaction, TaskSourceKind,
 };
 use rand::prelude::*;
 use rpc::{proto::*, ErrorExt};
@@ -608,12 +605,6 @@ pub trait Addon: 'static {
     fn to_any(&self) -> &dyn std::any::Any;
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum IsVimMode {
-    Yes,
-    No,
-}
-
 /// Zed's primary implementation of text input, allowing users to edit a [`MultiBuffer`].
 ///
 /// See the [module level documentation](self) for more information.
@@ -645,6 +636,7 @@ pub struct Editor {
     inline_diagnostics_enabled: bool,
     inline_diagnostics: Vec<(Anchor, InlineDiagnostic)>,
     soft_wrap_mode_override: Option<language_settings::SoftWrap>,
+    hard_wrap: Option<usize>,
 
     // TODO: make this a access method
     pub project: Option<Entity<Project>>,
@@ -728,7 +720,6 @@ pub struct Editor {
     use_autoclose: bool,
     use_auto_surround: bool,
     auto_replace_emoji_shortcode: bool,
-    jsx_tag_auto_close_enabled_in_any_buffer: bool,
     show_git_blame_gutter: bool,
     show_git_blame_inline: bool,
     show_git_blame_inline_delay_task: Option<Task<()>>,
@@ -1204,7 +1195,7 @@ impl Editor {
                     .bg(cx.theme().colors().ghost_element_background)
                     .hover(|style| style.bg(cx.theme().colors().ghost_element_hover))
                     .active(|style| style.bg(cx.theme().colors().ghost_element_active))
-                    .rounded_xs()
+                    .rounded_sm()
                     .size_full()
                     .cursor_pointer()
                     .child("⋯")
@@ -1356,6 +1347,7 @@ impl Editor {
             inline_diagnostics_update: Task::ready(()),
             inline_diagnostics: Vec::new(),
             soft_wrap_mode_override,
+            hard_wrap: None,
             completion_provider: project.clone().map(|project| Box::new(project) as _),
             semantics_provider: project.clone().map(|project| Rc::new(project) as _),
             collaboration_hub: project.clone().map(|project| Box::new(project) as _),
@@ -1410,7 +1402,6 @@ impl Editor {
             use_autoclose: true,
             use_auto_surround: true,
             auto_replace_emoji_shortcode: false,
-            jsx_tag_auto_close_enabled_in_any_buffer: false,
             leader_peer_id: None,
             remote_id: None,
             hover_state: Default::default(),
@@ -1494,7 +1485,6 @@ impl Editor {
 
         this.end_selection(window, cx);
         this.scroll_manager.show_scrollbar(window, cx);
-        jsx_tag_auto_close::refresh_enabled_in_any_buffer(&mut this, &buffer, cx);
 
         if mode == EditorMode::Full {
             let should_auto_hide_scrollbars = cx.should_auto_hide_scrollbars();
@@ -1574,16 +1564,13 @@ impl Editor {
             }
         }
 
-        if let Some(singleton_buffer) = self.buffer.read(cx).as_singleton() {
-            if let Some(extension) = singleton_buffer
-                .read(cx)
-                .file()
-                .and_then(|file| file.path().extension()?.to_str())
-            {
-                key_context.set("extension", extension.to_string());
-            }
-        } else {
-            key_context.add("multibuffer");
+        if let Some(extension) = self
+            .buffer
+            .read(cx)
+            .as_singleton()
+            .and_then(|buffer| buffer.read(cx).file()?.path().extension()?.to_str())
+        {
+            key_context.set("extension", extension.to_string());
         }
 
         if has_active_edit_prediction {
@@ -3106,9 +3093,6 @@ impl Editor {
         drop(snapshot);
 
         self.transact(window, cx, |this, window, cx| {
-            let initial_buffer_versions =
-                jsx_tag_auto_close::construct_initial_buffer_versions_map(this, &edits, cx);
-
             this.buffer.update(cx, |buffer, cx| {
                 buffer.edit(edits, this.autoindent_mode.clone(), cx);
             });
@@ -3193,10 +3177,22 @@ impl Editor {
 
             let trigger_in_words =
                 this.show_edit_predictions_in_menu() || !had_active_inline_completion;
+            if this.hard_wrap.is_some() {
+                let latest: Range<Point> = this.selections.newest(cx).range();
+                if latest.is_empty()
+                    && this
+                        .buffer()
+                        .read(cx)
+                        .snapshot(cx)
+                        .line_len(MultiBufferRow(latest.start.row))
+                        == latest.start.column
+                {
+                    this.rewrap_impl(true, cx)
+                }
+            }
             this.trigger_completion_on_input(&text, trigger_in_words, window, cx);
             linked_editing_ranges::refresh_linked_ranges(this, window, cx);
             this.refresh_inline_completion(true, false, window, cx);
-            jsx_tag_auto_close::handle_from(this, initial_buffer_versions, window, cx);
         });
     }
 
@@ -4013,8 +4009,9 @@ impl Editor {
             } else {
                 return;
             };
-        let buffer_snapshot = buffer.read(cx).snapshot();
-        let show_completion_documentation = buffer_snapshot
+        let show_completion_documentation = buffer
+            .read(cx)
+            .snapshot()
             .settings_at(buffer_position, cx)
             .show_completion_documentation;
 
@@ -4038,51 +4035,6 @@ impl Editor {
         };
         let completions =
             provider.completions(&buffer, buffer_position, completion_context, window, cx);
-        let (old_range, word_kind) = buffer_snapshot.surrounding_word(buffer_position);
-        let (old_range, word_to_exclude) = if word_kind == Some(CharKind::Word) {
-            let word_to_exclude = buffer_snapshot
-                .text_for_range(old_range.clone())
-                .collect::<String>();
-            (
-                buffer_snapshot.anchor_before(old_range.start)
-                    ..buffer_snapshot.anchor_after(old_range.end),
-                Some(word_to_exclude),
-            )
-        } else {
-            (buffer_position..buffer_position, None)
-        };
-
-        let completion_settings = language_settings(
-            buffer_snapshot
-                .language_at(buffer_position)
-                .map(|language| language.name()),
-            buffer_snapshot.file(),
-            cx,
-        )
-        .completions;
-
-        // The document can be large, so stay in reasonable bounds when searching for words,
-        // otherwise completion pop-up might be slow to appear.
-        const WORD_LOOKUP_ROWS: u32 = 5_000;
-        let buffer_row = text::ToPoint::to_point(&buffer_position, &buffer_snapshot).row;
-        let min_word_search = buffer_snapshot.clip_point(
-            Point::new(buffer_row.saturating_sub(WORD_LOOKUP_ROWS), 0),
-            Bias::Left,
-        );
-        let max_word_search = buffer_snapshot.clip_point(
-            Point::new(buffer_row + WORD_LOOKUP_ROWS, 0).min(buffer_snapshot.max_point()),
-            Bias::Right,
-        );
-        let word_search_range = buffer_snapshot.point_to_offset(min_word_search)
-            ..buffer_snapshot.point_to_offset(max_word_search);
-        let words = match completion_settings.words {
-            WordsCompletionMode::Disabled => Task::ready(HashMap::default()),
-            WordsCompletionMode::Enabled | WordsCompletionMode::Fallback => {
-                cx.background_spawn(async move {
-                    buffer_snapshot.words_in_range(None, word_search_range)
-                })
-            }
-        };
         let sort_completions = provider.sort_completions();
 
         let id = post_inc(&mut self.next_completion_id);
@@ -4091,55 +4043,8 @@ impl Editor {
                 editor.update(&mut cx, |this, _| {
                     this.completion_tasks.retain(|(task_id, _)| *task_id >= id);
                 })?;
-                let mut completions = completions.await.log_err().unwrap_or_default();
-
-                match completion_settings.words {
-                    WordsCompletionMode::Enabled => {
-                        completions.extend(
-                            words
-                                .await
-                                .into_iter()
-                                .filter(|(word, _)| word_to_exclude.as_ref() != Some(word))
-                                .map(|(word, word_range)| Completion {
-                                    old_range: old_range.clone(),
-                                    new_text: word.clone(),
-                                    label: CodeLabel::plain(word, None),
-                                    documentation: None,
-                                    source: CompletionSource::BufferWord {
-                                        word_range,
-                                        resolved: false,
-                                    },
-                                    confirm: None,
-                                }),
-                        );
-                    }
-                    WordsCompletionMode::Fallback => {
-                        if completions.is_empty() {
-                            completions.extend(
-                                words
-                                    .await
-                                    .into_iter()
-                                    .filter(|(word, _)| word_to_exclude.as_ref() != Some(word))
-                                    .map(|(word, word_range)| Completion {
-                                        old_range: old_range.clone(),
-                                        new_text: word.clone(),
-                                        label: CodeLabel::plain(word, None),
-                                        documentation: None,
-                                        source: CompletionSource::BufferWord {
-                                            word_range,
-                                            resolved: false,
-                                        },
-                                        confirm: None,
-                                    }),
-                            );
-                        }
-                    }
-                    WordsCompletionMode::Disabled => {}
-                }
-
-                let menu = if completions.is_empty() {
-                    None
-                } else {
+                let completions = completions.await.log_err();
+                let menu = if let Some(completions) = completions {
                     let mut menu = CompletionsMenu::new(
                         id,
                         sort_completions,
@@ -4153,6 +4058,8 @@ impl Editor {
                         .await;
 
                     menu.visible().then_some(menu)
+                } else {
+                    None
                 };
 
                 editor.update_in(&mut cx, |editor, window, cx| {
@@ -6021,6 +5928,7 @@ impl Editor {
     const EDIT_PREDICTION_POPOVER_PADDING_X: Pixels = Pixels(24.);
     const EDIT_PREDICTION_POPOVER_PADDING_Y: Pixels = Pixels(2.);
 
+    #[allow(clippy::too_many_arguments)]
     fn render_edit_prediction_popover(
         &mut self,
         text_bounds: &Bounds<Pixels>,
@@ -6132,6 +6040,7 @@ impl Editor {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn render_edit_prediction_modifier_jump_popover(
         &mut self,
         text_bounds: &Bounds<Pixels>,
@@ -6227,6 +6136,7 @@ impl Editor {
         Some((element, origin))
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn render_edit_prediction_scroll_popover(
         &mut self,
         to_y: impl Fn(Size<Pixels>) -> Pixels,
@@ -6257,6 +6167,7 @@ impl Editor {
         Some((element, origin))
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn render_edit_prediction_eager_jump_popover(
         &mut self,
         text_bounds: &Bounds<Pixels>,
@@ -6326,6 +6237,7 @@ impl Editor {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn render_edit_prediction_end_of_line_popover(
         self: &mut Editor,
         label: &'static str,
@@ -6384,6 +6296,7 @@ impl Editor {
         Some((element, origin))
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn render_edit_prediction_diff_popover(
         self: &Editor,
         text_bounds: &Bounds<Pixels>,
@@ -6429,9 +6342,6 @@ impl Editor {
 
         const BORDER_WIDTH: Pixels = px(1.);
 
-        let keybind = self.render_edit_prediction_accept_keybind(window, cx);
-        let has_keybind = keybind.is_some();
-
         let mut element = h_flex()
             .items_start()
             .child(
@@ -6462,19 +6372,7 @@ impl Editor {
                     .border(BORDER_WIDTH)
                     .border_color(cx.theme().colors().border)
                     .rounded_r_lg()
-                    .id("edit_prediction_diff_popover_keybind")
-                    .when(!has_keybind, |el| {
-                        let status_colors = cx.theme().status();
-
-                        el.bg(status_colors.error_background)
-                            .border_color(status_colors.error.opacity(0.6))
-                            .child(Icon::new(IconName::Info).color(Color::Error))
-                            .cursor_default()
-                            .hoverable_tooltip(move |_window, cx| {
-                                cx.new(|_| MissingEditPredictionKeybindingTooltip).into()
-                            })
-                    })
-                    .children(keybind),
+                    .children(self.render_edit_prediction_accept_keybind(window, cx)),
             )
             .into_any();
 
@@ -6572,11 +6470,7 @@ impl Editor {
         }
     }
 
-    fn render_edit_prediction_accept_keybind(
-        &self,
-        window: &mut Window,
-        cx: &App,
-    ) -> Option<AnyElement> {
+    fn render_edit_prediction_accept_keybind(&self, window: &mut Window, cx: &App) -> Option<Div> {
         let accept_binding = self.accept_edit_prediction_keybind(window, cx);
         let accept_keystroke = accept_binding.keystroke()?;
 
@@ -6612,7 +6506,6 @@ impl Editor {
                     .size(Some(IconSize::XSmall.rems().into())),
                 )
             })
-            .into_any()
             .into()
     }
 
@@ -6622,52 +6515,21 @@ impl Editor {
         icon: Option<IconName>,
         window: &mut Window,
         cx: &App,
-    ) -> Option<Stateful<Div>> {
+    ) -> Option<Div> {
         let padding_right = if icon.is_some() { px(4.) } else { px(8.) };
 
-        let keybind = self.render_edit_prediction_accept_keybind(window, cx);
-        let has_keybind = keybind.is_some();
-
         let result = h_flex()
-            .id("ep-line-popover")
             .py_0p5()
             .pl_1()
             .pr(padding_right)
             .gap_1()
-            .rounded_md()
+            .rounded(px(6.))
             .border_1()
             .bg(Self::edit_prediction_line_popover_bg_color(cx))
             .border_color(Self::edit_prediction_callout_popover_border_color(cx))
             .shadow_sm()
-            .when(!has_keybind, |el| {
-                let status_colors = cx.theme().status();
-
-                el.bg(status_colors.error_background)
-                    .border_color(status_colors.error.opacity(0.6))
-                    .pl_2()
-                    .child(Icon::new(IconName::ZedPredictError).color(Color::Error))
-                    .cursor_default()
-                    .hoverable_tooltip(move |_window, cx| {
-                        cx.new(|_| MissingEditPredictionKeybindingTooltip).into()
-                    })
-            })
-            .children(keybind)
-            .child(
-                Label::new(label)
-                    .size(LabelSize::Small)
-                    .when(!has_keybind, |el| {
-                        el.color(cx.theme().status().error.into()).strikethrough()
-                    }),
-            )
-            .when(!has_keybind, |el| {
-                el.child(
-                    h_flex().ml_1().child(
-                        Icon::new(IconName::Info)
-                            .size(IconSize::Small)
-                            .color(cx.theme().status().error.into()),
-                    ),
-                )
-            })
+            .children(self.render_edit_prediction_accept_keybind(window, cx))
+            .child(Label::new(label).size(LabelSize::Small))
             .when_some(icon, |element, icon| {
                 element.child(
                     div()
@@ -6691,6 +6553,7 @@ impl Editor {
         editor_bg_color.blend(accent_color.opacity(0.6))
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn render_edit_prediction_cursor_popover(
         &self,
         min_width: Pixels,
@@ -6763,9 +6626,6 @@ impl Editor {
                             .elevation_2(cx)
                             .border(BORDER_WIDTH)
                             .border_color(cx.theme().colors().border)
-                            .when(accept_keystroke.is_none(), |el| {
-                                el.border_color(cx.theme().status().error)
-                            })
                             .rounded(RADIUS)
                             .rounded_tl(px(0.))
                             .overflow_hidden()
@@ -6794,37 +6654,16 @@ impl Editor {
                                         el.child(
                                             Label::new("Hold")
                                                 .size(LabelSize::Small)
-                                                .when(accept_keystroke.is_none(), |el| {
-                                                    el.strikethrough()
-                                                })
                                                 .line_height_style(LineHeightStyle::UiLabel),
                                         )
                                     })
-                                    .id("edit_prediction_cursor_popover_keybind")
-                                    .when(accept_keystroke.is_none(), |el| {
-                                        let status_colors = cx.theme().status();
-
-                                        el.bg(status_colors.error_background)
-                                            .border_color(status_colors.error.opacity(0.6))
-                                            .child(Icon::new(IconName::Info).color(Color::Error))
-                                            .cursor_default()
-                                            .hoverable_tooltip(move |_window, cx| {
-                                                cx.new(|_| MissingEditPredictionKeybindingTooltip)
-                                                    .into()
-                                            })
-                                    })
-                                    .when_some(
-                                        accept_keystroke.as_ref(),
-                                        |el, accept_keystroke| {
-                                            el.child(h_flex().children(ui::render_modifiers(
-                                                &accept_keystroke.modifiers,
-                                                PlatformStyle::platform(),
-                                                Some(Color::Default),
-                                                Some(IconSize::XSmall.rems().into()),
-                                                false,
-                                            )))
-                                        },
-                                    ),
+                                    .child(h_flex().children(ui::render_modifiers(
+                                        &accept_keystroke?.modifiers,
+                                        PlatformStyle::platform(),
+                                        Some(Color::Default),
+                                        Some(IconSize::XSmall.rems().into()),
+                                        false,
+                                    ))),
                             )
                             .into_any(),
                     );
@@ -8597,10 +8436,10 @@ impl Editor {
     }
 
     pub fn rewrap(&mut self, _: &Rewrap, _: &mut Window, cx: &mut Context<Self>) {
-        self.rewrap_impl(IsVimMode::No, cx)
+        self.rewrap_impl(false, cx)
     }
 
-    pub fn rewrap_impl(&mut self, is_vim_mode: IsVimMode, cx: &mut Context<Self>) {
+    pub fn rewrap_impl(&mut self, override_language_settings: bool, cx: &mut Context<Self>) {
         let buffer = self.buffer.read(cx).snapshot(cx);
         let selections = self.selections.all::<Point>(cx);
         let mut selections = selections.iter().peekable();
@@ -8674,7 +8513,9 @@ impl Editor {
                 RewrapBehavior::Anywhere => true,
             };
 
-            let should_rewrap = is_vim_mode == IsVimMode::Yes || allow_rewrap_based_on_language;
+            let should_rewrap = override_language_settings
+                || allow_rewrap_based_on_language
+                || self.hard_wrap.is_some();
             if !should_rewrap {
                 continue;
             }
@@ -8722,9 +8563,11 @@ impl Editor {
                 continue;
             };
 
-            let wrap_column = buffer
-                .language_settings_at(Point::new(start_row, 0), cx)
-                .preferred_line_length as usize;
+            let wrap_column = self.hard_wrap.unwrap_or_else(|| {
+                buffer
+                    .language_settings_at(Point::new(start_row, 0), cx)
+                    .preferred_line_length as usize
+            });
             let wrapped_text = wrap_with_prefix(
                 line_prefix,
                 lines_without_prefixes.join(" "),
@@ -8735,7 +8578,7 @@ impl Editor {
             // TODO: should always use char-based diff while still supporting cursor behavior that
             // matches vim.
             let mut diff_options = DiffOptions::default();
-            if is_vim_mode == IsVimMode::Yes {
+            if override_language_settings {
                 diff_options.max_word_diff_len = 0;
                 diff_options.max_word_diff_line_count = 0;
             } else {
@@ -9931,31 +9774,6 @@ impl Editor {
         })
     }
 
-    pub fn move_to_start_of_next_excerpt(
-        &mut self,
-        _: &MoveToStartOfNextExcerpt,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if matches!(self.mode, EditorMode::SingleLine { .. }) {
-            cx.propagate();
-            return;
-        }
-
-        self.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
-            s.move_with(|map, selection| {
-                selection.collapse_to(
-                    movement::start_of_excerpt(
-                        map,
-                        selection.head(),
-                        workspace::searchable::Direction::Next,
-                    ),
-                    SelectionGoal::None,
-                )
-            });
-        })
-    }
-
     pub fn move_to_end_of_excerpt(
         &mut self,
         _: &MoveToEndOfExcerpt,
@@ -9974,31 +9792,6 @@ impl Editor {
                         map,
                         selection.head(),
                         workspace::searchable::Direction::Next,
-                    ),
-                    SelectionGoal::None,
-                )
-            });
-        })
-    }
-
-    pub fn move_to_end_of_previous_excerpt(
-        &mut self,
-        _: &MoveToEndOfPreviousExcerpt,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if matches!(self.mode, EditorMode::SingleLine { .. }) {
-            cx.propagate();
-            return;
-        }
-
-        self.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
-            s.move_with(|map, selection| {
-                selection.collapse_to(
-                    movement::end_of_excerpt(
-                        map,
-                        selection.head(),
-                        workspace::searchable::Direction::Prev,
                     ),
                     SelectionGoal::None,
                 )
@@ -10027,27 +9820,6 @@ impl Editor {
         })
     }
 
-    pub fn select_to_start_of_next_excerpt(
-        &mut self,
-        _: &SelectToStartOfNextExcerpt,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if matches!(self.mode, EditorMode::SingleLine { .. }) {
-            cx.propagate();
-            return;
-        }
-
-        self.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
-            s.move_heads_with(|map, head, _| {
-                (
-                    movement::start_of_excerpt(map, head, workspace::searchable::Direction::Next),
-                    SelectionGoal::None,
-                )
-            });
-        })
-    }
-
     pub fn select_to_end_of_excerpt(
         &mut self,
         _: &SelectToEndOfExcerpt,
@@ -10063,27 +9835,6 @@ impl Editor {
             s.move_heads_with(|map, head, _| {
                 (
                     movement::end_of_excerpt(map, head, workspace::searchable::Direction::Next),
-                    SelectionGoal::None,
-                )
-            });
-        })
-    }
-
-    pub fn select_to_end_of_previous_excerpt(
-        &mut self,
-        _: &SelectToEndOfPreviousExcerpt,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if matches!(self.mode, EditorMode::SingleLine { .. }) {
-            cx.propagate();
-            return;
-        }
-
-        self.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
-            s.move_heads_with(|map, head, _| {
-                (
-                    movement::end_of_excerpt(map, head, workspace::searchable::Direction::Prev),
                     SelectionGoal::None,
                 )
             });
@@ -14305,6 +14056,11 @@ impl Editor {
         cx.notify();
     }
 
+    pub fn set_hard_wrap(&mut self, hard_wrap: Option<usize>, cx: &mut Context<Self>) {
+        self.hard_wrap = hard_wrap;
+        cx.notify();
+    }
+
     pub fn set_text_style_refinement(&mut self, style: TextStyleRefinement) {
         self.text_style_refinement = Some(style);
     }
@@ -14399,13 +14155,6 @@ impl Editor {
         let mut editor_settings = EditorSettings::get_global(cx).clone();
         editor_settings.gutter.line_numbers = !editor_settings.gutter.line_numbers;
         EditorSettings::override_global(editor_settings, cx);
-    }
-
-    pub fn line_numbers_enabled(&self, cx: &App) -> bool {
-        if let Some(show_line_numbers) = self.show_line_numbers {
-            return show_line_numbers;
-        }
-        EditorSettings::get_global(cx).gutter.line_numbers
     }
 
     pub fn should_use_relative_line_numbers(&self, cx: &mut App) -> bool {
@@ -14587,7 +14336,7 @@ impl Editor {
 
     pub fn toggle_git_blame(
         &mut self,
-        _: &ToggleGitBlame,
+        _: &::git::Blame,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -15603,7 +15352,6 @@ impl Editor {
                 let buffer = self.buffer.read(cx);
                 self.registered_buffers
                     .retain(|buffer_id, _| buffer.buffer(*buffer_id).is_some());
-                jsx_tag_auto_close::refresh_enabled_in_any_buffer(self, multibuffer, cx);
                 cx.emit(EditorEvent::ExcerptsRemoved { ids: ids.clone() })
             }
             multi_buffer::Event::ExcerptsEdited {
@@ -15623,7 +15371,6 @@ impl Editor {
             }
             multi_buffer::Event::Reparsed(buffer_id) => {
                 self.tasks_update_task = Some(self.refresh_runnables(window, cx));
-                jsx_tag_auto_close::refresh_enabled_in_any_buffer(self, multibuffer, cx);
 
                 cx.emit(EditorEvent::Reparsed(*buffer_id));
             }
@@ -15632,7 +15379,6 @@ impl Editor {
             }
             multi_buffer::Event::LanguageChanged(buffer_id) => {
                 linked_editing_ranges::refresh_linked_ranges(self, window, cx);
-                jsx_tag_auto_close::refresh_enabled_in_any_buffer(self, multibuffer, cx);
                 cx.emit(EditorEvent::Reparsed(*buffer_id));
                 cx.notify();
             }
@@ -17098,41 +16844,38 @@ fn snippet_completions(
                 Some(Completion {
                     old_range: range,
                     new_text: snippet.body.clone(),
-                    source: CompletionSource::Lsp {
-                        server_id: LanguageServerId(usize::MAX),
-                        resolved: true,
-                        lsp_completion: Box::new(lsp::CompletionItem {
-                            label: snippet.prefix.first().unwrap().clone(),
-                            kind: Some(CompletionItemKind::SNIPPET),
-                            label_details: snippet.description.as_ref().map(|description| {
-                                lsp::CompletionItemLabelDetails {
-                                    detail: Some(description.clone()),
-                                    description: None,
-                                }
-                            }),
-                            insert_text_format: Some(InsertTextFormat::SNIPPET),
-                            text_edit: Some(lsp::CompletionTextEdit::InsertAndReplace(
-                                lsp::InsertReplaceEdit {
-                                    new_text: snippet.body.clone(),
-                                    insert: lsp_range,
-                                    replace: lsp_range,
-                                },
-                            )),
-                            filter_text: Some(snippet.body.clone()),
-                            sort_text: Some(char::MAX.to_string()),
-                            ..lsp::CompletionItem::default()
-                        }),
-                        lsp_defaults: None,
-                    },
+                    resolved: false,
                     label: CodeLabel {
                         text: matching_prefix.clone(),
-                        runs: Vec::new(),
+                        runs: vec![],
                         filter_range: 0..matching_prefix.len(),
                     },
+                    server_id: LanguageServerId(usize::MAX),
                     documentation: snippet
                         .description
                         .clone()
                         .map(|description| CompletionDocumentation::SingleLine(description.into())),
+                    lsp_completion: lsp::CompletionItem {
+                        label: snippet.prefix.first().unwrap().clone(),
+                        kind: Some(CompletionItemKind::SNIPPET),
+                        label_details: snippet.description.as_ref().map(|description| {
+                            lsp::CompletionItemLabelDetails {
+                                detail: Some(description.clone()),
+                                description: None,
+                            }
+                        }),
+                        insert_text_format: Some(InsertTextFormat::SNIPPET),
+                        text_edit: Some(lsp::CompletionTextEdit::InsertAndReplace(
+                            lsp::InsertReplaceEdit {
+                                new_text: snippet.body.clone(),
+                                insert: lsp_range,
+                                replace: lsp_range,
+                            },
+                        )),
+                        filter_text: Some(snippet.body.clone()),
+                        sort_text: Some(char::MAX.to_string()),
+                        ..Default::default()
+                    },
                     confirm: None,
                 })
             })
@@ -18595,40 +18338,6 @@ fn all_edits_insertions_or_deletions(
         }
     }
     all_insertions || all_deletions
-}
-
-struct MissingEditPredictionKeybindingTooltip;
-
-impl Render for MissingEditPredictionKeybindingTooltip {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
-        ui::tooltip_container(window, cx, |container, _, cx| {
-            container
-                .flex_shrink_0()
-                .max_w_80()
-                .min_h(rems_from_px(124.))
-                .justify_between()
-                .child(
-                    v_flex()
-                        .flex_1()
-                        .text_ui_sm(cx)
-                        .child(Label::new("Conflict with Accept Keybinding"))
-                        .child("Your keymap currently overrides the default accept keybinding. To continue, assign one keybinding for the `editor::AcceptEditPrediction` action.")
-                )
-                .child(
-                    h_flex()
-                        .pb_1()
-                        .gap_1()
-                        .items_end()
-                        .w_full()
-                        .child(Button::new("open-keymap", "Assign Keybinding").size(ButtonSize::Compact).on_click(|_ev, window, cx| {
-                            window.dispatch_action(zed_actions::OpenKeymap.boxed_clone(), cx)
-                        }))
-                        .child(Button::new("see-docs", "See Docs").size(ButtonSize::Compact).on_click(|_ev, _window, cx| {
-                            cx.open_url("https://zed.dev/docs/completions#edit-predictions-missing-keybinding");
-                        })),
-                )
-        })
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

@@ -10,9 +10,9 @@ use gpui::{
 };
 use language::{
     language_settings::SoftWrap, Anchor, Buffer, BufferSnapshot, CodeLabel, LanguageRegistry,
-    ToOffset,
+    LanguageServerId, ToOffset,
 };
-use project::{search::SearchQuery, Completion, CompletionSource};
+use project::{search::SearchQuery, Completion};
 use settings::Settings;
 use std::{
     cell::RefCell,
@@ -309,9 +309,11 @@ impl MessageEditor {
                     old_range: range.clone(),
                     new_text,
                     label,
-                    confirm: None,
                     documentation: None,
-                    source: CompletionSource::Custom,
+                    server_id: LanguageServerId(0), // TODO: Make this optional or something?
+                    lsp_completion: Default::default(), // TODO: Make this optional or something?
+                    confirm: None,
+                    resolved: true,
                 }
             })
             .collect()
@@ -529,7 +531,7 @@ impl Render for MessageEditor {
             .px_2()
             .py_1()
             .bg(cx.theme().colors().editor_background)
-            .rounded_sm()
+            .rounded_md()
             .child(EditorElement::new(
                 &self.editor,
                 EditorStyle {
