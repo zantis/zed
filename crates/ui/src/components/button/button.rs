@@ -6,9 +6,7 @@ use crate::{
     prelude::*, Color, DynamicSpacing, ElevationIndex, IconPosition, KeyBinding,
     KeybindingPosition, TintColor,
 };
-use crate::{
-    ButtonCommon, ButtonLike, ButtonSize, ButtonStyle, IconName, IconSize, Label, LineHeightStyle,
-};
+use crate::{ButtonCommon, ButtonLike, ButtonSize, ButtonStyle, IconName, IconSize, Label};
 
 use super::button_icon::ButtonIcon;
 
@@ -80,7 +78,7 @@ use super::button_icon::ButtonIcon;
 /// ```
 ///
 #[derive(IntoElement, IntoComponent)]
-#[component(scope = "input")]
+#[component(scope = "Input")]
 pub struct Button {
     base: ButtonLike,
     label: SharedString,
@@ -448,7 +446,6 @@ impl RenderOnce for Button {
                                 .color(label_color)
                                 .size(self.label_size.unwrap_or_default())
                                 .when_some(self.alpha, |this, alpha| this.alpha(alpha))
-                                .line_height_style(LineHeightStyle::UiLabel)
                                 .when(self.truncate, |this| this.truncate()),
                         )
                         .children(self.key_binding),

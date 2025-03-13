@@ -256,10 +256,7 @@ fn main() {
         };
     log::info!("Using git binary path: {:?}", git_binary_path);
 
-    let fs = Arc::new(RealFs::new(
-        git_hosting_provider_registry.clone(),
-        git_binary_path,
-    ));
+    let fs = Arc::new(RealFs::new(git_binary_path));
     let user_settings_file_rx = watch_config_file(
         &app.background_executor(),
         fs.clone(),
@@ -507,9 +504,7 @@ fn main() {
         outline::init(cx);
         project_symbols::init(cx);
         project_panel::init(cx);
-        git_ui::git_panel::init(cx);
         outline_panel::init(cx);
-        component_preview::init(cx);
         tasks_ui::init(cx);
         snippets_ui::init(cx);
         channel::init(&app_state.client.clone(), app_state.user_store.clone(), cx);
@@ -621,6 +616,9 @@ fn main() {
         }
 
         let app_state = app_state.clone();
+
+        component_preview::init(app_state.clone(), cx);
+
         cx.spawn(move |cx| async move {
             while let Some(urls) = open_rx.next().await {
                 cx.update(|cx| {

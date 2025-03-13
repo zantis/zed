@@ -23,7 +23,7 @@ mod project_tests;
 mod direnv;
 mod environment;
 use buffer_diff::BufferDiff;
-pub use environment::EnvironmentErrorMessage;
+pub use environment::{EnvironmentErrorMessage, ProjectEnvironmentEvent};
 use git::Repository;
 pub mod search_history;
 mod yarn;
@@ -46,11 +46,7 @@ use futures::{
 pub use image_store::{ImageItem, ImageStore};
 use image_store::{ImageItemEvent, ImageStoreEvent};
 
-use ::git::{
-    blame::Blame,
-    repository::{Branch, GitRepository, RepoPath},
-    status::FileStatus,
-};
+use ::git::{blame::Blame, repository::GitRepository, status::FileStatus};
 use gpui::{
     AnyEntity, App, AppContext as _, AsyncApp, BorrowAppContext, Context, Entity, EventEmitter,
     Hsla, SharedString, Task, WeakEntity, Window,
@@ -524,12 +520,6 @@ enum EntitySubscription {
     SettingsObserver(PendingEntitySubscription<SettingsObserver>),
 }
 
-#[derive(Debug, Clone)]
-pub struct DirectoryItem {
-    pub path: PathBuf,
-    pub is_dir: bool,
-}
-
 #[derive(Clone)]
 pub enum DirectoryLister {
     Project(Entity<Project>),
@@ -558,10 +548,10 @@ impl DirectoryLister {
                 return worktree.read(cx).abs_path().to_string_lossy().to_string();
             }
         };
-        format!("~{}", std::path::MAIN_SEPARATOR_STR)
+        "~/".to_string()
     }
 
-    pub fn list_directory(&self, path: String, cx: &mut App) -> Task<Result<Vec<DirectoryItem>>> {
+    pub fn list_directory(&self, path: String, cx: &mut App) -> Task<Result<Vec<PathBuf>>> {
         match self {
             DirectoryLister::Project(project) => {
                 project.update(cx, |project, cx| project.list_directory(path, cx))
@@ -574,12 +564,8 @@ impl DirectoryLister {
                     let query = Path::new(expanded.as_ref());
                     let mut response = fs.read_dir(query).await?;
                     while let Some(path) = response.next().await {
-                        let path = path?;
-                        if let Some(file_name) = path.file_name() {
-                            results.push(DirectoryItem {
-                                path: PathBuf::from(file_name.to_os_string()),
-                                is_dir: fs.is_dir(&path).await,
-                            });
+                        if let Some(file_name) = path?.file_name() {
+                            results.push(PathBuf::from(file_name.to_os_string()));
                         }
                     }
                     Ok(results)
@@ -711,8 +697,16 @@ impl Project {
                 )
             });
 
-            let git_store =
-                cx.new(|cx| GitStore::new(&worktree_store, buffer_store.clone(), None, None, cx));
+            let git_store = cx.new(|cx| {
+                GitStore::local(
+                    &worktree_store,
+                    buffer_store.clone(),
+                    environment.clone(),
+                    fs.clone(),
+                    client.clone().into(),
+                    cx,
+                )
+            });
 
             cx.subscribe(&lsp_store, Self::on_lsp_store_event).detach();
 
@@ -833,17 +827,17 @@ impl Project {
             cx.subscribe(&lsp_store, Self::on_lsp_store_event).detach();
 
             let git_store = cx.new(|cx| {
-                GitStore::new(
+                GitStore::ssh(
                     &worktree_store,
                     buffer_store.clone(),
-                    Some(ssh_proto.clone()),
-                    Some(ProjectId(SSH_PROJECT_ID)),
+                    environment.clone(),
+                    ssh_proto.clone(),
+                    ProjectId(SSH_PROJECT_ID),
                     cx,
                 )
             });
 
             cx.subscribe(&ssh, Self::on_ssh_event).detach();
-            cx.observe(&ssh, |_, _, cx| cx.notify()).detach();
 
             let this = Self {
                 buffer_ordered_messages_tx: tx,
@@ -1041,11 +1035,12 @@ impl Project {
         })?;
 
         let git_store = cx.new(|cx| {
-            GitStore::new(
+            GitStore::remote(
+                // In this remote case we pass None for the environment
                 &worktree_store,
                 buffer_store.clone(),
-                Some(client.clone().into()),
-                Some(ProjectId(remote_id)),
+                client.clone().into(),
+                ProjectId(remote_id),
                 cx,
             )
         })?;
@@ -1328,9 +1323,9 @@ impl Project {
         self.environment.read(cx).environment_errors()
     }
 
-    pub fn remove_environment_error(&mut self, cx: &mut Context<Self>, worktree_id: WorktreeId) {
-        self.environment.update(cx, |environment, _| {
-            environment.remove_environment_error(worktree_id);
+    pub fn remove_environment_error(&mut self, worktree_id: WorktreeId, cx: &mut Context<Self>) {
+        self.environment.update(cx, |environment, cx| {
+            environment.remove_environment_error(worktree_id, cx);
         });
     }
 
@@ -1721,7 +1716,6 @@ impl Project {
         };
 
         cx.emit(Event::RemoteIdChanged(Some(project_id)));
-        cx.notify();
         Ok(())
     }
 
@@ -1737,7 +1731,6 @@ impl Project {
         self.worktree_store.update(cx, |worktree_store, cx| {
             worktree_store.send_project_updates(cx);
         });
-        cx.notify();
         cx.emit(Event::Reshared);
         Ok(())
     }
@@ -1767,13 +1760,12 @@ impl Project {
         self.enqueue_buffer_ordered_message(BufferOrderedMessage::Resync)
             .unwrap();
         cx.emit(Event::Rejoined);
-        cx.notify();
         Ok(())
     }
 
     pub fn unshare(&mut self, cx: &mut Context<Self>) -> Result<()> {
         self.unshare_internal(cx)?;
-        cx.notify();
+        cx.emit(Event::RemoteIdChanged(None));
         Ok(())
     }
 
@@ -1817,7 +1809,6 @@ impl Project {
         }
         self.disconnected_from_host_internal(cx);
         cx.emit(Event::DisconnectedFromHost);
-        cx.notify();
     }
 
     pub fn set_role(&mut self, role: proto::ChannelRole, cx: &mut Context<Self>) {
@@ -2276,7 +2267,6 @@ impl Project {
             BufferStoreEvent::BufferAdded(buffer) => {
                 self.register_buffer(buffer, cx).log_err();
             }
-            BufferStoreEvent::BufferChangedFilePath { .. } => {}
             BufferStoreEvent::BufferDropped(buffer_id) => {
                 if let Some(ref ssh_client) = self.ssh_client {
                     ssh_client
@@ -2289,6 +2279,7 @@ impl Project {
                         .log_err();
                 }
             }
+            _ => {}
         }
     }
 
@@ -2466,15 +2457,11 @@ impl Project {
         }
     }
 
-    fn on_worktree_added(&mut self, worktree: &Entity<Worktree>, cx: &mut Context<Self>) {
-        {
-            let mut remotely_created_models = self.remotely_created_models.lock();
-            if remotely_created_models.retain_count > 0 {
-                remotely_created_models.worktrees.push(worktree.clone())
-            }
+    fn on_worktree_added(&mut self, worktree: &Entity<Worktree>, _: &mut Context<Self>) {
+        let mut remotely_created_models = self.remotely_created_models.lock();
+        if remotely_created_models.retain_count > 0 {
+            remotely_created_models.worktrees.push(worktree.clone())
         }
-        cx.observe(worktree, |_, _, cx| cx.notify()).detach();
-        cx.notify();
     }
 
     fn on_worktree_released(&mut self, id_to_remove: WorktreeId, cx: &mut Context<Self>) {
@@ -2486,8 +2473,6 @@ impl Project {
                 })
                 .log_err();
         }
-
-        cx.notify();
     }
 
     fn on_buffer_event(
@@ -3501,7 +3486,7 @@ impl Project {
         &self,
         query: String,
         cx: &mut Context<Self>,
-    ) -> Task<Result<Vec<DirectoryItem>>> {
+    ) -> Task<Result<Vec<PathBuf>>> {
         if self.is_local() {
             DirectoryLister::Local(self.fs.clone()).list_directory(query, cx)
         } else if let Some(session) = self.ssh_client.as_ref() {
@@ -3509,23 +3494,12 @@ impl Project {
             let request = proto::ListRemoteDirectory {
                 dev_server_id: SSH_PROJECT_ID,
                 path: path_buf.to_proto(),
-                config: Some(proto::ListRemoteDirectoryConfig { is_dir: true }),
             };
 
             let response = session.read(cx).proto_client().request(request);
             cx.background_spawn(async move {
-                let proto::ListRemoteDirectoryResponse {
-                    entries,
-                    entry_info,
-                } = response.await?;
-                Ok(entries
-                    .into_iter()
-                    .zip(entry_info)
-                    .map(|(entry, info)| DirectoryItem {
-                        path: PathBuf::from(entry),
-                        is_dir: info.is_dir,
-                    })
-                    .collect())
+                let response = response.await?;
+                Ok(response.entries.into_iter().map(PathBuf::from).collect())
             })
         } else {
             Task::ready(Err(anyhow!("cannot list directory in remote project")))
@@ -3676,21 +3650,6 @@ impl Project {
         worktree.get_local_repo(&root_entry)?.repo().clone().into()
     }
 
-    pub fn branches(&self, project_path: ProjectPath, cx: &App) -> Task<Result<Vec<Branch>>> {
-        self.worktree_store().read(cx).branches(project_path, cx)
-    }
-
-    pub fn update_or_create_branch(
-        &self,
-        repository: ProjectPath,
-        new_branch: String,
-        cx: &App,
-    ) -> Task<Result<()>> {
-        self.worktree_store()
-            .read(cx)
-            .update_or_create_branch(repository, new_branch, cx)
-    }
-
     pub fn blame_buffer(
         &self,
         buffer: &Entity<Buffer>,
@@ -3747,7 +3706,6 @@ impl Project {
             cx.emit(Event::CollaboratorJoined(collaborator.peer_id));
             this.collaborators
                 .insert(collaborator.peer_id, collaborator);
-            cx.notify();
         })?;
 
         Ok(())
@@ -3791,7 +3749,6 @@ impl Project {
                 old_peer_id,
                 new_peer_id,
             });
-            cx.notify();
             Ok(())
         })?
     }
@@ -3819,7 +3776,6 @@ impl Project {
             });
 
             cx.emit(Event::CollaboratorLeft(peer_id));
-            cx.notify();
             Ok(())
         })?
     }
@@ -4235,7 +4191,6 @@ impl Project {
         worktrees: Vec<proto::WorktreeMetadata>,
         cx: &mut Context<Project>,
     ) -> Result<()> {
-        cx.notify();
         self.worktree_store.update(cx, |worktree_store, cx| {
             worktree_store.set_worktrees_from_proto(worktrees, self.replica_id(), cx)
         })
@@ -4306,6 +4261,17 @@ impl Project {
         })
     }
 
+    pub fn git_init(
+        &self,
+        path: Arc<Path>,
+        fallback_branch_name: String,
+        cx: &App,
+    ) -> Task<Result<()>> {
+        self.git_store
+            .read(cx)
+            .git_init(path, fallback_branch_name, cx)
+    }
+
     pub fn buffer_store(&self) -> &Entity<BufferStore> {
         &self.buffer_store
     }
@@ -4322,35 +4288,8 @@ impl Project {
         self.git_store.read(cx).all_repositories()
     }
 
-    pub fn repository_and_path_for_buffer_id(
-        &self,
-        buffer_id: BufferId,
-        cx: &App,
-    ) -> Option<(Entity<Repository>, RepoPath)> {
-        let path = self
-            .buffer_for_id(buffer_id, cx)?
-            .read(cx)
-            .project_path(cx)?;
-
-        let mut found: Option<(Entity<Repository>, RepoPath)> = None;
-        for repo_handle in self.git_store.read(cx).all_repositories() {
-            let repo = repo_handle.read(cx);
-            if repo.worktree_id != path.worktree_id {
-                continue;
-            }
-            let Ok(relative_path) = repo.repository_entry.relativize(&path.path) else {
-                continue;
-            };
-            if found
-                .as_ref()
-                .is_some_and(|(found, _)| repo.contains_sub_repo(found, cx))
-            {
-                continue;
-            }
-            found = Some((repo_handle.clone(), relative_path))
-        }
-
-        found
+    pub fn status_for_buffer_id(&self, buffer_id: BufferId, cx: &App) -> Option<FileStatus> {
+        self.git_store.read(cx).status_for_buffer_id(buffer_id, cx)
     }
 }
 

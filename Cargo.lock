@@ -359,6 +359,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "askpass"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures 0.3.31",
+ "gpui",
+ "smol",
+ "tempfile",
+ "util",
+ "which 6.0.3",
+]
+
+[[package]]
 name = "assets"
 version = "0.1.0"
 dependencies = [
@@ -3033,8 +3046,12 @@ dependencies = [
 name = "component_preview"
 version = "0.1.0"
 dependencies = [
+ "client",
  "component",
  "gpui",
+ "languages",
+ "notifications",
+ "project",
  "ui",
  "workspace",
 ]
@@ -4434,7 +4451,6 @@ dependencies = [
  "env_logger 0.11.6",
  "feature_flags",
  "fs",
- "git",
  "gpui",
  "http_client",
  "language",
@@ -5357,9 +5373,11 @@ name = "git"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "askpass",
  "async-trait",
  "collections",
  "derive_more",
+ "futures 0.3.31",
  "git2",
  "gpui",
  "http_client",
@@ -5373,7 +5391,6 @@ dependencies = [
  "serde_json",
  "smol",
  "sum_tree",
- "tempfile",
  "text",
  "time",
  "unindent",
@@ -5417,28 +5434,34 @@ name = "git_ui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "askpass",
+ "assistant_settings",
  "buffer_diff",
+ "chrono",
  "collections",
+ "command_palette_hooks",
  "component",
  "ctor",
  "db",
  "editor",
  "env_logger 0.11.6",
- "feature_flags",
  "futures 0.3.31",
  "fuzzy",
  "git",
  "gpui",
  "itertools 0.14.0",
  "language",
+ "language_model",
  "linkify",
  "linkme",
  "log",
  "menu",
  "multi_buffer",
+ "notifications",
  "panel",
  "picker",
  "postage",
+ "pretty_assertions",
  "project",
  "schemars",
  "serde",
@@ -5447,8 +5470,10 @@ dependencies = [
  "settings",
  "smallvec",
  "strum",
+ "telemetry",
  "theme",
  "time",
+ "time_format",
  "ui",
  "unindent",
  "util",
@@ -8308,13 +8333,17 @@ dependencies = [
  "channel",
  "client",
  "collections",
+ "component",
  "db",
  "gpui",
+ "linkme",
  "rpc",
  "settings",
  "sum_tree",
  "time",
+ "ui",
  "util",
+ "workspace",
 ]
 
 [[package]]
@@ -10204,6 +10233,7 @@ version = "0.1.0"
 dependencies = [
  "aho-corasick",
  "anyhow",
+ "askpass",
  "async-trait",
  "buffer_diff",
  "client",
@@ -11025,6 +11055,7 @@ name = "remote"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "askpass",
  "async-trait",
  "collections",
  "fs",
@@ -11045,7 +11076,6 @@ dependencies = [
  "tempfile",
  "thiserror 1.0.69",
  "util",
- "which 6.0.3",
 ]
 
 [[package]]
@@ -13871,6 +13901,7 @@ dependencies = [
  "client",
  "collections",
  "feature_flags",
+ "git_ui",
  "gpui",
  "http_client",
  "notifications",
@@ -14246,9 +14277,9 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter"
-version = "0.25.2"
+version = "0.25.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5168a515fe492af54c5cc8800ff8c840be09fa5168de45838afaecd3e008bce4"
+checksum = "b9ac5ea5e7f2f1700842ec071401010b9c59bf735295f6e9fa079c3dc035b167"
 dependencies = [
  "cc",
  "regex",
@@ -16777,7 +16808,7 @@ dependencies = [
 
 [[package]]
 name = "zed"
-version = "0.178.0"
+version = "0.177.7"
 dependencies = [
  "activity_indicator",
  "anyhow",

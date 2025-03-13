@@ -15,8 +15,7 @@ use editor::Editor;
 use fs::Fs;
 use gpui::{
     prelude::*, Action, AnyElement, App, AsyncWindowContext, Corner, Entity, EventEmitter,
-    FocusHandle, Focusable, FontWeight, KeyContext, Pixels, Subscription, Task, UpdateGlobal,
-    WeakEntity,
+    FocusHandle, Focusable, FontWeight, Pixels, Subscription, Task, UpdateGlobal, WeakEntity,
 };
 use language::LanguageRegistry;
 use language_model::{LanguageModelProviderTosView, LanguageModelRegistry};
@@ -994,21 +993,12 @@ impl AssistantPanel {
             )
             .into_any()
     }
-
-    fn key_context(&self) -> KeyContext {
-        let mut key_context = KeyContext::new_with_defaults();
-        key_context.add("AssistantPanel2");
-        if matches!(self.active_view, ActiveView::PromptEditor) {
-            key_context.add("prompt_editor");
-        }
-        key_context
-    }
 }
 
 impl Render for AssistantPanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
-            .key_context(self.key_context())
+            .key_context("AssistantPanel2")
             .justify_between()
             .size_full()
             .on_action(cx.listener(Self::cancel))

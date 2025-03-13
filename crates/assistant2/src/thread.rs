@@ -8,9 +8,8 @@ use futures::StreamExt as _;
 use gpui::{App, Context, EventEmitter, SharedString, Task};
 use language_model::{
     LanguageModel, LanguageModelCompletionEvent, LanguageModelRegistry, LanguageModelRequest,
-    LanguageModelRequestMessage, LanguageModelRequestTool, LanguageModelToolResult,
-    LanguageModelToolUseId, MaxMonthlySpendReachedError, MessageContent, PaymentRequiredError,
-    Role, StopReason,
+    LanguageModelRequestMessage, LanguageModelRequestTool, LanguageModelToolUseId,
+    MaxMonthlySpendReachedError, MessageContent, PaymentRequiredError, Role, StopReason,
 };
 use serde::{Deserialize, Serialize};
 use util::{post_inc, TryFutureExt as _};
@@ -89,7 +88,7 @@ impl Thread {
             completion_count: 0,
             pending_completions: Vec::new(),
             tools,
-            tool_use: ToolUseState::new(),
+            tool_use: ToolUseState::default(),
         }
     }
 
@@ -100,7 +99,6 @@ impl Thread {
         _cx: &mut Context<Self>,
     ) -> Self {
         let next_message_id = MessageId(saved.messages.len());
-        let tool_use = ToolUseState::from_saved_messages(&saved.messages);
 
         Self {
             id,
@@ -122,7 +120,7 @@ impl Thread {
             completion_count: 0,
             pending_completions: Vec::new(),
             tools,
-            tool_use,
+            tool_use: ToolUseState::default(),
         }
     }
 
@@ -189,10 +187,6 @@ impl Thread {
 
     pub fn tool_uses_for_message(&self, id: MessageId) -> Vec<ToolUse> {
         self.tool_use.tool_uses_for_message(id)
-    }
-
-    pub fn tool_results_for_message(&self, id: MessageId) -> Vec<&LanguageModelToolResult> {
-        self.tool_use.tool_results_for_message(id)
     }
 
     pub fn message_has_tool_results(&self, message_id: MessageId) -> bool {

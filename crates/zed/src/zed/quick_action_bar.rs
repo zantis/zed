@@ -182,18 +182,8 @@ impl Render for QuickActionBar {
                             .action("Next Problem", Box::new(GoToDiagnostic))
                             .action("Previous Problem", Box::new(GoToPreviousDiagnostic))
                             .separator()
-                            .action(
-                                "Next Hunk",
-                                Box::new(GoToHunk {
-                                    center_cursor: true,
-                                }),
-                            )
-                            .action(
-                                "Previous Hunk",
-                                Box::new(GoToPreviousHunk {
-                                    center_cursor: true,
-                                }),
-                            )
+                            .action("Next Hunk", Box::new(GoToHunk))
+                            .action("Previous Hunk", Box::new(GoToPreviousHunk))
                             .separator()
                             .action("Move Line Up", Box::new(MoveLineUp))
                             .action("Move Line Down", Box::new(MoveLineDown))
@@ -369,14 +359,14 @@ impl Render for QuickActionBar {
                                 "Column Git Blame",
                                 show_git_blame_gutter,
                                 IconPosition::Start,
-                                Some(editor::actions::ToggleGitBlame.boxed_clone()),
+                                Some(git::Blame.boxed_clone()),
                                 {
                                     let editor = editor.clone();
                                     move |window, cx| {
                                         editor
                                             .update(cx, |editor, cx| {
                                                 editor.toggle_git_blame(
-                                                    &editor::actions::ToggleGitBlame,
+                                                    &git::Blame,
                                                     window,
                                                     cx,
                                                 )
