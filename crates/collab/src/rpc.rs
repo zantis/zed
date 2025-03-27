@@ -37,7 +37,6 @@ use core::fmt::{self, Debug, Formatter};
 use http_client::HttpClient;
 use open_ai::{OpenAiEmbeddingModel, OPEN_AI_API_URL};
 use reqwest_client::ReqwestClient;
-use rpc::proto::split_repository_update;
 use sha2::Digest;
 use supermaven_api::{CreateExternalUserRequest, SupermavenAdminApi};
 
@@ -292,8 +291,6 @@ impl Server {
             .add_message_handler(leave_project)
             .add_request_handler(update_project)
             .add_request_handler(update_worktree)
-            .add_request_handler(update_repository)
-            .add_request_handler(remove_repository)
             .add_message_handler(start_language_server)
             .add_message_handler(update_language_server)
             .add_message_handler(update_diagnostic_summary)
@@ -304,7 +301,6 @@ impl Server {
             .add_request_handler(forward_read_only_project_request::<proto::GetReferences>)
             .add_request_handler(forward_find_search_candidates_request)
             .add_request_handler(forward_read_only_project_request::<proto::GetDocumentHighlights>)
-            .add_request_handler(forward_read_only_project_request::<proto::GetDocumentSymbols>)
             .add_request_handler(forward_read_only_project_request::<proto::GetProjectSymbols>)
             .add_request_handler(forward_read_only_project_request::<proto::OpenBufferForSymbol>)
             .add_request_handler(forward_read_only_project_request::<proto::OpenBufferById>)
@@ -1468,7 +1464,7 @@ fn notify_rejoined_projects(
                 removed_repositories: worktree.removed_repositories,
             };
             for update in proto::split_worktree_update(message) {
-                session.peer.send(session.connection_id, update)?;
+                session.peer.send(session.connection_id, update.clone())?;
             }
 
             // Stream this worktree's diagnostics.
@@ -1497,23 +1493,21 @@ fn notify_rejoined_projects(
             }
         }
 
-        for repository in mem::take(&mut project.updated_repositories) {
-            for update in split_repository_update(repository) {
-                session.peer.send(session.connection_id, update)?;
-            }
-        }
-
-        for id in mem::take(&mut project.removed_repositories) {
+        for language_server in &project.language_servers {
             session.peer.send(
                 session.connection_id,
-                proto::RemoveRepository {
+                proto::UpdateLanguageServer {
                     project_id: project.id.to_proto(),
-                    id,
+                    language_server_id: language_server.id,
+                    variant: Some(
+                        proto::update_language_server::Variant::DiskBasedDiagnosticsUpdated(
+                            proto::LspDiskBasedDiagnosticsUpdated {},
+                        ),
+                    ),
                 },
             )?;
         }
     }
-
     Ok(())
 }
 
@@ -1899,7 +1893,7 @@ fn join_project_internal(
             removed_entries: Default::default(),
             scan_id: worktree.scan_id,
             is_last_update: worktree.scan_id == worktree.completed_scan_id,
-            updated_repositories: worktree.legacy_repository_entries.into_values().collect(),
+            updated_repositories: worktree.repository_entries.into_values().collect(),
             removed_repositories: Default::default(),
         };
         for update in proto::split_worktree_update(message) {
@@ -1929,12 +1923,6 @@ fn join_project_internal(
                     kind: Some(settings_file.kind.to_proto() as i32),
                 },
             )?;
-        }
-    }
-
-    for repository in mem::take(&mut project.repositories) {
-        for update in split_repository_update(repository) {
-            session.peer.send(session.connection_id, update)?;
         }
     }
 
@@ -2015,54 +2003,6 @@ async fn update_worktree(
         .db()
         .await
         .update_worktree(&request, session.connection_id)
-        .await?;
-
-    broadcast(
-        Some(session.connection_id),
-        guest_connection_ids.iter().copied(),
-        |connection_id| {
-            session
-                .peer
-                .forward_send(session.connection_id, connection_id, request.clone())
-        },
-    );
-    response.send(proto::Ack {})?;
-    Ok(())
-}
-
-async fn update_repository(
-    request: proto::UpdateRepository,
-    response: Response<proto::UpdateRepository>,
-    session: Session,
-) -> Result<()> {
-    let guest_connection_ids = session
-        .db()
-        .await
-        .update_repository(&request, session.connection_id)
-        .await?;
-
-    broadcast(
-        Some(session.connection_id),
-        guest_connection_ids.iter().copied(),
-        |connection_id| {
-            session
-                .peer
-                .forward_send(session.connection_id, connection_id, request.clone())
-        },
-    );
-    response.send(proto::Ack {})?;
-    Ok(())
-}
-
-async fn remove_repository(
-    request: proto::RemoveRepository,
-    response: Response<proto::RemoveRepository>,
-    session: Session,
-) -> Result<()> {
-    let guest_connection_ids = session
-        .db()
-        .await
-        .remove_repository(&request, session.connection_id)
         .await?;
 
     broadcast(

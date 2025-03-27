@@ -39,6 +39,7 @@ impl ContextStrip {
     pub fn new(
         context_store: Entity<ContextStore>,
         workspace: WeakEntity<Workspace>,
+        editor: WeakEntity<Editor>,
         thread_store: Option<WeakEntity<ThreadStore>>,
         context_picker_menu_handle: PopoverMenuHandle<ContextPicker>,
         suggest_context_kind: SuggestContextKind,
@@ -50,6 +51,7 @@ impl ContextStrip {
                 workspace.clone(),
                 thread_store.clone(),
                 context_store.downgrade(),
+                editor.clone(),
                 ConfirmBehavior::KeepOpen,
                 window,
                 cx,

@@ -1590,10 +1590,10 @@ impl App {
             .insert(entity_id, window_invalidators);
     }
 
-    /// Returns the name for this [`App`].
+    /// Get the name for this App.
     #[cfg(any(test, feature = "test-support", debug_assertions))]
-    pub fn get_name(&self) -> Option<&'static str> {
-        self.name
+    pub fn get_name(&self) -> &'static str {
+        self.name.as_ref().unwrap()
     }
 
     /// Returns `true` if the platform file picker supports selecting a mix of files and directories.
@@ -1605,10 +1605,9 @@ impl App {
 impl AppContext for App {
     type Result<T> = T;
 
-    /// Builds an entity that is owned by the application.
-    ///
-    /// The given function will be invoked with a [`Context`] and must return an object representing the entity. An
-    /// [`Entity`] handle will be returned, which can be used to access the entity in a context.
+    /// Build an entity that is owned by the application. The given function will be invoked with
+    /// a `Context` and must return an object representing the entity. A `Entity` handle will be returned,
+    /// which can be used to access the entity in a context.
     fn new<T: 'static>(
         &mut self,
         build_entity: impl FnOnce(&mut Context<'_, T>) -> T,

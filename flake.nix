@@ -63,13 +63,4 @@
         default = nixpkgs.lib.composeManyExtensions (builtins.attrValues overlays);
       };
     };
-
-  nixConfig = {
-    extra-substituters = [
-      "https://zed-industries.cachix.org"
-    ];
-    extra-trusted-public-keys = [
-      "zed-industries.cachix.org-1:QW3RoXK0Lm4ycmU5/3bmYRd3MLf4RbTGPqRulGlX5W0="
-    ];
-  };
 }

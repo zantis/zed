@@ -1,3 +1,5 @@
+// #![allow(unused, dead_code)]
+
 use crate::branch_picker::{self, BranchList};
 use crate::git_panel::{commit_message_editor, GitPanel};
 use git::{Commit, GenerateCommitMessage};

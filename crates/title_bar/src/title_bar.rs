@@ -1,6 +1,5 @@
 mod application_menu;
 mod collab;
-mod onboarding_banner;
 mod platforms;
 mod window_controls;
 
@@ -19,12 +18,12 @@ use auto_update::AutoUpdateStatus;
 use call::ActiveCall;
 use client::{Client, UserStore};
 use feature_flags::{FeatureFlagAppExt, ZedPro};
+use git_ui::onboarding::GitBanner;
 use gpui::{
-    actions, div, px, Action, AnyElement, App, Context, Corner, Decorations, Element, Entity,
+    actions, div, px, Action, AnyElement, App, Context, Decorations, Element, Entity,
     InteractiveElement, Interactivity, IntoElement, MouseButton, ParentElement, Render, Stateful,
     StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window,
 };
-use onboarding_banner::OnboardingBanner;
 use project::Project;
 use rpc::proto;
 use settings::Settings as _;
@@ -38,8 +37,7 @@ use ui::{
 use util::ResultExt;
 use workspace::{notifications::NotifyResultExt, Workspace};
 use zed_actions::{OpenBrowser, OpenRecent, OpenRemote};
-
-pub use onboarding_banner::restore_banner;
+use zeta::ZedPredictBanner;
 
 #[cfg(feature = "stories")]
 pub use stories::*;
@@ -128,7 +126,8 @@ pub struct TitleBar {
     should_move: bool,
     application_menu: Option<Entity<ApplicationMenu>>,
     _subscriptions: Vec<Subscription>,
-    banner: Entity<OnboardingBanner>,
+    zed_predict_banner: Entity<ZedPredictBanner>,
+    git_banner: Entity<GitBanner>,
 }
 
 impl Render for TitleBar {
@@ -212,7 +211,8 @@ impl Render for TitleBar {
                             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()),
                     )
                     .child(self.render_collaborator_list(window, cx))
-                    .child(self.banner.clone())
+                    .child(self.zed_predict_banner.clone())
+                    .child(self.git_banner.clone())
                     .child(
                         h_flex()
                             .gap_1()
@@ -315,16 +315,8 @@ impl TitleBar {
         subscriptions.push(cx.observe_window_activation(window, Self::window_activation_changed));
         subscriptions.push(cx.observe(&user_store, |_, _, cx| cx.notify()));
 
-        let banner = cx.new(|cx| {
-            OnboardingBanner::new(
-                "Git Onboarding",
-                IconName::GitBranchSmall,
-                "Git Support",
-                None,
-                zed_actions::OpenGitIntegrationOnboarding.boxed_clone(),
-                cx,
-            )
-        });
+        let zed_predict_banner = cx.new(ZedPredictBanner::new);
+        let git_banner = cx.new(GitBanner::new);
 
         Self {
             platform_style,
@@ -337,7 +329,8 @@ impl TitleBar {
             user_store,
             client,
             _subscriptions: subscriptions,
-            banner,
+            zed_predict_banner,
+            git_banner,
         }
     }
 
@@ -520,10 +513,21 @@ impl TitleBar {
     }
 
     pub fn render_project_branch(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        let repository = self.project.read(cx).active_repository(cx)?;
+        let entry = {
+            let mut names_and_branches =
+                self.project.read(cx).visible_worktrees(cx).map(|worktree| {
+                    let worktree = worktree.read(cx);
+                    worktree.root_git_entry()
+                });
+
+            names_and_branches.next().flatten()
+        };
         let workspace = self.workspace.upgrade()?;
-        let branch_name = repository.read(cx).current_branch()?.name.clone();
-        let branch_name = util::truncate_and_trailoff(&branch_name, MAX_BRANCH_NAME_LENGTH);
+        let branch_name = entry
+            .as_ref()
+            .and_then(|entry| entry.branch())
+            .map(|branch| branch.name.clone())
+            .map(|branch| util::truncate_and_trailoff(&branch, MAX_BRANCH_NAME_LENGTH))?;
         Some(
             Button::new("project_branch_trigger", branch_name)
                 .color(Color::Muted)
@@ -653,7 +657,6 @@ impl TitleBar {
         if let Some(user) = user_store.current_user() {
             let plan = user_store.current_plan();
             PopoverMenu::new("user-menu")
-                .anchor(Corner::TopRight)
                 .menu(move |window, cx| {
                     ContextMenu::build(window, cx, |menu, _, cx| {
                         menu.when(cx.has_flag::<ZedPro>(), |menu| {
@@ -680,10 +683,7 @@ impl TitleBar {
                             "Icon Themes…",
                             zed_actions::icon_theme_selector::Toggle::default().boxed_clone(),
                         )
-                        .action(
-                            "Extensions",
-                            zed_actions::Extensions::default().boxed_clone(),
-                        )
+                        .action("Extensions", zed_actions::Extensions.boxed_clone())
                         .separator()
                         .link(
                             "Book Onboarding",
@@ -718,7 +718,6 @@ impl TitleBar {
                 .anchor(gpui::Corner::TopRight)
         } else {
             PopoverMenu::new("user-menu")
-                .anchor(Corner::TopRight)
                 .menu(|window, cx| {
                     ContextMenu::build(window, cx, |menu, _, _| {
                         menu.action("Settings", zed_actions::OpenSettings.boxed_clone())
@@ -731,10 +730,7 @@ impl TitleBar {
                                 "Icon Themes…",
                                 zed_actions::icon_theme_selector::Toggle::default().boxed_clone(),
                             )
-                            .action(
-                                "Extensions",
-                                zed_actions::Extensions::default().boxed_clone(),
-                            )
+                            .action("Extensions", zed_actions::Extensions.boxed_clone())
                             .separator()
                             .link(
                                 "Book Onboarding",

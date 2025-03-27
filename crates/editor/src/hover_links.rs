@@ -1,5 +1,5 @@
 use crate::{
-    editor_settings::{GoToDefinitionFallback, MultiCursorModifier},
+    editor_settings::MultiCursorModifier,
     hover_popover::{self, InlayHover},
     scroll::ScrollAmount,
     Anchor, Editor, EditorSettings, EditorSnapshot, FindAllReferences, GoToDefinition,
@@ -174,12 +174,7 @@ impl Editor {
                     if definition_revealed == Navigated::Yes {
                         return None;
                     }
-                    match EditorSettings::get_global(cx).go_to_definition_fallback {
-                        GoToDefinitionFallback::None => None,
-                        GoToDefinitionFallback::FindAllReferences => {
-                            editor.find_all_references(&FindAllReferences, window, cx)
-                        }
-                    }
+                    editor.find_all_references(&FindAllReferences, window, cx)
                 })
                 .ok()
                 .flatten();
@@ -967,7 +962,7 @@ mod tests {
         cx.run_until_parked();
 
         let mut requests =
-            cx.set_request_handler::<GotoTypeDefinition, _, _>(move |url, _, _| async move {
+            cx.handle_request::<GotoTypeDefinition, _, _>(move |url, _, _| async move {
                 Ok(Some(lsp::GotoTypeDefinitionResponse::Link(vec![
                     lsp::LocationLink {
                         origin_selection_range: Some(symbol_range),
@@ -1042,17 +1037,16 @@ mod tests {
                 fn «do_work»() { test(); }
             "});
 
-        let mut requests =
-            cx.set_request_handler::<GotoDefinition, _, _>(move |url, _, _| async move {
-                Ok(Some(lsp::GotoDefinitionResponse::Link(vec![
-                    lsp::LocationLink {
-                        origin_selection_range: Some(symbol_range),
-                        target_uri: url.clone(),
-                        target_range,
-                        target_selection_range: target_range,
-                    },
-                ])))
-            });
+        let mut requests = cx.handle_request::<GotoDefinition, _, _>(move |url, _, _| async move {
+            Ok(Some(lsp::GotoDefinitionResponse::Link(vec![
+                lsp::LocationLink {
+                    origin_selection_range: Some(symbol_range),
+                    target_uri: url.clone(),
+                    target_range,
+                    target_selection_range: target_range,
+                },
+            ])))
+        });
 
         cx.simulate_mouse_move(hover_point, None, Modifiers::secondary_key());
         requests.next().await;
@@ -1069,17 +1063,16 @@ mod tests {
                 fn do_work() { test(); }
             "});
 
-        let mut requests =
-            cx.set_request_handler::<GotoDefinition, _, _>(move |url, _, _| async move {
-                Ok(Some(lsp::GotoDefinitionResponse::Link(vec![
-                    lsp::LocationLink {
-                        origin_selection_range: Some(symbol_range),
-                        target_uri: url.clone(),
-                        target_range,
-                        target_selection_range: target_range,
-                    },
-                ])))
-            });
+        let mut requests = cx.handle_request::<GotoDefinition, _, _>(move |url, _, _| async move {
+            Ok(Some(lsp::GotoDefinitionResponse::Link(vec![
+                lsp::LocationLink {
+                    origin_selection_range: Some(symbol_range),
+                    target_uri: url.clone(),
+                    target_range,
+                    target_selection_range: target_range,
+                },
+            ])))
+        });
 
         cx.simulate_mouse_move(hover_point, None, Modifiers::secondary_key());
         requests.next().await;
@@ -1094,12 +1087,12 @@ mod tests {
                 fˇn test() { do_work(); }
                 fn do_work() { test(); }
             "});
-        let mut requests =
-            cx.lsp
-                .set_request_handler::<GotoDefinition, _, _>(move |_, _| async move {
-                    // No definitions returned
-                    Ok(Some(lsp::GotoDefinitionResponse::Link(vec![])))
-                });
+        let mut requests = cx
+            .lsp
+            .handle_request::<GotoDefinition, _, _>(move |_, _| async move {
+                // No definitions returned
+                Ok(Some(lsp::GotoDefinitionResponse::Link(vec![])))
+            });
         cx.simulate_mouse_move(hover_point, None, Modifiers::secondary_key());
 
         requests.next().await;
@@ -1133,17 +1126,16 @@ mod tests {
                 fn do_work() { test(); }
             "});
 
-        let mut requests =
-            cx.set_request_handler::<GotoDefinition, _, _>(move |url, _, _| async move {
-                Ok(Some(lsp::GotoDefinitionResponse::Link(vec![
-                    lsp::LocationLink {
-                        origin_selection_range: Some(symbol_range),
-                        target_uri: url,
-                        target_range,
-                        target_selection_range: target_range,
-                    },
-                ])))
-            });
+        let mut requests = cx.handle_request::<GotoDefinition, _, _>(move |url, _, _| async move {
+            Ok(Some(lsp::GotoDefinitionResponse::Link(vec![
+                lsp::LocationLink {
+                    origin_selection_range: Some(symbol_range),
+                    target_uri: url,
+                    target_range,
+                    target_selection_range: target_range,
+                },
+            ])))
+        });
 
         cx.simulate_modifiers_change(Modifiers::secondary_key());
 
@@ -1183,7 +1175,7 @@ mod tests {
         // Cmd click with existing definition doesn't re-request and dismisses highlight
         cx.simulate_click(hover_point, Modifiers::secondary_key());
         cx.lsp
-            .set_request_handler::<GotoDefinition, _, _>(move |_, _| async move {
+            .handle_request::<GotoDefinition, _, _>(move |_, _| async move {
                 // Empty definition response to make sure we aren't hitting the lsp and using
                 // the cached location instead
                 Ok(Some(lsp::GotoDefinitionResponse::Link(vec![])))
@@ -1210,17 +1202,16 @@ mod tests {
                 fn «do_work»() { test(); }
             "});
 
-        let mut requests =
-            cx.set_request_handler::<GotoDefinition, _, _>(move |url, _, _| async move {
-                Ok(Some(lsp::GotoDefinitionResponse::Link(vec![
-                    lsp::LocationLink {
-                        origin_selection_range: None,
-                        target_uri: url,
-                        target_range,
-                        target_selection_range: target_range,
-                    },
-                ])))
-            });
+        let mut requests = cx.handle_request::<GotoDefinition, _, _>(move |url, _, _| async move {
+            Ok(Some(lsp::GotoDefinitionResponse::Link(vec![
+                lsp::LocationLink {
+                    origin_selection_range: None,
+                    target_uri: url,
+                    target_range,
+                    target_selection_range: target_range,
+                },
+            ])))
+        });
         cx.simulate_click(hover_point, Modifiers::secondary_key());
         requests.next().await;
         cx.background_executor.run_until_parked();
@@ -1239,17 +1230,16 @@ mod tests {
                 fn test() { do_work(); }
                 fn «do_work»() { test(); }
             "});
-        let mut requests =
-            cx.set_request_handler::<GotoDefinition, _, _>(move |url, _, _| async move {
-                Ok(Some(lsp::GotoDefinitionResponse::Link(vec![
-                    lsp::LocationLink {
-                        origin_selection_range: None,
-                        target_uri: url,
-                        target_range,
-                        target_selection_range: target_range,
-                    },
-                ])))
-            });
+        let mut requests = cx.handle_request::<GotoDefinition, _, _>(move |url, _, _| async move {
+            Ok(Some(lsp::GotoDefinitionResponse::Link(vec![
+                lsp::LocationLink {
+                    origin_selection_range: None,
+                    target_uri: url,
+                    target_range,
+                    target_selection_range: target_range,
+                },
+            ])))
+        });
 
         // create a pending selection
         let selection_range = cx.ranges(indoc! {"
@@ -1325,7 +1315,7 @@ mod tests {
         let expected_uri = cx.buffer_lsp_url.clone();
         let hint_label = ": TestStruct";
         cx.lsp
-            .set_request_handler::<lsp::request::InlayHintRequest, _, _>(move |params, _| {
+            .handle_request::<lsp::request::InlayHintRequest, _, _>(move |params, _| {
                 let expected_uri = expected_uri.clone();
                 async move {
                     assert_eq!(params.text_document.uri, expected_uri);

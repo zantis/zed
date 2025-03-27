@@ -56,20 +56,15 @@ impl LanguageModelSelector {
                 .max_height(Some(rems(20.).into()))
         });
 
-        let subscription = cx.subscribe(&picker, |_, _, _, cx| cx.emit(DismissEvent));
-
         LanguageModelSelector {
             picker,
             update_matches_task: None,
             _authenticate_all_providers_task: Self::authenticate_all_providers(cx),
-            _subscriptions: vec![
-                cx.subscribe_in(
-                    &LanguageModelRegistry::global(cx),
-                    window,
-                    Self::handle_language_model_registry_event,
-                ),
-                subscription,
-            ],
+            _subscriptions: vec![cx.subscribe_in(
+                &LanguageModelRegistry::global(cx),
+                window,
+                Self::handle_language_model_registry_event,
+            )],
         }
     }
 

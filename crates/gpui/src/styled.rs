@@ -1,8 +1,7 @@
 use crate::{
-    self as gpui, px, relative, rems, AbsoluteLength, AlignItems, BorderStyle, CursorStyle,
-    DefiniteLength, Fill, FlexDirection, FlexWrap, Font, FontStyle, FontWeight, Hsla,
-    JustifyContent, Length, SharedString, StrikethroughStyle, StyleRefinement, TextOverflow,
-    UnderlineStyle, WhiteSpace,
+    self as gpui, px, relative, rems, AbsoluteLength, AlignItems, CursorStyle, DefiniteLength,
+    Fill, FlexDirection, FlexWrap, Font, FontStyle, FontWeight, Hsla, JustifyContent, Length,
+    SharedString, StrikethroughStyle, StyleRefinement, TextOverflow, UnderlineStyle, WhiteSpace,
 };
 use crate::{TextAlign, TextStyleRefinement};
 pub use gpui_macros::{
@@ -359,12 +358,6 @@ pub trait Styled: Sized {
         Self: Sized,
     {
         self.style().background = Some(fill.into());
-        self
-    }
-
-    /// Sets the border style of the element.
-    fn border_dashed(mut self) -> Self {
-        self.style().border_style = Some(BorderStyle::Dashed);
         self
     }
 

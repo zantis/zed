@@ -1,7 +1,9 @@
 use std::any::{Any, TypeId};
 
 use command_palette_hooks::CommandPaletteFilter;
-use feature_flags::{FeatureFlagAppExt as _, PredictEditsRateCompletionsFeatureFlag};
+use feature_flags::{
+    FeatureFlagAppExt as _, PredictEditsFeatureFlag, PredictEditsRateCompletionsFeatureFlag,
+};
 use gpui::actions;
 use language::language_settings::{AllLanguageSettings, EditPredictionProvider};
 use settings::update_settings_file;
@@ -22,14 +24,16 @@ pub fn init(cx: &mut App) {
 
         workspace.register_action(
             move |workspace, _: &zed_actions::OpenZedPredictOnboarding, window, cx| {
-                ZedPredictModal::toggle(
-                    workspace,
-                    workspace.user_store().clone(),
-                    workspace.client().clone(),
-                    workspace.app_state().fs.clone(),
-                    window,
-                    cx,
-                )
+                if cx.has_flag::<PredictEditsFeatureFlag>() {
+                    ZedPredictModal::toggle(
+                        workspace,
+                        workspace.user_store().clone(),
+                        workspace.client().clone(),
+                        workspace.app_state().fs.clone(),
+                        window,
+                        cx,
+                    )
+                }
             },
         );
 
@@ -43,6 +47,8 @@ pub fn init(cx: &mut App) {
                         .edit_prediction_provider = Some(EditPredictionProvider::None)
                 },
             );
+
+            crate::onboarding_banner::clear_dismissed(cx);
         });
     })
     .detach();

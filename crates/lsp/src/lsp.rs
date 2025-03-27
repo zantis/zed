@@ -774,10 +774,6 @@ impl LanguageServer {
                     code_lens: Some(CodeLensClientCapabilities {
                         dynamic_registration: Some(false),
                     }),
-                    document_symbol: Some(DocumentSymbolClientCapabilities {
-                        hierarchical_document_symbol_support: Some(true),
-                        ..DocumentSymbolClientCapabilities::default()
-                    }),
                     ..TextDocumentClientCapabilities::default()
                 }),
                 experimental: Some(json!({
@@ -1279,9 +1275,9 @@ impl LanguageServer {
                 name: String::default(),
             })
             .collect();
-        *workspace_folders = folders;
         let should_notify = !added.is_empty() || !removed.is_empty();
         if should_notify {
+            *workspace_folders = folders;
             drop(workspace_folders);
             let params = DidChangeWorkspaceFoldersParams {
                 event: WorkspaceFoldersChangeEvent { added, removed },
@@ -1444,7 +1440,7 @@ impl FakeLanguageServer {
             }),
             notifications_rx,
         };
-        fake.set_request_handler::<request::Initialize, _, _>({
+        fake.handle_request::<request::Initialize, _, _>({
             let capabilities = capabilities;
             move |_, _| {
                 let capabilities = capabilities.clone();
@@ -1483,7 +1479,6 @@ impl LanguageServer {
             document_formatting_provider: Some(OneOf::Left(true)),
             document_range_formatting_provider: Some(OneOf::Left(true)),
             definition_provider: Some(OneOf::Left(true)),
-            workspace_symbol_provider: Some(OneOf::Left(true)),
             implementation_provider: Some(ImplementationProviderCapability::Simple(true)),
             type_definition_provider: Some(TypeDefinitionProviderCapability::Simple(true)),
             ..Default::default()
@@ -1529,7 +1524,7 @@ impl FakeLanguageServer {
     }
 
     /// Registers a handler for a specific kind of request. Removes any existing handler for specified request type.
-    pub fn set_request_handler<T, F, Fut>(
+    pub fn handle_request<T, F, Fut>(
         &self,
         mut handler: F,
     ) -> futures::channel::mpsc::UnboundedReceiver<()>
@@ -1704,7 +1699,7 @@ mod tests {
             "file://b/c"
         );
 
-        fake.set_request_handler::<request::Shutdown, _, _>(|_, _| async move { Ok(()) });
+        fake.handle_request::<request::Shutdown, _, _>(|_, _| async move { Ok(()) });
 
         drop(server);
         fake.receive_notification::<notification::Exit>().await;

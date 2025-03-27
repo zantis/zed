@@ -109,7 +109,6 @@ impl AnthropicSettingsContent {
                                     max_output_tokens,
                                     default_temperature,
                                     extra_beta_headers,
-                                    mode,
                                 } => Some(provider::anthropic::AvailableModel {
                                     name,
                                     display_name,
@@ -125,7 +124,6 @@ impl AnthropicSettingsContent {
                                     max_output_tokens,
                                     default_temperature,
                                     extra_beta_headers,
-                                    mode: Some(mode.into()),
                                 }),
                                 _ => None,
                             })

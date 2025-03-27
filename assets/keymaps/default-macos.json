@@ -241,7 +241,7 @@
       "cmd-shift-g": "search::SelectPreviousMatch",
       "cmd-alt-/": "assistant::ToggleModelSelector",
       "cmd-k h": "assistant::DeployHistory",
-      "cmd-k l": "assistant::OpenPromptLibrary",
+      "cmd-k l": "assistant::DeployPromptLibrary",
       "cmd-t": "assistant::NewChat",
       "cmd-n": "assistant::NewChat"
     }
@@ -287,9 +287,7 @@
     "context": "MessageEditor > Editor",
     "use_key_equivalents": true,
     "bindings": {
-      "enter": "assistant2::Chat",
-      "cmd-g d": "git::Diff",
-      "shift-escape": "git::ExpandCommitEditor"
+      "enter": "assistant2::Chat"
     }
   },
   {
@@ -803,7 +801,9 @@
       "shift-tab": "git_panel::FocusEditor",
       "escape": "git_panel::ToggleFocus",
       "cmd-enter": "git::Commit",
-      "cmd-backspace": "git::RestoreFile"
+      "delete": "git::RestoreFile",
+      "cmd-backspace": "git::RestoreFile",
+      "backspace": "git::RestoreFile"
     }
   },
   {

@@ -28,7 +28,7 @@ use dap::{
 use fs::Fs;
 use futures::{
     channel::{mpsc, oneshot},
-    future::{join_all, Shared},
+    future::Shared,
 };
 use gpui::{App, AppContext, AsyncApp, Context, Entity, EventEmitter, SharedString, Task};
 use http_client::HttpClient;
@@ -347,12 +347,6 @@ impl DapStore {
             }),
         );
         let session_id = local_store.next_session_id();
-
-        if let Some(session) = &parent_session {
-            session.update(cx, |session, _| {
-                session.add_child_session_id(session_id);
-            });
-        }
 
         let (initialized_tx, initialized_rx) = oneshot::channel();
 
@@ -770,40 +764,13 @@ impl DapStore {
             return Task::ready(Err(anyhow!("Could not find session: {:?}", session_id)));
         };
 
-        let shutdown_children = session
-            .read(cx)
-            .child_session_ids()
-            .iter()
-            .map(|session_id| self.shutdown_session(*session_id, cx))
-            .collect::<Vec<_>>();
-
-        let shutdown_parent_task = if let Some(parent_session) = session
+        let shutdown_parent_task = session
             .read(cx)
             .parent_id()
-            .and_then(|session_id| self.session_by_id(session_id))
-        {
-            let shutdown_id = parent_session.update(cx, |parent_session, _| {
-                parent_session.remove_child_session_id(session_id);
-
-                if parent_session.child_session_ids().len() == 0 {
-                    Some(parent_session.session_id())
-                } else {
-                    None
-                }
-            });
-
-            shutdown_id.map(|session_id| self.shutdown_session(session_id, cx))
-        } else {
-            None
-        };
-
+            .map(|parent_id| self.shutdown_session(parent_id, cx));
         let shutdown_task = session.update(cx, |this, cx| this.shutdown(cx));
 
         cx.background_spawn(async move {
-            if shutdown_children.len() > 0 {
-                let _ = join_all(shutdown_children).await;
-            }
-
             shutdown_task.await;
 
             if let Some(parent_task) = shutdown_parent_task {

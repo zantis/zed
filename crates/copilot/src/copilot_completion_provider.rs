@@ -1013,7 +1013,7 @@ mod tests {
             .unwrap();
 
         let mut copilot_requests = copilot_lsp
-            .set_request_handler::<crate::request::GetCompletions, _, _>(
+            .handle_request::<crate::request::GetCompletions, _, _>(
                 move |_params, _cx| async move {
                     Ok(crate::request::GetCompletionsResult {
                         completions: vec![crate::request::Completion {
@@ -1054,7 +1054,7 @@ mod tests {
         completions: Vec<crate::request::Completion>,
         completions_cycling: Vec<crate::request::Completion>,
     ) {
-        lsp.set_request_handler::<crate::request::GetCompletions, _, _>(move |_params, _cx| {
+        lsp.handle_request::<crate::request::GetCompletions, _, _>(move |_params, _cx| {
             let completions = completions.clone();
             async move {
                 Ok(crate::request::GetCompletionsResult {
@@ -1062,16 +1062,14 @@ mod tests {
                 })
             }
         });
-        lsp.set_request_handler::<crate::request::GetCompletionsCycling, _, _>(
-            move |_params, _cx| {
-                let completions_cycling = completions_cycling.clone();
-                async move {
-                    Ok(crate::request::GetCompletionsResult {
-                        completions: completions_cycling.clone(),
-                    })
-                }
-            },
-        );
+        lsp.handle_request::<crate::request::GetCompletionsCycling, _, _>(move |_params, _cx| {
+            let completions_cycling = completions_cycling.clone();
+            async move {
+                Ok(crate::request::GetCompletionsResult {
+                    completions: completions_cycling.clone(),
+                })
+            }
+        });
     }
 
     fn handle_completion_request(
@@ -1092,7 +1090,7 @@ mod tests {
             cx.to_lsp_range(marked_ranges.remove(&replace_range_marker).unwrap()[0].clone());
 
         let mut request =
-            cx.set_request_handler::<lsp::request::Completion, _, _>(move |url, params, _| {
+            cx.handle_request::<lsp::request::Completion, _, _>(move |url, params, _| {
                 let completions = completions.clone();
                 async move {
                     assert_eq!(params.text_document_position.text_document.uri, url.clone());

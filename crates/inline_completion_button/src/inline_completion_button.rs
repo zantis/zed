@@ -6,7 +6,9 @@ use editor::{
     scroll::Autoscroll,
     Editor,
 };
-use feature_flags::{FeatureFlagAppExt, PredictEditsRateCompletionsFeatureFlag};
+use feature_flags::{
+    FeatureFlagAppExt, PredictEditsFeatureFlag, PredictEditsRateCompletionsFeatureFlag,
+};
 use fs::Fs;
 use gpui::{
     actions, div, pulsating_between, Action, Animation, AnimationExt, App, AsyncWindowContext,
@@ -230,6 +232,10 @@ impl Render for InlineCompletionButton {
             }
 
             EditPredictionProvider::Zed => {
+                if !cx.has_flag::<PredictEditsFeatureFlag>() {
+                    return div();
+                }
+
                 let enabled = self.editor_enabled.unwrap_or(true);
 
                 let zeta_icon = if enabled {
@@ -252,7 +258,7 @@ impl Render for InlineCompletionButton {
                     return div().child(
                         IconButton::new("zed-predict-pending-button", zeta_icon)
                             .shape(IconButtonShape::Square)
-                            .indicator(Indicator::dot().color(Color::Muted))
+                            .indicator(Indicator::dot().color(Color::Error))
                             .indicator_border_color(Some(cx.theme().colors().status_bar_background))
                             .tooltip(move |window, cx| {
                                 Tooltip::with_meta(

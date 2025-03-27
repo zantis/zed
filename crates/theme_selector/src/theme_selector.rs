@@ -13,7 +13,7 @@ use theme::{Appearance, Theme, ThemeMeta, ThemeRegistry, ThemeSettings};
 use ui::{prelude::*, v_flex, ListItem, ListItemSpacing};
 use util::ResultExt;
 use workspace::{ui::HighlightedLabel, ModalView, Workspace};
-use zed_actions::{ExtensionCategoryFilter, Extensions};
+use zed_actions::Extensions;
 
 use crate::icon_theme_selector::{IconThemeSelector, IconThemeSelectorDelegate};
 
@@ -349,12 +349,7 @@ impl PickerDelegate for ThemeSelectorDelegate {
                 .child(
                     Button::new("more-themes", "Install Themes").on_click(cx.listener({
                         move |_, _, window, cx| {
-                            window.dispatch_action(
-                                Box::new(Extensions {
-                                    category_filter: Some(ExtensionCategoryFilter::Themes),
-                                }),
-                                cx,
-                            );
+                            window.dispatch_action(Box::new(Extensions), cx);
                         }
                     })),
                 )

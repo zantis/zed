@@ -64,7 +64,6 @@ impl ContextStore {
     pub fn add_file_from_path(
         &mut self,
         project_path: ProjectPath,
-        remove_if_exists: bool,
         cx: &mut Context<Self>,
     ) -> Task<Result<()>> {
         let workspace = self.workspace.clone();
@@ -87,9 +86,7 @@ impl ContextStore {
             let already_included = this.update(cx, |this, _cx| {
                 match this.will_include_buffer(buffer_id, &project_path.path) {
                     Some(FileInclusion::Direct(context_id)) => {
-                        if remove_if_exists {
-                            this.remove_context(context_id);
-                        }
+                        this.remove_context(context_id);
                         true
                     }
                     Some(FileInclusion::InDirectory(_)) => true,
@@ -160,7 +157,6 @@ impl ContextStore {
     pub fn add_directory(
         &mut self,
         project_path: ProjectPath,
-        remove_if_exists: bool,
         cx: &mut Context<Self>,
     ) -> Task<Result<()>> {
         let workspace = self.workspace.clone();
@@ -173,9 +169,7 @@ impl ContextStore {
 
         let already_included = if let Some(context_id) = self.includes_directory(&project_path.path)
         {
-            if remove_if_exists {
-                self.remove_context(context_id);
-            }
+            self.remove_context(context_id);
             true
         } else {
             false
@@ -262,16 +256,9 @@ impl ContextStore {
             )));
     }
 
-    pub fn add_thread(
-        &mut self,
-        thread: Entity<Thread>,
-        remove_if_exists: bool,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn add_thread(&mut self, thread: Entity<Thread>, cx: &mut Context<Self>) {
         if let Some(context_id) = self.includes_thread(&thread.read(cx).id()) {
-            if remove_if_exists {
-                self.remove_context(context_id);
-            }
+            self.remove_context(context_id);
         } else {
             self.insert_thread(thread, cx);
         }

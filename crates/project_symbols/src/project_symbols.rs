@@ -270,7 +270,6 @@ mod tests {
     use futures::StreamExt;
     use gpui::{SemanticVersion, TestAppContext, VisualContext};
     use language::{FakeLspAdapter, Language, LanguageConfig, LanguageMatcher};
-    use lsp::OneOf;
     use project::FakeFs;
     use serde_json::json;
     use settings::SettingsStore;
@@ -299,16 +298,8 @@ mod tests {
             },
             None,
         )));
-        let mut fake_servers = language_registry.register_fake_lsp(
-            "Rust",
-            FakeLspAdapter {
-                capabilities: lsp::ServerCapabilities {
-                    workspace_symbol_provider: Some(OneOf::Left(true)),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-        );
+        let mut fake_servers =
+            language_registry.register_fake_lsp("Rust", FakeLspAdapter::default());
 
         let _buffer = project
             .update(cx, |project, cx| {
@@ -325,7 +316,7 @@ mod tests {
             symbol("uno", path!("/dir/test.rs")),
         ];
         let fake_server = fake_servers.next().await.unwrap();
-        fake_server.set_request_handler::<lsp::WorkspaceSymbolRequest, _, _>(
+        fake_server.handle_request::<lsp::WorkspaceSymbolRequest, _, _>(
             move |params: lsp::WorkspaceSymbolParams, cx| {
                 let executor = cx.background_executor().clone();
                 let fake_symbols = fake_symbols.clone();

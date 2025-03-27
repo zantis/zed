@@ -314,8 +314,6 @@ pub enum Model {
     Gemini20FlashThinking,
     #[serde(rename = "gemini-2.0-flash-lite-preview")]
     Gemini20FlashLite,
-    #[serde(rename = "gemini-2.5-pro-exp-03-25")]
-    Gemini25ProExp0325,
     #[serde(rename = "custom")]
     Custom {
         name: String,
@@ -334,7 +332,6 @@ impl Model {
             Model::Gemini20Flash => "gemini-2.0-flash",
             Model::Gemini20FlashThinking => "gemini-2.0-flash-thinking-exp",
             Model::Gemini20FlashLite => "gemini-2.0-flash-lite-preview",
-            Model::Gemini25ProExp0325 => "gemini-2.5-pro-exp-03-25",
             Model::Custom { name, .. } => name,
         }
     }
@@ -347,7 +344,6 @@ impl Model {
             Model::Gemini20Flash => "Gemini 2.0 Flash",
             Model::Gemini20FlashThinking => "Gemini 2.0 Flash Thinking",
             Model::Gemini20FlashLite => "Gemini 2.0 Flash Lite",
-            Model::Gemini25ProExp0325 => "Gemini 2.5 Pro Exp",
             Self::Custom {
                 name, display_name, ..
             } => display_name.as_ref().unwrap_or(name),
@@ -362,7 +358,6 @@ impl Model {
             Model::Gemini20Flash => 1_000_000,
             Model::Gemini20FlashThinking => 1_000_000,
             Model::Gemini20FlashLite => 1_000_000,
-            Model::Gemini25ProExp0325 => 1_000_000,
             Model::Custom { max_tokens, .. } => *max_tokens,
         }
     }

@@ -181,7 +181,7 @@ pub struct TerminalSettingsContent {
     /// presses when in the alternate screen (e.g. when running applications
     /// like vim or  less). The terminal can still set and unset this mode.
     ///
-    /// Default: on
+    /// Default: off
     pub alternate_scroll: Option<AlternateScroll>,
     /// Sets whether the option key behaves as the meta key.
     ///
