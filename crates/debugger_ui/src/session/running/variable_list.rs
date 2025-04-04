@@ -2,14 +2,14 @@ use super::stack_frame_list::{StackFrameList, StackFrameListEvent};
 use dap::{ScopePresentationHint, StackFrameId, VariablePresentationHintKind, VariableReference};
 use editor::Editor;
 use gpui::{
-    AnyElement, ClickEvent, ClipboardItem, Context, DismissEvent, Entity, FocusHandle, Focusable,
-    Hsla, MouseButton, MouseDownEvent, Point, Stateful, Subscription, TextStyleRefinement,
-    UniformListScrollHandle, actions, anchored, deferred, uniform_list,
+    actions, anchored, deferred, uniform_list, AnyElement, ClickEvent, ClipboardItem, Context,
+    DismissEvent, Entity, FocusHandle, Focusable, Hsla, MouseButton, MouseDownEvent, Point,
+    Stateful, Subscription, TextStyleRefinement, UniformListScrollHandle,
 };
 use menu::{SelectFirst, SelectLast, SelectNext, SelectPrevious};
 use project::debugger::session::{Session, SessionEvent};
 use std::{collections::HashMap, ops::Range, sync::Arc};
-use ui::{ContextMenu, ListItem, Scrollbar, ScrollbarState, prelude::*};
+use ui::{prelude::*, ContextMenu, ListItem, Scrollbar, ScrollbarState};
 use util::{debug_panic, maybe};
 
 actions!(variable_list, [ExpandSelectedEntry, CollapseSelectedEntry]);
@@ -437,9 +437,7 @@ impl VariableList {
         });
 
         if res.is_none() {
-            log::error!(
-                "Couldn't confirm variable edit because variable doesn't have a leaf name or a parent reference id"
-            );
+            log::error!("Couldn't confirm variable edit because variable doesn't have a leaf name or a parent reference id");
         }
     }
 

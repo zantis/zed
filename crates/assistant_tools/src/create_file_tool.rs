@@ -1,15 +1,12 @@
-use crate::schema::json_schema_for;
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use assistant_tool::{ActionLog, Tool};
 use gpui::{App, Entity, Task};
 use language_model::LanguageModelRequestMessage;
-use language_model::LanguageModelToolSchemaFormat;
 use project::Project;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use ui::IconName;
-use util::markdown::MarkdownString;
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct CreateFileToolInput {
@@ -37,11 +34,11 @@ pub struct CreateFileTool;
 
 impl Tool for CreateFileTool {
     fn name(&self) -> String {
-        "create_file".into()
+        "create-file".into()
     }
 
     fn needs_confirmation(&self) -> bool {
-        false
+        true
     }
 
     fn description(&self) -> String {
@@ -52,15 +49,16 @@ impl Tool for CreateFileTool {
         IconName::FileCreate
     }
 
-    fn input_schema(&self, format: LanguageModelToolSchemaFormat) -> serde_json::Value {
-        json_schema_for::<CreateFileToolInput>(format)
+    fn input_schema(&self) -> serde_json::Value {
+        let schema = schemars::schema_for!(CreateFileToolInput);
+        serde_json::to_value(&schema).unwrap()
     }
 
     fn ui_text(&self, input: &serde_json::Value) -> String {
         match serde_json::from_value::<CreateFileToolInput>(input.clone()) {
             Ok(input) => {
-                let path = MarkdownString::inline_code(&input.path);
-                format!("Create file {path}")
+                let path = input.path.as_str();
+                format!("Create file `{path}`")
             }
             Err(_) => "Create file".to_string(),
         }
@@ -71,7 +69,7 @@ impl Tool for CreateFileTool {
         input: serde_json::Value,
         _messages: &[LanguageModelRequestMessage],
         project: Entity<Project>,
-        action_log: Entity<ActionLog>,
+        _action_log: Entity<ActionLog>,
         cx: &mut App,
     ) -> Task<Result<String>> {
         let input = match serde_json::from_value::<CreateFileToolInput>(input) {
@@ -86,21 +84,24 @@ impl Tool for CreateFileTool {
         let destination_path: Arc<str> = input.path.as_str().into();
 
         cx.spawn(async move |cx| {
+            project
+                .update(cx, |project, cx| {
+                    project.create_entry(project_path.clone(), false, cx)
+                })?
+                .await
+                .map_err(|err| anyhow!("Unable to create {destination_path}: {err}"))?;
             let buffer = project
                 .update(cx, |project, cx| {
                     project.open_buffer(project_path.clone(), cx)
                 })?
                 .await
                 .map_err(|err| anyhow!("Unable to open buffer for {destination_path}: {err}"))?;
-            cx.update(|cx| {
-                buffer.update(cx, |buffer, cx| buffer.set_text(contents, cx));
-                action_log.update(cx, |action_log, cx| {
-                    action_log.will_create_buffer(buffer.clone(), cx)
-                });
+            buffer.update(cx, |buffer, cx| {
+                buffer.set_text(contents, cx);
             })?;
 
             project
-                .update(cx, |project, cx| project.save_buffer(buffer, cx))?
+                .update(cx, |project, cx| project.save_buffer(buffer.clone(), cx))?
                 .await
                 .map_err(|err| anyhow!("Unable to save buffer for {destination_path}: {err}"))?;
 

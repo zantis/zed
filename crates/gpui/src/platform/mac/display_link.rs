@@ -30,11 +30,9 @@ impl DisplayLink {
             _flags_out: *mut i64,
             frame_requests: *mut c_void,
         ) -> i32 {
-            unsafe {
-                let frame_requests = frame_requests as dispatch_source_t;
-                dispatch_source_merge_data(frame_requests, 1);
-                0
-            }
+            let frame_requests = frame_requests as dispatch_source_t;
+            dispatch_source_merge_data(frame_requests, 1);
+            0
         }
 
         unsafe {
@@ -103,7 +101,7 @@ mod sys {
 
     use anyhow::Result;
     use core_graphics::display::CGDirectDisplayID;
-    use foreign_types::{ForeignType, foreign_type};
+    use foreign_types::{foreign_type, ForeignType};
     use std::{
         ffi::c_void,
         fmt::{self, Debug, Formatter},
@@ -204,7 +202,7 @@ mod sys {
     #[link(name = "CoreFoundation", kind = "framework")]
     #[link(name = "CoreVideo", kind = "framework")]
     #[allow(improper_ctypes, unknown_lints, clippy::duplicated_attributes)]
-    unsafe extern "C" {
+    extern "C" {
         pub fn CVDisplayLinkCreateWithActiveCGDisplays(
             display_link_out: *mut *mut CVDisplayLink,
         ) -> i32;
@@ -230,46 +228,40 @@ mod sys {
             callback: CVDisplayLinkOutputCallback,
             user_info: *mut c_void,
         ) -> Result<Self> {
-            unsafe {
-                let mut display_link: *mut CVDisplayLink = 0 as _;
+            let mut display_link: *mut CVDisplayLink = 0 as _;
 
-                let code = CVDisplayLinkCreateWithActiveCGDisplays(&mut display_link);
-                anyhow::ensure!(code == 0, "could not create display link, code: {}", code);
+            let code = CVDisplayLinkCreateWithActiveCGDisplays(&mut display_link);
+            anyhow::ensure!(code == 0, "could not create display link, code: {}", code);
 
-                let mut display_link = DisplayLink::from_ptr(display_link);
+            let mut display_link = DisplayLink::from_ptr(display_link);
 
-                let code = CVDisplayLinkSetOutputCallback(&mut display_link, callback, user_info);
-                anyhow::ensure!(code == 0, "could not set output callback, code: {}", code);
+            let code = CVDisplayLinkSetOutputCallback(&mut display_link, callback, user_info);
+            anyhow::ensure!(code == 0, "could not set output callback, code: {}", code);
 
-                let code = CVDisplayLinkSetCurrentCGDisplay(&mut display_link, display_id);
-                anyhow::ensure!(
-                    code == 0,
-                    "could not assign display to display link, code: {}",
-                    code
-                );
+            let code = CVDisplayLinkSetCurrentCGDisplay(&mut display_link, display_id);
+            anyhow::ensure!(
+                code == 0,
+                "could not assign display to display link, code: {}",
+                code
+            );
 
-                Ok(display_link)
-            }
+            Ok(display_link)
         }
     }
 
     impl DisplayLinkRef {
         /// Apple docs: [CVDisplayLinkStart](https://developer.apple.com/documentation/corevideo/1457193-cvdisplaylinkstart?language=objc)
         pub unsafe fn start(&mut self) -> Result<()> {
-            unsafe {
-                let code = CVDisplayLinkStart(self);
-                anyhow::ensure!(code == 0, "could not start display link, code: {}", code);
-                Ok(())
-            }
+            let code = CVDisplayLinkStart(self);
+            anyhow::ensure!(code == 0, "could not start display link, code: {}", code);
+            Ok(())
         }
 
         /// Apple docs: [CVDisplayLinkStop](https://developer.apple.com/documentation/corevideo/1457281-cvdisplaylinkstop?language=objc)
         pub unsafe fn stop(&mut self) -> Result<()> {
-            unsafe {
-                let code = CVDisplayLinkStop(self);
-                anyhow::ensure!(code == 0, "could not stop display link, code: {}", code);
-                Ok(())
-            }
+            let code = CVDisplayLinkStop(self);
+            anyhow::ensure!(code == 0, "could not stop display link, code: {}", code);
+            Ok(())
         }
     }
 }

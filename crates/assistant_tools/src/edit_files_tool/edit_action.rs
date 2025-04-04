@@ -59,20 +59,6 @@ enum State {
     CloseFence,
 }
 
-/// used to avoid having source code that looks like git-conflict markers
-macro_rules! marker_sym {
-    ($char:expr) => {
-        concat!($char, $char, $char, $char, $char, $char, $char)
-    };
-}
-
-const SEARCH_MARKER: &str = concat!(marker_sym!('<'), " SEARCH");
-const DIVIDER: &str = marker_sym!('=');
-const NL_DIVIDER: &str = concat!("\n", marker_sym!('='));
-const REPLACE_MARKER: &str = concat!(marker_sym!('>'), " REPLACE");
-const NL_REPLACE_MARKER: &str = concat!("\n", marker_sym!('>'), " REPLACE");
-const FENCE: &str = "```";
-
 impl EditActionParser {
     /// Creates a new `EditActionParser`
     pub fn new() -> Self {
@@ -100,6 +86,13 @@ impl EditActionParser {
     /// All errors can be accessed through the `EditActionsParser::errors` method.
     pub fn parse_chunk(&mut self, input: &str) -> Vec<(EditAction, String)> {
         use State::*;
+
+        const FENCE: &[u8] = b"```";
+        const SEARCH_MARKER: &[u8] = b"<<<<<<< SEARCH";
+        const DIVIDER: &[u8] = b"=======";
+        const NL_DIVIDER: &[u8] = b"\n=======";
+        const REPLACE_MARKER: &[u8] = b">>>>>>> REPLACE";
+        const NL_REPLACE_MARKER: &[u8] = b"\n>>>>>>> REPLACE";
 
         let mut actions = Vec::new();
 
@@ -234,7 +227,7 @@ impl EditActionParser {
         self.to_state(State::Default);
     }
 
-    fn expect_marker(&mut self, byte: u8, marker: &'static str, trailing_newline: bool) -> bool {
+    fn expect_marker(&mut self, byte: u8, marker: &'static [u8], trailing_newline: bool) -> bool {
         match self.match_marker(byte, marker, trailing_newline) {
             MarkerMatch::Complete => true,
             MarkerMatch::Partial => false,
@@ -252,7 +245,7 @@ impl EditActionParser {
         }
     }
 
-    fn extend_block_range(&mut self, byte: u8, marker: &str, nl_marker: &str) -> bool {
+    fn extend_block_range(&mut self, byte: u8, marker: &[u8], nl_marker: &[u8]) -> bool {
         let marker = if self.block_range.is_empty() {
             // do not require another newline if block is empty
             marker
@@ -294,7 +287,7 @@ impl EditActionParser {
         }
     }
 
-    fn match_marker(&mut self, byte: u8, marker: &str, trailing_newline: bool) -> MarkerMatch {
+    fn match_marker(&mut self, byte: u8, marker: &[u8], trailing_newline: bool) -> MarkerMatch {
         if trailing_newline && self.marker_ix >= marker.len() {
             if byte == b'\n' {
                 MarkerMatch::Complete
@@ -303,7 +296,7 @@ impl EditActionParser {
             } else {
                 MarkerMatch::None
             }
-        } else if byte == marker.as_bytes()[self.marker_ix] {
+        } else if byte == marker[self.marker_ix] {
             self.marker_ix += 1;
 
             if self.marker_ix < marker.len() || trailing_newline {
@@ -328,7 +321,7 @@ enum MarkerMatch {
 pub struct ParseError {
     line: usize,
     column: usize,
-    expected: &'static str,
+    expected: &'static [u8],
     found: u8,
 }
 
@@ -337,17 +330,12 @@ impl std::fmt::Display for ParseError {
         write!(
             f,
             "input:{}:{}: Expected marker {:?}, found {:?}",
-            self.line, self.column, self.expected, self.found as char
+            self.line,
+            self.column,
+            String::from_utf8_lossy(self.expected),
+            self.found as char
         )
     }
-}
-
-pub fn edit_model_prompt() -> String {
-    include_str!("edit_prompt.md")
-        .to_string()
-        .replace("{{SEARCH_MARKER}}", SEARCH_MARKER)
-        .replace("{{DIVIDER}}", DIVIDER)
-        .replace("{{REPLACE_MARKER}}", REPLACE_MARKER)
 }
 
 #[cfg(test)]
@@ -356,26 +344,20 @@ mod tests {
     use rand::prelude::*;
     use util::line_endings;
 
-    const WRONG_MARKER: &str = concat!(marker_sym!('<'), " WRONG_MARKER");
-
     #[test]
     fn test_simple_edit_action() {
-        // Construct test input using format with multiline string literals
-        let input = format!(
-            r#"src/main.rs
+        let input = r#"src/main.rs
 ```
-{}
-fn original() {{}}
-{}
-fn replacement() {{}}
-{}
+<<<<<<< SEARCH
+fn original() {}
+=======
+fn replacement() {}
+>>>>>>> REPLACE
 ```
-"#,
-            SEARCH_MARKER, DIVIDER, REPLACE_MARKER
-        );
+"#;
 
         let mut parser = EditActionParser::new();
-        let actions = parser.parse_chunk(&input);
+        let actions = parser.parse_chunk(input);
 
         assert_no_errors(&parser);
         assert_eq!(actions.len(), 1);
@@ -391,22 +373,18 @@ fn replacement() {{}}
 
     #[test]
     fn test_with_language_tag() {
-        // Construct test input using format with multiline string literals
-        let input = format!(
-            r#"src/main.rs
+        let input = r#"src/main.rs
 ```rust
-{}
-fn original() {{}}
-{}
-fn replacement() {{}}
-{}
+<<<<<<< SEARCH
+fn original() {}
+=======
+fn replacement() {}
+>>>>>>> REPLACE
 ```
-"#,
-            SEARCH_MARKER, DIVIDER, REPLACE_MARKER
-        );
+"#;
 
         let mut parser = EditActionParser::new();
-        let actions = parser.parse_chunk(&input);
+        let actions = parser.parse_chunk(input);
 
         assert_no_errors(&parser);
         assert_eq!(actions.len(), 1);
@@ -422,26 +400,22 @@ fn replacement() {{}}
 
     #[test]
     fn test_with_surrounding_text() {
-        // Construct test input using format with multiline string literals
-        let input = format!(
-            r#"Here's a modification I'd like to make to the file:
+        let input = r#"Here's a modification I'd like to make to the file:
 
 src/main.rs
 ```rust
-{}
-fn original() {{}}
-{}
-fn replacement() {{}}
-{}
+<<<<<<< SEARCH
+fn original() {}
+=======
+fn replacement() {}
+>>>>>>> REPLACE
 ```
 
 This change makes the function better.
-"#,
-            SEARCH_MARKER, DIVIDER, REPLACE_MARKER
-        );
+"#;
 
         let mut parser = EditActionParser::new();
-        let actions = parser.parse_chunk(&input);
+        let actions = parser.parse_chunk(input);
 
         assert_no_errors(&parser);
         assert_eq!(actions.len(), 1);
@@ -457,33 +431,29 @@ This change makes the function better.
 
     #[test]
     fn test_multiple_edit_actions() {
-        // Construct test input using format with multiline string literals
-        let input = format!(
-            r#"First change:
+        let input = r#"First change:
 src/main.rs
 ```
-{}
-fn original() {{}}
-{}
-fn replacement() {{}}
-{}
+<<<<<<< SEARCH
+fn original() {}
+=======
+fn replacement() {}
+>>>>>>> REPLACE
 ```
 
 Second change:
 src/utils.rs
 ```rust
-{}
-fn old_util() -> bool {{ false }}
-{}
-fn new_util() -> bool {{ true }}
-{}
+<<<<<<< SEARCH
+fn old_util() -> bool { false }
+=======
+fn new_util() -> bool { true }
+>>>>>>> REPLACE
 ```
-"#,
-            SEARCH_MARKER, DIVIDER, REPLACE_MARKER, SEARCH_MARKER, DIVIDER, REPLACE_MARKER
-        );
+"#;
 
         let mut parser = EditActionParser::new();
-        let actions = parser.parse_chunk(&input);
+        let actions = parser.parse_chunk(input);
 
         assert_no_errors(&parser);
         assert_eq!(actions.len(), 2);
@@ -510,36 +480,32 @@ fn new_util() -> bool {{ true }}
 
     #[test]
     fn test_multiline() {
-        // Construct test input using format with multiline string literals
-        let input = format!(
-            r#"src/main.rs
+        let input = r#"src/main.rs
 ```rust
-{}
-fn original() {{
+<<<<<<< SEARCH
+fn original() {
     println!("This is the original function");
     let x = 42;
-    if x > 0 {{
+    if x > 0 {
         println!("Positive number");
-    }}
-}}
-{}
-fn replacement() {{
+    }
+}
+=======
+fn replacement() {
     println!("This is the replacement function");
     let x = 100;
-    if x > 50 {{
+    if x > 50 {
         println!("Large number");
-    }} else {{
+    } else {
         println!("Small number");
-    }}
-}}
-{}
+    }
+}
+>>>>>>> REPLACE
 ```
-"#,
-            SEARCH_MARKER, DIVIDER, REPLACE_MARKER
-        );
+"#;
 
         let mut parser = EditActionParser::new();
-        let actions = parser.parse_chunk(&input);
+        let actions = parser.parse_chunk(input);
 
         assert_no_errors(&parser);
         assert_eq!(actions.len(), 1);
@@ -557,25 +523,21 @@ fn replacement() {{
 
     #[test]
     fn test_write_action() {
-        // Construct test input using format with multiline string literals
-        let input = format!(
-            r#"Create a new main.rs file:
+        let input = r#"Create a new main.rs file:
 
 src/main.rs
 ```rust
-{}
-{}
-fn new_function() {{
+<<<<<<< SEARCH
+=======
+fn new_function() {
     println!("This function is being added");
-}}
-{}
+}
+>>>>>>> REPLACE
 ```
-"#,
-            SEARCH_MARKER, DIVIDER, REPLACE_MARKER
-        );
+"#;
 
         let mut parser = EditActionParser::new();
-        let actions = parser.parse_chunk(&input);
+        let actions = parser.parse_chunk(input);
 
         assert_no_errors(&parser);
         assert_eq!(actions.len(), 1);
@@ -591,20 +553,16 @@ fn new_function() {{
 
     #[test]
     fn test_empty_replace() {
-        // Construct test input using format with multiline string literals
-        let input = format!(
-            r#"src/main.rs
+        let input = r#"src/main.rs
 ```rust
-{}
-fn this_will_be_deleted() {{
+<<<<<<< SEARCH
+fn this_will_be_deleted() {
     println!("Deleting this function");
-}}
-{}
-{}
+}
+=======
+>>>>>>> REPLACE
 ```
-"#,
-            SEARCH_MARKER, DIVIDER, REPLACE_MARKER
-        );
+"#;
 
         let mut parser = EditActionParser::new();
         let actions = parser.parse_chunk(&input);
@@ -639,20 +597,16 @@ fn this_will_be_deleted() {{
 
     #[test]
     fn test_empty_both() {
-        // Construct test input using format with multiline string literals
-        let input = format!(
-            r#"src/main.rs
+        let input = r#"src/main.rs
 ```rust
-{}
-{}
-{}
+<<<<<<< SEARCH
+=======
+>>>>>>> REPLACE
 ```
-"#,
-            SEARCH_MARKER, DIVIDER, REPLACE_MARKER
-        );
+"#;
 
         let mut parser = EditActionParser::new();
-        let actions = parser.parse_chunk(&input);
+        let actions = parser.parse_chunk(input);
 
         assert_eq!(actions.len(), 1);
         assert_eq!(
@@ -667,24 +621,31 @@ fn this_will_be_deleted() {{
 
     #[test]
     fn test_resumability() {
-        // Construct test input using format with multiline string literals
-        let input_part1 = format!("src/main.rs\n```rust\n{}\nfn ori", SEARCH_MARKER);
+        let input_part1 = r#"src/main.rs
+```rust
+<<<<<<< SEARCH
+fn ori"#;
 
-        let input_part2 = format!("ginal() {{}}\n{}\nfn replacement() {{}}", DIVIDER);
+        let input_part2 = r#"ginal() {}
+=======
+fn replacement() {}"#;
 
-        let input_part3 = format!("\n{}\n```\n", REPLACE_MARKER);
+        let input_part3 = r#"
+>>>>>>> REPLACE
+```
+"#;
 
         let mut parser = EditActionParser::new();
-        let actions1 = parser.parse_chunk(&input_part1);
+        let actions1 = parser.parse_chunk(input_part1);
         assert_no_errors(&parser);
         assert_eq!(actions1.len(), 0);
 
-        let actions2 = parser.parse_chunk(&input_part2);
+        let actions2 = parser.parse_chunk(input_part2);
         // No actions should be complete yet
         assert_no_errors(&parser);
         assert_eq!(actions2.len(), 0);
 
-        let actions3 = parser.parse_chunk(&input_part3);
+        let actions3 = parser.parse_chunk(input_part3);
         // The third chunk should complete the action
         assert_no_errors(&parser);
         assert_eq!(actions3.len(), 1);
@@ -702,17 +663,18 @@ fn this_will_be_deleted() {{
     #[test]
     fn test_parser_state_preservation() {
         let mut parser = EditActionParser::new();
-        let first_chunk = format!("src/main.rs\n```rust\n{}\n", SEARCH_MARKER);
-        let actions1 = parser.parse_chunk(&first_chunk);
+        let actions1 = parser.parse_chunk("src/main.rs\n```rust\n<<<<<<< SEARCH\n");
 
         // Check parser is in the correct state
         assert_no_errors(&parser);
         assert_eq!(parser.state, State::SearchBlock);
-        assert_eq!(parser.action_source, first_chunk.as_bytes());
+        assert_eq!(
+            parser.action_source,
+            b"src/main.rs\n```rust\n<<<<<<< SEARCH\n"
+        );
 
         // Continue parsing
-        let second_chunk = format!("original code\n{}\n", DIVIDER);
-        let actions2 = parser.parse_chunk(&second_chunk);
+        let actions2 = parser.parse_chunk("original code\n=======\n");
 
         assert_no_errors(&parser);
         assert_eq!(parser.state, State::ReplaceBlock);
@@ -721,8 +683,7 @@ fn this_will_be_deleted() {{
             b"original code"
         );
 
-        let third_chunk = format!("replacement code\n{}\n```\n", REPLACE_MARKER);
-        let actions3 = parser.parse_chunk(&third_chunk);
+        let actions3 = parser.parse_chunk("replacement code\n>>>>>>> REPLACE\n```\n");
 
         // After complete parsing, state should reset
         assert_no_errors(&parser);
@@ -738,21 +699,18 @@ fn this_will_be_deleted() {{
 
     #[test]
     fn test_invalid_search_marker() {
-        let input = format!(
-            r#"src/main.rs
+        let input = r#"src/main.rs
 ```rust
-{}
-fn original() {{}}
-{}
-fn replacement() {{}}
-{}
+<<<<<<< WRONG_MARKER
+fn original() {}
+=======
+fn replacement() {}
+>>>>>>> REPLACE
 ```
-"#,
-            WRONG_MARKER, DIVIDER, REPLACE_MARKER
-        );
+"#;
 
         let mut parser = EditActionParser::new();
-        let actions = parser.parse_chunk(&input);
+        let actions = parser.parse_chunk(input);
         assert_eq!(actions.len(), 0);
 
         assert_eq!(parser.errors().len(), 1);
@@ -760,40 +718,33 @@ fn replacement() {{}}
 
         assert_eq!(
             error.to_string(),
-            format!(
-                "input:3:9: Expected marker \"{}\", found 'W'",
-                SEARCH_MARKER
-            )
+            "input:3:9: Expected marker \"<<<<<<< SEARCH\", found 'W'"
         );
     }
 
     #[test]
     fn test_missing_closing_fence() {
-        // Construct test input using format with multiline string literals
-        let input = format!(
-            r#"src/main.rs
+        let input = r#"src/main.rs
 ```rust
-{}
-fn original() {{}}
-{}
-fn replacement() {{}}
-{}
+<<<<<<< SEARCH
+fn original() {}
+=======
+fn replacement() {}
+>>>>>>> REPLACE
 <!-- Missing closing fence -->
 
 src/utils.rs
 ```rust
-{}
-fn utils_func() {{}}
-{}
-fn new_utils_func() {{}}
-{}
+<<<<<<< SEARCH
+fn utils_func() {}
+=======
+fn new_utils_func() {}
+>>>>>>> REPLACE
 ```
-"#,
-            SEARCH_MARKER, DIVIDER, REPLACE_MARKER, SEARCH_MARKER, DIVIDER, REPLACE_MARKER
-        );
+"#;
 
         let mut parser = EditActionParser::new();
-        let actions = parser.parse_chunk(&input);
+        let actions = parser.parse_chunk(input);
 
         // Only the second block should be parsed
         assert_eq!(actions.len(), 1);
@@ -816,17 +767,19 @@ fn new_utils_func() {{}}
         assert_eq!(parser.state, State::Default);
     }
 
+    const SYSTEM_PROMPT: &str = include_str!("./edit_prompt.md");
+
     #[test]
-    fn test_parse_examples_in_edit_prompt() {
+    fn test_parse_examples_in_system_prompt() {
         let mut parser = EditActionParser::new();
-        let actions = parser.parse_chunk(&edit_model_prompt());
-        assert_examples_in_edit_prompt(&actions, parser.errors());
+        let actions = parser.parse_chunk(SYSTEM_PROMPT);
+        assert_examples_in_system_prompt(&actions, parser.errors());
     }
 
     #[gpui::test(iterations = 10)]
-    fn test_random_chunking_of_edit_prompt(mut rng: StdRng) {
+    fn test_random_chunking_of_system_prompt(mut rng: StdRng) {
         let mut parser = EditActionParser::new();
-        let mut remaining: &str = &edit_model_prompt();
+        let mut remaining = SYSTEM_PROMPT;
         let mut actions = Vec::with_capacity(5);
 
         while !remaining.is_empty() {
@@ -839,10 +792,10 @@ fn new_utils_func() {{}}
             remaining = rest;
         }
 
-        assert_examples_in_edit_prompt(&actions, parser.errors());
+        assert_examples_in_system_prompt(&actions, parser.errors());
     }
 
-    fn assert_examples_in_edit_prompt(actions: &[(EditAction, String)], errors: &[ParseError]) {
+    fn assert_examples_in_system_prompt(actions: &[(EditAction, String)], errors: &[ParseError]) {
         assert_eq!(actions.len(), 5);
 
         assert_eq!(
@@ -898,53 +851,38 @@ fn new_utils_func() {{}}
         // The system prompt includes some text that would produce errors
         assert_eq!(
             errors[0].to_string(),
-            format!(
-                "input:102:1: Expected marker \"{}\", found '3'",
-                SEARCH_MARKER
-            )
+            "input:102:1: Expected marker \"<<<<<<< SEARCH\", found '3'"
         );
         #[cfg(not(windows))]
         assert_eq!(
             errors[1].to_string(),
-            format!(
-                "input:109:0: Expected marker \"{}\", found '\\n'",
-                SEARCH_MARKER
-            )
+            "input:109:0: Expected marker \"<<<<<<< SEARCH\", found '\\n'"
         );
         #[cfg(windows)]
         assert_eq!(
             errors[1].to_string(),
-            format!(
-                "input:108:1: Expected marker \"{}\", found '\\r'",
-                SEARCH_MARKER
-            )
+            "input:108:1: Expected marker \"<<<<<<< SEARCH\", found '\\r'"
         );
     }
 
     #[test]
     fn test_print_error() {
-        let input = format!(
-            r#"src/main.rs
+        let input = r#"src/main.rs
 ```rust
-{}
-fn original() {{}}
-{}
-fn replacement() {{}}
-{}
+<<<<<<< WRONG_MARKER
+fn original() {}
+=======
+fn replacement() {}
+>>>>>>> REPLACE
 ```
-"#,
-            WRONG_MARKER, DIVIDER, REPLACE_MARKER
-        );
+"#;
 
         let mut parser = EditActionParser::new();
-        parser.parse_chunk(&input);
+        parser.parse_chunk(input);
 
         assert_eq!(parser.errors().len(), 1);
         let error = &parser.errors()[0];
-        let expected_error = format!(
-            r#"input:3:9: Expected marker "{}", found 'W'"#,
-            SEARCH_MARKER
-        );
+        let expected_error = r#"input:3:9: Expected marker "<<<<<<< SEARCH", found 'W'"#;
 
         assert_eq!(format!("{}", error), expected_error);
     }

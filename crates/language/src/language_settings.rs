@@ -5,23 +5,23 @@ use anyhow::Result;
 use collections::{HashMap, HashSet};
 use core::slice;
 use ec4rs::{
-    Properties as EditorconfigProperties,
     property::{FinalNewline, IndentSize, IndentStyle, TabWidth, TrimTrailingWs},
+    Properties as EditorconfigProperties,
 };
 use globset::{Glob, GlobMatcher, GlobSet, GlobSetBuilder};
 use gpui::{App, Modifiers};
 use itertools::{Either, Itertools};
 use schemars::{
-    JsonSchema,
     schema::{InstanceType, ObjectValidation, Schema, SchemaObject, SingleOrVec},
+    JsonSchema,
 };
 use serde::{
-    Deserialize, Deserializer, Serialize,
     de::{self, IntoDeserializer, MapAccess, SeqAccess, Visitor},
+    Deserialize, Deserializer, Serialize,
 };
 use serde_json::Value;
 use settings::{
-    Settings, SettingsLocation, SettingsSources, SettingsStore, add_references_to_properties,
+    add_references_to_properties, Settings, SettingsLocation, SettingsSources, SettingsStore,
 };
 use std::{borrow::Cow, num::NonZeroU32, path::Path, sync::Arc};
 use util::serde::default_true;
@@ -61,7 +61,7 @@ pub fn all_language_settings<'a>(
 pub struct AllLanguageSettings {
     /// The edit prediction settings.
     pub edit_predictions: EditPredictionSettings,
-    pub defaults: LanguageSettings,
+    defaults: LanguageSettings,
     languages: HashMap<LanguageName, LanguageSettings>,
     pub(crate) file_types: HashMap<Arc<str>, GlobSet>,
 }
@@ -329,11 +329,6 @@ pub struct CompletionSettings {
     /// Default: 0
     #[serde(default = "default_lsp_fetch_timeout_ms")]
     pub lsp_fetch_timeout_ms: u64,
-    /// Controls how LSP completions are inserted.
-    ///
-    /// Default: "replace_suffix"
-    #[serde(default = "default_lsp_insert_mode")]
-    pub lsp_insert_mode: LspInsertMode,
 }
 
 /// Controls how document's words are completed.
@@ -350,27 +345,8 @@ pub enum WordsCompletionMode {
     Disabled,
 }
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum LspInsertMode {
-    /// Replaces text before the cursor, using the `insert` range described in the LSP specification.
-    Insert,
-    /// Replaces text before and after the cursor, using the `replace` range described in the LSP specification.
-    Replace,
-    /// Behaves like `"replace"` if the text that would be replaced is a subsequence of the completion text,
-    /// and like `"insert"` otherwise.
-    ReplaceSubsequence,
-    /// Behaves like `"replace"` if the text after the cursor is a suffix of the completion, and like
-    /// `"insert"` otherwise.
-    ReplaceSuffix,
-}
-
 fn default_words_completion_mode() -> WordsCompletionMode {
     WordsCompletionMode::Fallback
-}
-
-fn default_lsp_insert_mode() -> LspInsertMode {
-    LspInsertMode::Insert
 }
 
 fn default_lsp_fetch_timeout_ms() -> u64 {
@@ -1324,7 +1300,7 @@ impl settings::Settings for AllLanguageSettings {
     }
 
     fn json_schema(
-        generator: &mut schemars::r#gen::SchemaGenerator,
+        generator: &mut schemars::gen::SchemaGenerator,
         params: &settings::SettingsJsonSchemaParams,
         _: &App,
     ) -> schemars::schema::RootSchema {
@@ -1332,11 +1308,9 @@ impl settings::Settings for AllLanguageSettings {
 
         // Create a schema for a 'languages overrides' object, associating editor
         // settings with specific languages.
-        assert!(
-            root_schema
-                .definitions
-                .contains_key("LanguageSettingsContent")
-        );
+        assert!(root_schema
+            .definitions
+            .contains_key("LanguageSettingsContent"));
 
         let languages_object_schema = SchemaObject {
             instance_type: Some(InstanceType::Object.into()),

@@ -1,14 +1,12 @@
-use std::sync::Arc;
-
 use editor::Editor;
 use gpui::{
-    AsyncWindowContext, Context, Entity, IntoElement, ParentElement, Render, Subscription, Task,
-    WeakEntity, Window, div,
+    div, AsyncWindowContext, Context, Entity, IntoElement, ParentElement, Render, Subscription,
+    Task, WeakEntity, Window,
 };
 use language::{Buffer, BufferEvent, LanguageName, Toolchain};
-use project::{Project, ProjectPath, WorktreeId};
+use project::{Project, WorktreeId};
 use ui::{Button, ButtonCommon, Clickable, FluentBuilder, LabelSize, SharedString, Tooltip};
-use workspace::{StatusItemView, Workspace, item::ItemHandle};
+use workspace::{item::ItemHandle, StatusItemView, Workspace};
 
 use crate::ToolchainSelector;
 
@@ -111,14 +109,9 @@ impl ActiveToolchain {
                 .flatten()?;
             let selected_toolchain = workspace
                 .update(cx, |this, cx| {
-                    this.project().read(cx).active_toolchain(
-                        ProjectPath {
-                            worktree_id,
-                            path: Arc::from("".as_ref()),
-                        },
-                        language_name.clone(),
-                        cx,
-                    )
+                    this.project()
+                        .read(cx)
+                        .active_toolchain(worktree_id, language_name.clone(), cx)
                 })
                 .ok()?
                 .await;
@@ -130,33 +123,21 @@ impl ActiveToolchain {
                     .ok()?;
                 let toolchains = cx
                     .update(|_, cx| {
-                        project.read(cx).available_toolchains(
-                            ProjectPath {
-                                worktree_id,
-                                path: Arc::from("".as_ref()),
-                            },
-                            language_name,
-                            cx,
-                        )
+                        project
+                            .read(cx)
+                            .available_toolchains(worktree_id, language_name, cx)
                     })
                     .ok()?
                     .await?;
                 if let Some(toolchain) = toolchains.toolchains.first() {
                     // Since we don't have a selected toolchain, pick one for user here.
                     workspace::WORKSPACE_DB
-                        .set_toolchain(workspace_id, worktree_id, "".to_owned(), toolchain.clone())
+                        .set_toolchain(workspace_id, worktree_id, toolchain.clone())
                         .await
                         .ok()?;
                     project
                         .update(cx, |this, cx| {
-                            this.activate_toolchain(
-                                ProjectPath {
-                                    worktree_id,
-                                    path: Arc::from("".as_ref()),
-                                },
-                                toolchain.clone(),
-                                cx,
-                            )
+                            this.activate_toolchain(worktree_id, toolchain.clone(), cx)
                         })
                         .ok()?
                         .await;

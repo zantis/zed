@@ -3,23 +3,22 @@ use std::sync::Arc;
 use crate::TaskContexts;
 use fuzzy::{StringMatch, StringMatchCandidate};
 use gpui::{
-    Action, AnyElement, App, AppContext as _, Context, DismissEvent, Entity, EventEmitter,
+    rems, Action, AnyElement, App, AppContext as _, Context, DismissEvent, Entity, EventEmitter,
     Focusable, InteractiveElement, ParentElement, Render, SharedString, Styled, Subscription, Task,
-    WeakEntity, Window, rems,
+    WeakEntity, Window,
 };
-use picker::{Picker, PickerDelegate, highlighted_match_with_paths::HighlightedMatch};
-use project::{TaskSourceKind, task_store::TaskStore};
+use picker::{highlighted_match_with_paths::HighlightedMatch, Picker, PickerDelegate};
+use project::{task_store::TaskStore, TaskSourceKind};
 use task::{
-    DebugRequestType, DebugTaskDefinition, ResolvedTask, RevealTarget, TaskContext, TaskModal,
-    TaskTemplate, TaskType,
+    DebugRequestType, ResolvedTask, RevealTarget, TaskContext, TaskModal, TaskTemplate, TaskType,
 };
 use ui::{
-    ActiveTheme, Button, ButtonCommon, ButtonSize, Clickable, Color, FluentBuilder as _, Icon,
-    IconButton, IconButtonShape, IconName, IconSize, IntoElement, KeyBinding, LabelSize, ListItem,
-    ListItemSpacing, RenderOnce, Toggleable, Tooltip, div, h_flex, v_flex,
+    div, h_flex, v_flex, ActiveTheme, Button, ButtonCommon, ButtonSize, Clickable, Color,
+    FluentBuilder as _, Icon, IconButton, IconButtonShape, IconName, IconSize, IntoElement,
+    KeyBinding, LabelSize, ListItem, ListItemSpacing, RenderOnce, Toggleable, Tooltip,
 };
 use util::ResultExt;
-use workspace::{ModalView, Workspace, tasks::schedule_resolved_task};
+use workspace::{tasks::schedule_resolved_task, ModalView, Workspace};
 pub use zed_actions::{Rerun, Spawn};
 
 /// A modal used to spawn new tasks.
@@ -321,11 +320,15 @@ impl PickerDelegate for TasksModalDelegate {
         self.workspace
             .update(cx, |workspace, cx| {
                 match task.task_type() {
-                    TaskType::Debug(config) if config.locator.is_none() => {
-                        let Some(config): Option<DebugTaskDefinition> = task
-                            .resolved_debug_adapter_config()
-                            .and_then(|config| config.try_into().ok())
-                        else {
+                    TaskType::Script => schedule_resolved_task(
+                        workspace,
+                        task_source_kind,
+                        task,
+                        omit_history_entry,
+                        cx,
+                    ),
+                    TaskType::Debug(_) => {
+                        let Some(config) = task.resolved_debug_adapter_config() else {
                             return;
                         };
                         let project = workspace.project().clone();
@@ -346,19 +349,12 @@ impl PickerDelegate for TasksModalDelegate {
                             _ => {
                                 project.update(cx, |project, cx| {
                                     project
-                                        .start_debug_session(config.into(), cx)
+                                        .start_debug_session(config, cx)
                                         .detach_and_log_err(cx);
                                 });
                             }
                         }
                     }
-                    _ => schedule_resolved_task(
-                        workspace,
-                        task_source_kind,
-                        task,
-                        omit_history_entry,
-                        cx,
-                    ),
                 };
             })
             .ok();
@@ -521,30 +517,13 @@ impl PickerDelegate for TasksModalDelegate {
                         omit_history_entry,
                         cx,
                     ),
-                    // todo(debugger): Should create a schedule_resolved_debug_task function
+                    // TODO: Should create a schedule_resolved_debug_task function
                     // This would allow users to access to debug history and other issues
-                    TaskType::Debug(debug_args) => {
-                        let Some(debug_config) = task.resolved_debug_adapter_config() else {
-                            // todo(debugger) log an error, this should never happen
-                            return;
-                        };
-
-                        if debug_args.locator.is_some() {
-                            schedule_resolved_task(
-                                workspace,
-                                task_source_kind,
-                                task,
-                                omit_history_entry,
-                                cx,
-                            );
-                        } else {
-                            workspace.project().update(cx, |project, cx| {
-                                project
-                                    .start_debug_session(debug_config, cx)
-                                    .detach_and_log_err(cx);
-                            });
-                        }
-                    }
+                    TaskType::Debug(_) => workspace.project().update(cx, |project, cx| {
+                        project
+                            .start_debug_session(task.resolved_debug_adapter_config().unwrap(), cx)
+                            .detach_and_log_err(cx);
+                    }),
                 };
             })
             .ok();

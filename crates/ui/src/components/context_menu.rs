@@ -1,10 +1,10 @@
 use crate::{
-    Icon, IconName, IconSize, KeyBinding, Label, List, ListItem, ListSeparator, ListSubHeader,
-    h_flex, prelude::*, utils::WithRemSize, v_flex,
+    h_flex, prelude::*, utils::WithRemSize, v_flex, Icon, IconName, IconSize, KeyBinding, Label,
+    List, ListItem, ListSeparator, ListSubHeader,
 };
 use gpui::{
-    Action, AnyElement, App, AppContext as _, DismissEvent, Entity, EventEmitter, FocusHandle,
-    Focusable, IntoElement, Render, Subscription, px,
+    px, Action, AnyElement, App, AppContext as _, DismissEvent, Entity, EventEmitter, FocusHandle,
+    Focusable, IntoElement, Render, Subscription,
 };
 use menu::{SelectFirst, SelectLast, SelectNext, SelectPrevious};
 use settings::Settings;
@@ -585,7 +585,7 @@ impl ContextMenu {
         item: &ContextMenuItem,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) -> impl IntoElement + use<> {
+    ) -> impl IntoElement {
         match item {
             ContextMenuItem::Separator => ListSeparator.into_any_element(),
             ContextMenuItem::Header(header) => ListSubHeader::new(header.clone())
@@ -752,7 +752,7 @@ impl ContextMenu {
                                         KeyBinding::for_action(&**action, window, cx)
                                     })
                                     .map(|binding| {
-                                        div().ml_4().child(binding.disabled(*disabled)).when(
+                                        div().ml_4().child(binding).when(
                                             *disabled && documentation_aside_callback.is_some(),
                                             |parent| parent.invisible(),
                                         )

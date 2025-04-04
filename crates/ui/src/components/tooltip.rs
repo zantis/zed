@@ -3,7 +3,7 @@ use settings::Settings;
 use theme::ThemeSettings;
 
 use crate::prelude::*;
-use crate::{Color, KeyBinding, Label, LabelSize, StyledExt, h_flex, v_flex};
+use crate::{h_flex, v_flex, Color, KeyBinding, Label, LabelSize, StyledExt};
 
 #[derive(IntoComponent)]
 pub struct Tooltip {
@@ -34,10 +34,10 @@ impl Tooltip {
         }
     }
 
-    pub fn for_action_title<Title: Into<SharedString>>(
-        title: Title,
+    pub fn for_action_title(
+        title: impl Into<SharedString>,
         action: &dyn Action,
-    ) -> impl Fn(&mut Window, &mut App) -> AnyView + use<Title> {
+    ) -> impl Fn(&mut Window, &mut App) -> AnyView {
         let title = title.into();
         let action = action.boxed_clone();
         move |window, cx| {
@@ -50,11 +50,11 @@ impl Tooltip {
         }
     }
 
-    pub fn for_action_title_in<Str: Into<SharedString>>(
-        title: Str,
+    pub fn for_action_title_in(
+        title: impl Into<SharedString>,
         action: &dyn Action,
         focus_handle: &FocusHandle,
-    ) -> impl Fn(&mut Window, &mut App) -> AnyView + use<Str> {
+    ) -> impl Fn(&mut Window, &mut App) -> AnyView {
         let title = title.into();
         let action = action.boxed_clone();
         let focus_handle = focus_handle.clone();
@@ -166,11 +166,11 @@ impl Render for Tooltip {
     }
 }
 
-pub fn tooltip_container<V, ContentsBuilder: FnOnce(Div, &mut Window, &mut Context<V>) -> Div>(
+pub fn tooltip_container<V>(
     window: &mut Window,
     cx: &mut Context<V>,
-    f: ContentsBuilder,
-) -> impl IntoElement + use<V, ContentsBuilder> {
+    f: impl FnOnce(Div, &mut Window, &mut Context<V>) -> Div,
+) -> impl IntoElement {
     let ui_font = ThemeSettings::get_global(cx).ui_font.clone();
 
     // padding to avoid tooltip appearing right below the mouse cursor

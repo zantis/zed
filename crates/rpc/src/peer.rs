@@ -1,27 +1,27 @@
 use super::{
-    Connection,
     proto::{
         self, AnyTypedEnvelope, EnvelopedMessage, MessageStream, PeerId, Receipt, RequestMessage,
         TypedEnvelope,
     },
+    Connection,
 };
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{anyhow, Context as _, Result};
 use collections::HashMap;
 use futures::{
-    FutureExt, SinkExt, Stream, StreamExt, TryFutureExt,
     channel::{mpsc, oneshot},
     stream::BoxStream,
+    FutureExt, SinkExt, Stream, StreamExt, TryFutureExt,
 };
 use parking_lot::{Mutex, RwLock};
 use proto::{ErrorCode, ErrorCodeExt, ErrorExt, RpcError};
-use serde::{Serialize, ser::SerializeStruct};
+use serde::{ser::SerializeStruct, Serialize};
 use std::{
     fmt, future,
     future::Future,
     sync::atomic::Ordering::SeqCst,
     sync::{
-        Arc,
         atomic::{self, AtomicU32},
+        Arc,
     },
     time::Duration,
     time::Instant,
@@ -116,7 +116,7 @@ impl Peer {
         create_timer: F,
     ) -> (
         ConnectionId,
-        impl Future<Output = anyhow::Result<()>> + Send + use<F, Fut, Out>,
+        impl Future<Output = anyhow::Result<()>> + Send,
         BoxStream<'static, Box<dyn AnyTypedEnvelope>>,
     )
     where
@@ -377,7 +377,7 @@ impl Peer {
         executor: gpui::BackgroundExecutor,
     ) -> (
         ConnectionId,
-        impl Future<Output = anyhow::Result<()>> + Send + use<>,
+        impl Future<Output = anyhow::Result<()>> + Send,
         BoxStream<'static, Box<dyn AnyTypedEnvelope>>,
     ) {
         let executor = executor.clone();
@@ -403,7 +403,7 @@ impl Peer {
         &self,
         receiver_id: ConnectionId,
         request: T,
-    ) -> impl Future<Output = Result<T::Response>> + use<T> {
+    ) -> impl Future<Output = Result<T::Response>> {
         self.request_internal(None, receiver_id, request)
             .map_ok(|envelope| envelope.payload)
     }
@@ -412,7 +412,7 @@ impl Peer {
         &self,
         receiver_id: ConnectionId,
         request: T,
-    ) -> impl Future<Output = Result<TypedEnvelope<T::Response>>> + use<T> {
+    ) -> impl Future<Output = Result<TypedEnvelope<T::Response>>> {
         self.request_internal(None, receiver_id, request)
     }
 
@@ -431,7 +431,7 @@ impl Peer {
         original_sender_id: Option<ConnectionId>,
         receiver_id: ConnectionId,
         request: T,
-    ) -> impl Future<Output = Result<TypedEnvelope<T::Response>>> + use<T> {
+    ) -> impl Future<Output = Result<TypedEnvelope<T::Response>>> {
         let envelope = request.into_envelope(0, None, original_sender_id.map(Into::into));
         let response = self.request_dynamic(receiver_id, envelope, T::NAME);
         async move {
@@ -457,7 +457,7 @@ impl Peer {
         receiver_id: ConnectionId,
         mut envelope: proto::Envelope,
         type_name: &'static str,
-    ) -> impl Future<Output = Result<(proto::Envelope, Instant)>> + use<> {
+    ) -> impl Future<Output = Result<(proto::Envelope, Instant)>> {
         let (tx, rx) = oneshot::channel();
         let send = self.connection_state(receiver_id).and_then(|connection| {
             envelope.id = connection.next_message_id.fetch_add(1, SeqCst);
@@ -1030,12 +1030,10 @@ mod tests {
 
         let _ = io_ended_rx.await;
         let _ = messages_ended_rx.await;
-        assert!(
-            server_conn
-                .send(WebSocketMessage::Binary(vec![]))
-                .await
-                .is_err()
-        );
+        assert!(server_conn
+            .send(WebSocketMessage::Binary(vec![]))
+            .await
+            .is_err());
     }
 
     #[gpui::test(iterations = 50)]

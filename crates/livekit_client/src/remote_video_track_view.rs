@@ -1,4 +1,5 @@
-use super::RemoteVideoTrack;
+use crate::track::RemoteVideoTrack;
+use anyhow::Result;
 use futures::StreamExt as _;
 use gpui::{
     AppContext as _, Context, Empty, Entity, EventEmitter, IntoElement, Render, Task, Window,
@@ -11,7 +12,7 @@ pub struct RemoteVideoTrackView {
     current_rendered_frame: Option<crate::RemoteVideoFrame>,
     #[cfg(not(target_os = "macos"))]
     previous_rendered_frame: Option<crate::RemoteVideoFrame>,
-    _maintain_frame: Task<()>,
+    _maintain_frame: Task<Result<()>>,
 }
 
 #[derive(Debug)]
@@ -22,27 +23,8 @@ pub enum RemoteVideoTrackViewEvent {
 impl RemoteVideoTrackView {
     pub fn new(track: RemoteVideoTrack, window: &mut Window, cx: &mut Context<Self>) -> Self {
         cx.focus_handle();
-        let frames = crate::play_remote_video_track(&track);
-
-        #[cfg(not(target_os = "macos"))]
-        {
-            use util::ResultExt;
-
-            let window_handle = window.window_handle();
-            cx.on_release(move |this, cx| {
-                if let Some(frame) = this.previous_rendered_frame.take() {
-                    window_handle
-                        .update(cx, |_, window, _cx| window.drop_image(frame).log_err())
-                        .ok();
-                }
-                if let Some(frame) = this.current_rendered_frame.take() {
-                    window_handle
-                        .update(cx, |_, window, _cx| window.drop_image(frame).log_err())
-                        .ok();
-                }
-            })
-            .detach();
-        }
+        let frames = super::play_remote_video_track(&track);
+        let _window_handle = window.window_handle();
 
         Self {
             track,
@@ -53,11 +35,28 @@ impl RemoteVideoTrackView {
                     this.update(cx, |this, cx| {
                         this.latest_frame = Some(frame);
                         cx.notify();
-                    })
-                    .ok();
+                    })?;
                 }
-                this.update(cx, |_this, cx| cx.emit(RemoteVideoTrackViewEvent::Close))
-                    .ok();
+                this.update(cx, |_this, cx| {
+                    #[cfg(not(target_os = "macos"))]
+                    {
+                        use util::ResultExt as _;
+                        if let Some(frame) = _this.previous_rendered_frame.take() {
+                            _window_handle
+                                .update(cx, |_, window, _cx| window.drop_image(frame).log_err())
+                                .ok();
+                        }
+                        // TODO(mgsloan): This might leak the last image of the screenshare if
+                        // render is called after the screenshare ends.
+                        if let Some(frame) = _this.current_rendered_frame.take() {
+                            _window_handle
+                                .update(cx, |_, window, _cx| window.drop_image(frame).log_err())
+                                .ok();
+                        }
+                    }
+                    cx.emit(RemoteVideoTrackViewEvent::Close)
+                })?;
+                Ok(())
             }),
             #[cfg(not(target_os = "macos"))]
             current_rendered_frame: None,

@@ -1,10 +1,9 @@
-use editor::{DisplayPoint, Editor, movement, scroll::Autoscroll};
-use gpui::{Action, actions};
+use editor::{movement, scroll::Autoscroll, DisplayPoint, Editor};
+use gpui::{actions, Action};
 use gpui::{Context, Window};
 use language::{CharClassifier, CharKind};
 
-use crate::motion::MotionKind;
-use crate::{Vim, motion::Motion, state::Mode};
+use crate::{motion::Motion, state::Mode, Vim};
 
 actions!(vim, [HelixNormalAfter, HelixDelete]);
 
@@ -255,7 +254,7 @@ impl Vim {
                 });
             });
 
-            vim.copy_selections_content(editor, MotionKind::Exclusive, window, cx);
+            vim.copy_selections_content(editor, false, window, cx);
             editor.insert("", window, cx);
         });
     }

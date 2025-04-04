@@ -1,6 +1,6 @@
 use gpui::{FocusHandle, Focusable};
 use ui::{
-    Color, Context, IntoElement, Label, LabelCommon, ParentElement, Render, Styled, Window, h_flex,
+    h_flex, Color, Context, IntoElement, Label, LabelCommon, ParentElement, Render, Styled, Window,
 };
 
 pub(crate) struct FailedState {
@@ -20,7 +20,7 @@ impl Focusable for FailedState {
     }
 }
 impl Render for FailedState {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, _: &mut Context<'_, Self>) -> impl IntoElement {
         h_flex()
             .size_full()
             .items_center()

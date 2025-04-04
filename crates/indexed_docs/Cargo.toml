@@ -31,7 +31,6 @@ paths.workspace = true
 serde.workspace = true
 strum.workspace = true
 util.workspace = true
-workspace-hack.workspace = true
 
 [dev-dependencies]
 indoc.workspace = true

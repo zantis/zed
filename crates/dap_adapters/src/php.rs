@@ -1,18 +1,27 @@
 use adapters::latest_github_release;
-use dap::adapters::TcpArguments;
+use dap::{adapters::TcpArguments, transport::TcpTransport};
 use gpui::AsyncApp;
-use std::path::PathBuf;
-use task::DebugTaskDefinition;
+use std::{net::Ipv4Addr, path::PathBuf};
 
 use crate::*;
 
-#[derive(Default)]
-pub(crate) struct PhpDebugAdapter;
+pub(crate) struct PhpDebugAdapter {
+    port: u16,
+    host: Ipv4Addr,
+    timeout: Option<u64>,
+}
 
 impl PhpDebugAdapter {
-    const ADAPTER_NAME: &'static str = "PHP";
-    const ADAPTER_PACKAGE_NAME: &'static str = "vscode-php-debug";
+    const ADAPTER_NAME: &'static str = "vscode-php-debug";
     const ADAPTER_PATH: &'static str = "extension/out/phpDebug.js";
+
+    pub(crate) async fn new(host: TCPHost) -> Result<Self> {
+        Ok(PhpDebugAdapter {
+            port: TcpTransport::port(&host).await?,
+            host: host.host(),
+            timeout: host.timeout,
+        })
+    }
 }
 
 #[async_trait(?Send)]
@@ -26,7 +35,7 @@ impl DebugAdapter for PhpDebugAdapter {
         delegate: &dyn DapDelegate,
     ) -> Result<AdapterVersion> {
         let release = latest_github_release(
-            &format!("{}/{}", "xdebug", Self::ADAPTER_PACKAGE_NAME),
+            &format!("{}/{}", "xdebug", Self::ADAPTER_NAME),
             true,
             false,
             delegate.http_client(),
@@ -57,7 +66,7 @@ impl DebugAdapter for PhpDebugAdapter {
         let adapter_path = if let Some(user_installed_path) = user_installed_path {
             user_installed_path
         } else {
-            let adapter_path = paths::debug_adapters_dir().join(self.name().as_ref());
+            let adapter_path = paths::debug_adapters_dir().join(self.name());
 
             let file_name_prefix = format!("{}_", self.name());
 
@@ -68,9 +77,6 @@ impl DebugAdapter for PhpDebugAdapter {
             .ok_or_else(|| anyhow!("Couldn't find PHP dap directory"))?
         };
 
-        let tcp_connection = config.tcp_connection.clone().unwrap_or_default();
-        let (host, port, timeout) = crate::configure_tcp_connection(tcp_connection).await?;
-
         Ok(DebugAdapterBinary {
             command: delegate
                 .node_runtime()
@@ -80,14 +86,14 @@ impl DebugAdapter for PhpDebugAdapter {
                 .into_owned(),
             arguments: Some(vec![
                 adapter_path.join(Self::ADAPTER_PATH).into(),
-                format!("--server={}", port).into(),
+                format!("--server={}", self.port).into(),
             ]),
             connection: Some(TcpArguments {
-                port,
-                host,
-                timeout,
+                port: self.port,
+                host: self.host,
+                timeout: self.timeout,
             }),
-            cwd: None,
+            cwd: config.cwd.clone(),
             envs: None,
         })
     }
@@ -108,20 +114,10 @@ impl DebugAdapter for PhpDebugAdapter {
         Ok(())
     }
 
-    fn request_args(&self, config: &DebugTaskDefinition) -> Value {
-        match &config.request {
-            dap::DebugRequestType::Attach(_) => {
-                // php adapter does not support attaching
-                json!({})
-            }
-            dap::DebugRequestType::Launch(launch_config) => {
-                json!({
-                    "program": launch_config.program,
-                    "cwd": launch_config.cwd,
-                    "args": launch_config.args,
-                    "stopOnEntry": config.stop_on_entry,
-                })
-            }
-        }
+    fn request_args(&self, config: &DebugAdapterConfig) -> Value {
+        json!({
+            "program": config.program,
+            "cwd": config.cwd,
+        })
     }
 }

@@ -16,4 +16,3 @@ doctest = false
 [dependencies]
 quote.workspace = true
 syn.workspace = true
-workspace-hack.workspace = true

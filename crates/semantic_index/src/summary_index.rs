@@ -1,12 +1,12 @@
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{anyhow, Context as _, Result};
 use arrayvec::ArrayString;
 use fs::{Fs, MTime};
-use futures::{TryFutureExt, stream::StreamExt};
+use futures::{stream::StreamExt, TryFutureExt};
 use futures_batch::ChunksTimeoutStreamExt;
 use gpui::{App, AppContext as _, Entity, Task};
 use heed::{
-    RoTxn,
     types::{SerdeBincode, Str},
+    RoTxn,
 };
 use language_model::{
     LanguageModelCompletionEvent, LanguageModelId, LanguageModelRegistry, LanguageModelRequest,
@@ -130,7 +130,7 @@ impl SummaryIndex {
         &self,
         is_auto_available: bool,
         cx: &App,
-    ) -> impl Future<Output = Result<()>> + use<> {
+    ) -> impl Future<Output = Result<()>> {
         let start = Instant::now();
         let backlogged;
         let digest;
@@ -193,7 +193,7 @@ impl SummaryIndex {
         updated_entries: UpdatedEntriesSet,
         is_auto_available: bool,
         cx: &App,
-    ) -> impl Future<Output = Result<()>> + use<> {
+    ) -> impl Future<Output = Result<()>> {
         let start = Instant::now();
         let backlogged;
         let digest;
@@ -528,11 +528,7 @@ impl SummaryIndex {
         }
     }
 
-    fn summarize_code(
-        code: &str,
-        path: &Path,
-        cx: &App,
-    ) -> impl Future<Output = Result<String>> + use<> {
+    fn summarize_code(code: &str, path: &Path, cx: &App) -> impl Future<Output = Result<String>> {
         let start = Instant::now();
         let (summary_model_id, use_cache): (LanguageModelId, bool) = (
             "Qwen/Qwen2-7B-Instruct".to_string().into(), // TODO read this from the user's settings.
@@ -643,7 +639,7 @@ impl SummaryIndex {
         &self,
         worktree_abs_path: Arc<Path>,
         cx: &App,
-    ) -> impl Future<Output = Result<()>> + use<> {
+    ) -> impl Future<Output = Result<()>> {
         let start = Instant::now();
         let backlogged = {
             let (tx, rx) = channel::bounded(512);

@@ -1,35 +1,34 @@
 use crate::*;
 use dap::{
-    ErrorResponse, RunInTerminalRequestArguments, SourceBreakpoint, StartDebuggingRequestArguments,
-    StartDebuggingRequestArgumentsRequest,
     client::SessionId,
     requests::{
         Continue, Disconnect, Launch, Next, RunInTerminal, SetBreakpoints, StackTrace,
         StartDebugging, StepBack, StepIn, StepOut, Threads,
     },
+    DebugRequestType, ErrorResponse, RunInTerminalRequestArguments, SourceBreakpoint,
+    StartDebuggingRequestArguments, StartDebuggingRequestArgumentsRequest,
 };
 use editor::{
-    Editor, EditorMode, MultiBuffer,
     actions::{self},
+    Editor, EditorMode, MultiBuffer,
 };
 use gpui::{BackgroundExecutor, TestAppContext, VisualTestContext};
 use project::{
-    FakeFs, Project,
     debugger::session::{ThreadId, ThreadStatus},
+    FakeFs, Project,
 };
 use serde_json::json;
 use std::{
     path::Path,
     sync::{
-        Arc,
         atomic::{AtomicBool, Ordering},
+        Arc,
     },
 };
-use task::LaunchConfig;
-use terminal_view::{TerminalView, terminal_panel::TerminalPanel};
+use terminal_view::{terminal_panel::TerminalPanel, TerminalView};
 use tests::{active_debug_session_panel, init_test, init_test_workspace};
 use util::path;
-use workspace::{Item, dock::Panel};
+use workspace::{dock::Panel, Item};
 
 #[gpui::test]
 async fn test_basic_show_debug_panel(executor: BackgroundExecutor, cx: &mut TestAppContext) {
@@ -50,12 +49,7 @@ async fn test_basic_show_debug_panel(executor: BackgroundExecutor, cx: &mut Test
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.fake_debug_session(
-            dap::DebugRequestType::Launch(LaunchConfig::default()),
-            None,
-            false,
-            cx,
-        )
+        project.start_debug_session(dap::test_config(DebugRequestType::Launch, None, None), cx)
     });
 
     let session = task.await.unwrap();
@@ -207,12 +201,7 @@ async fn test_we_can_only_have_one_panel_per_debug_session(
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.fake_debug_session(
-            dap::DebugRequestType::Launch(LaunchConfig::default()),
-            None,
-            false,
-            cx,
-        )
+        project.start_debug_session(dap::test_config(DebugRequestType::Launch, None, None), cx)
     });
 
     let session = task.await.unwrap();
@@ -396,12 +385,7 @@ async fn test_handle_successful_run_in_terminal_reverse_request(
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.fake_debug_session(
-            dap::DebugRequestType::Launch(LaunchConfig::default()),
-            None,
-            false,
-            cx,
-        )
+        project.start_debug_session(dap::test_config(DebugRequestType::Launch, None, None), cx)
     });
 
     let session = task.await.unwrap();
@@ -444,17 +428,15 @@ async fn test_handle_successful_run_in_terminal_reverse_request(
             let panel = terminal_panel.read(cx).pane().unwrap().read(cx);
 
             assert_eq!(1, panel.items_len());
-            assert!(
-                panel
-                    .active_item()
-                    .unwrap()
-                    .downcast::<TerminalView>()
-                    .unwrap()
-                    .read(cx)
-                    .terminal()
-                    .read(cx)
-                    .debug_terminal()
-            );
+            assert!(panel
+                .active_item()
+                .unwrap()
+                .downcast::<TerminalView>()
+                .unwrap()
+                .read(cx)
+                .terminal()
+                .read(cx)
+                .debug_terminal());
         })
         .unwrap();
 
@@ -493,12 +475,7 @@ async fn test_handle_error_run_in_terminal_reverse_request(
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.fake_debug_session(
-            dap::DebugRequestType::Launch(LaunchConfig::default()),
-            None,
-            false,
-            cx,
-        )
+        project.start_debug_session(dap::test_config(DebugRequestType::Launch, None, None), cx)
     });
 
     let session = task.await.unwrap();
@@ -578,12 +555,7 @@ async fn test_handle_start_debugging_reverse_request(
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.fake_debug_session(
-            dap::DebugRequestType::Launch(LaunchConfig::default()),
-            None,
-            false,
-            cx,
-        )
+        project.start_debug_session(dap::test_config(DebugRequestType::Launch, None, None), cx)
     });
 
     let session = task.await.unwrap();
@@ -696,12 +668,7 @@ async fn test_shutdown_children_when_parent_session_shutdown(
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.fake_debug_session(
-            dap::DebugRequestType::Launch(LaunchConfig::default()),
-            None,
-            false,
-            cx,
-        )
+        project.start_debug_session(dap::test_config(DebugRequestType::Launch, None, None), cx)
     });
 
     let parent_session = task.await.unwrap();
@@ -774,21 +741,15 @@ async fn test_shutdown_children_when_parent_session_shutdown(
 
     // assert parent session and all children sessions are shutdown
     dap_store.update(cx, |dap_store, cx| {
-        assert!(
-            dap_store
-                .session_by_id(parent_session.read(cx).session_id())
-                .is_none()
-        );
-        assert!(
-            dap_store
-                .session_by_id(first_child_session.read(cx).session_id())
-                .is_none()
-        );
-        assert!(
-            dap_store
-                .session_by_id(second_child_session.read(cx).session_id())
-                .is_none()
-        );
+        assert!(dap_store
+            .session_by_id(parent_session.read(cx).session_id())
+            .is_none());
+        assert!(dap_store
+            .session_by_id(first_child_session.read(cx).session_id())
+            .is_none());
+        assert!(dap_store
+            .session_by_id(second_child_session.read(cx).session_id())
+            .is_none());
     });
 }
 
@@ -815,12 +776,7 @@ async fn test_shutdown_parent_session_if_all_children_are_shutdown(
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.fake_debug_session(
-            dap::DebugRequestType::Launch(LaunchConfig::default()),
-            None,
-            false,
-            cx,
-        )
+        project.start_debug_session(dap::test_config(DebugRequestType::Launch, None, None), cx)
     });
 
     let parent_session = task.await.unwrap();
@@ -882,21 +838,15 @@ async fn test_shutdown_parent_session_if_all_children_are_shutdown(
 
     // assert parent session and second child session still exist
     dap_store.update(cx, |dap_store, cx| {
-        assert!(
-            dap_store
-                .session_by_id(parent_session.read(cx).session_id())
-                .is_some()
-        );
-        assert!(
-            dap_store
-                .session_by_id(first_child_session.read(cx).session_id())
-                .is_none()
-        );
-        assert!(
-            dap_store
-                .session_by_id(second_child_session.read(cx).session_id())
-                .is_some()
-        );
+        assert!(dap_store
+            .session_by_id(parent_session.read(cx).session_id())
+            .is_some());
+        assert!(dap_store
+            .session_by_id(first_child_session.read(cx).session_id())
+            .is_none());
+        assert!(dap_store
+            .session_by_id(second_child_session.read(cx).session_id())
+            .is_some());
     });
 
     // shutdown first child session
@@ -910,16 +860,12 @@ async fn test_shutdown_parent_session_if_all_children_are_shutdown(
     // assert parent session got shutdown by second child session
     // because it was the last child
     dap_store.update(cx, |dap_store, cx| {
-        assert!(
-            dap_store
-                .session_by_id(parent_session.read(cx).session_id())
-                .is_none()
-        );
-        assert!(
-            dap_store
-                .session_by_id(second_child_session.read(cx).session_id())
-                .is_none()
-        );
+        assert!(dap_store
+            .session_by_id(parent_session.read(cx).session_id())
+            .is_none());
+        assert!(dap_store
+            .session_by_id(second_child_session.read(cx).session_id())
+            .is_none());
     });
 }
 
@@ -945,13 +891,15 @@ async fn test_debug_panel_item_thread_status_reset_on_failure(
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.fake_debug_session(
-            dap::DebugRequestType::Launch(LaunchConfig::default()),
-            Some(dap::Capabilities {
-                supports_step_back: Some(true),
-                ..Default::default()
-            }),
-            false,
+        project.start_debug_session(
+            dap::test_config(
+                DebugRequestType::Launch,
+                None,
+                Some(dap::Capabilities {
+                    supports_step_back: Some(true),
+                    ..Default::default()
+                }),
+            ),
             cx,
         )
     });
@@ -1174,12 +1122,7 @@ async fn test_send_breakpoints_when_editor_has_been_saved(
         .unwrap();
 
     let task = project.update(cx, |project, cx| {
-        project.fake_debug_session(
-            dap::DebugRequestType::Launch(LaunchConfig::default()),
-            None,
-            false,
-            cx,
-        )
+        project.start_debug_session(dap::test_config(DebugRequestType::Launch, None, None), cx)
     });
 
     let session = task.await.unwrap();
@@ -1404,12 +1347,7 @@ async fn test_unsetting_breakpoints_on_clear_breakpoint_action(
     });
 
     let task = project.update(cx, |project, cx| {
-        project.fake_debug_session(
-            dap::DebugRequestType::Launch(LaunchConfig::default()),
-            None,
-            false,
-            cx,
-        )
+        project.start_debug_session(dap::test_config(DebugRequestType::Launch, None, None), cx)
     });
 
     let session = task.await.unwrap();
@@ -1481,10 +1419,8 @@ async fn test_debug_session_is_shutdown_when_attach_and_launch_request_fails(
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.fake_debug_session(
-            dap::DebugRequestType::Launch(LaunchConfig::default()),
-            None,
-            true,
+        project.start_debug_session(
+            dap::test_config(DebugRequestType::Launch, Some(true), None),
             cx,
         )
     });

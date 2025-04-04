@@ -14,4 +14,4 @@ doctest = false
 
 [dependencies]
 gpui.workspace = true
-workspace-hack.workspace = true
+serde = { workspace = true }

@@ -1,8 +1,8 @@
 use collections::HashMap;
 use schemars::{
-    JsonSchema,
-    r#gen::SchemaSettings,
+    gen::SchemaSettings,
     schema::{ObjectValidation, Schema, SchemaObject},
+    JsonSchema,
 };
 use serde::Deserialize;
 use serde_json_lenient::Value;
@@ -29,10 +29,10 @@ impl JsonSchema for VSSnippetsFile {
         "VSSnippetsFile".into()
     }
 
-    fn json_schema(r#gen: &mut schemars::r#gen::SchemaGenerator) -> Schema {
+    fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> Schema {
         SchemaObject {
             object: Some(Box::new(ObjectValidation {
-                additional_properties: Some(Box::new(r#gen.subschema_for::<VSCodeSnippet>())),
+                additional_properties: Some(Box::new(gen.subschema_for::<VSCodeSnippet>())),
                 ..Default::default()
             })),
             ..Default::default()

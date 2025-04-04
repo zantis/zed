@@ -1,41 +1,39 @@
 use crate::{
-    Assistant, AssistantPanel, AssistantPanelEvent, CycleNextInlineAssist,
-    CyclePreviousInlineAssist,
+    AssistantPanel, AssistantPanelEvent, CycleNextInlineAssist, CyclePreviousInlineAssist,
 };
-use anyhow::{Context as _, Result, anyhow};
-use assistant_context_editor::{RequestType, humanize_token_count};
+use anyhow::{anyhow, Context as _, Result};
+use assistant_context_editor::{humanize_token_count, RequestType};
 use assistant_settings::AssistantSettings;
-use client::{ErrorExt, telemetry::Telemetry};
-use collections::{HashMap, HashSet, VecDeque, hash_map};
+use client::{telemetry::Telemetry, ErrorExt};
+use collections::{hash_map, HashMap, HashSet, VecDeque};
 use editor::{
-    Anchor, AnchorRangeExt, CodeActionProvider, Editor, EditorElement, EditorEvent, EditorMode,
-    EditorStyle, ExcerptId, ExcerptRange, GutterDimensions, MultiBuffer, MultiBufferSnapshot,
-    ToOffset as _, ToPoint,
     actions::{MoveDown, MoveUp, SelectAll},
     display_map::{
         BlockContext, BlockPlacement, BlockProperties, BlockStyle, CustomBlockId, RenderBlock,
         ToDisplayPoint,
     },
+    Anchor, AnchorRangeExt, CodeActionProvider, Editor, EditorElement, EditorEvent, EditorMode,
+    EditorStyle, ExcerptId, ExcerptRange, GutterDimensions, MultiBuffer, MultiBufferSnapshot,
+    ToOffset as _, ToPoint,
 };
 use feature_flags::{
     Assistant2FeatureFlag, FeatureFlagAppExt as _, FeatureFlagViewExt as _, ZedPro,
 };
 use fs::Fs;
 use futures::{
-    SinkExt, Stream, StreamExt,
     channel::mpsc,
     future::{BoxFuture, LocalBoxFuture},
-    join,
+    join, SinkExt, Stream, StreamExt,
 };
 use gpui::{
-    AnyElement, App, ClickEvent, Context, CursorStyle, Entity, EventEmitter, FocusHandle,
-    Focusable, FontWeight, Global, HighlightStyle, Subscription, Task, TextStyle, UpdateGlobal,
-    WeakEntity, Window, anchored, deferred, point,
+    anchored, deferred, point, AnyElement, App, ClickEvent, Context, CursorStyle, Entity,
+    EventEmitter, FocusHandle, Focusable, FontWeight, Global, HighlightStyle, Subscription, Task,
+    TextStyle, UpdateGlobal, WeakEntity, Window,
 };
-use language::{Buffer, IndentKind, Point, Selection, TransactionId, line_diff};
+use language::{line_diff, Buffer, IndentKind, Point, Selection, TransactionId};
 use language_model::{
-    LanguageModel, LanguageModelRegistry, LanguageModelRequest, LanguageModelRequestMessage,
-    LanguageModelTextStream, Role, report_assistant_event,
+    report_assistant_event, LanguageModel, LanguageModelRegistry, LanguageModelRequest,
+    LanguageModelRequestMessage, LanguageModelTextStream, Role,
 };
 use language_model_selector::{LanguageModelSelector, LanguageModelSelectorPopoverMenu};
 use multi_buffer::MultiBufferRow;
@@ -43,7 +41,7 @@ use parking_lot::Mutex;
 use project::{CodeAction, LspAction, ProjectTransaction};
 use prompt_store::PromptBuilder;
 use rope::Rope;
-use settings::{Settings, SettingsStore, update_settings_file};
+use settings::{update_settings_file, Settings, SettingsStore};
 use smol::future::FutureExt;
 use std::{
     cmp,
@@ -62,10 +60,10 @@ use terminal_view::terminal_panel::TerminalPanel;
 use text::{OffsetRangeExt, ToPoint as _};
 use theme::ThemeSettings;
 use ui::{
-    CheckboxWithLabel, IconButtonShape, KeyBinding, Popover, Tooltip, prelude::*, text_for_action,
+    prelude::*, text_for_action, CheckboxWithLabel, IconButtonShape, KeyBinding, Popover, Tooltip,
 };
 use util::{RangeExt, ResultExt};
-use workspace::{ItemHandle, Toast, Workspace, notifications::NotificationId};
+use workspace::{notifications::NotificationId, ItemHandle, Toast, Workspace};
 
 pub fn init(
     fs: Arc<dyn Fs>,
@@ -1270,7 +1268,10 @@ impl InlineAssistant {
                     multi_buffer.update(cx, |multi_buffer, cx| {
                         multi_buffer.push_excerpts(
                             old_buffer.clone(),
-                            Some(ExcerptRange::new(buffer_start..buffer_end)),
+                            Some(ExcerptRange {
+                                context: buffer_start..buffer_end,
+                                primary: None,
+                            }),
                             cx,
                         );
                     });
@@ -3554,7 +3555,7 @@ impl CodeActionProvider for AssistantCodeActionProvider {
         _: &mut Window,
         cx: &mut App,
     ) -> Task<Result<Vec<CodeAction>>> {
-        if !Assistant::enabled(cx) {
+        if !AssistantSettings::get_global(cx).enabled {
             return Task::ready(Ok(Vec::new()));
         }
 
@@ -3708,10 +3709,10 @@ mod tests {
     use gpui::TestAppContext;
     use indoc::indoc;
     use language::{
-        Buffer, Language, LanguageConfig, LanguageMatcher, Point, language_settings,
-        tree_sitter_rust,
+        language_settings, tree_sitter_rust, Buffer, Language, LanguageConfig, LanguageMatcher,
+        Point,
     };
-    use language_model::{LanguageModelRegistry, TokenUsage};
+    use language_model::LanguageModelRegistry;
     use rand::prelude::*;
     use serde::Serialize;
     use settings::SettingsStore;
@@ -4090,7 +4091,6 @@ mod tests {
                 future::ready(Ok(LanguageModelTextStream {
                     message_id: None,
                     stream: chunks_rx.map(Ok).boxed(),
-                    last_token_usage: Arc::new(Mutex::new(TokenUsage::default())),
                 })),
                 cx,
             );

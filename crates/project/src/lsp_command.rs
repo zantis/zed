@@ -1,13 +1,13 @@
 mod signature_help;
 
 use crate::{
+    lsp_store::{LocalLspStore, LspStore},
     CodeAction, CompletionSource, CoreCompletion, DocumentHighlight, DocumentSymbol, Hover,
     HoverBlock, HoverBlockKind, InlayHint, InlayHintLabel, InlayHintLabelPart,
     InlayHintLabelPartTooltip, InlayHintTooltip, Location, LocationLink, LspAction, MarkupContent,
     PrepareRenameResponse, ProjectTransaction, ResolveState,
-    lsp_store::{LocalLspStore, LspStore},
 };
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{anyhow, Context as _, Result};
 use async_trait::async_trait;
 use client::proto::{self, PeerId};
 use clock::Global;
@@ -15,14 +15,11 @@ use collections::HashSet;
 use futures::future;
 use gpui::{App, AsyncApp, Entity};
 use language::{
-    Anchor, Bias, Buffer, BufferSnapshot, CachedLspAdapter, CharKind, OffsetRangeExt, PointUtf16,
-    ToOffset, ToPointUtf16, Transaction, Unclipped,
-    language_settings::{
-        AllLanguageSettings, InlayHintKind, LanguageSettings, LspInsertMode, language_settings,
-    },
+    language_settings::{language_settings, InlayHintKind, LanguageSettings},
     point_from_lsp, point_to_lsp,
     proto::{deserialize_anchor, deserialize_version, serialize_anchor, serialize_version},
-    range_from_lsp, range_to_lsp,
+    range_from_lsp, range_to_lsp, Anchor, Bias, Buffer, BufferSnapshot, CachedLspAdapter, CharKind,
+    OffsetRangeExt, PointUtf16, ToOffset, ToPointUtf16, Transaction, Unclipped,
 };
 use lsp::{
     AdapterServerCapabilities, CodeActionKind, CodeActionOptions, CompletionContext,
@@ -30,7 +27,6 @@ use lsp::{
     LanguageServer, LanguageServerId, LinkedEditingRangeServerCapabilities, OneOf, RenameOptions,
     ServerCapabilities,
 };
-use settings::Settings as _;
 use signature_help::{lsp_to_proto_signature, proto_to_lsp_signature};
 use std::{cmp::Reverse, mem, ops::Range, path::Path, sync::Arc};
 use text::{BufferId, LineEnding};
@@ -2088,7 +2084,7 @@ impl LspCommand for GetCompletions {
             .map(Arc::new);
 
         let mut completion_edits = Vec::new();
-        buffer.update(&mut cx, |buffer, cx| {
+        buffer.update(&mut cx, |buffer, _cx| {
             let snapshot = buffer.snapshot();
             let clipped_position = buffer.clip_point_utf16(Unclipped(self.position), Bias::Left);
 
@@ -2096,16 +2092,11 @@ impl LspCommand for GetCompletions {
             completions.retain(|lsp_completion| {
                 let lsp_edit = lsp_completion.text_edit.clone().or_else(|| {
                     let default_text_edit = lsp_defaults.as_deref()?.edit_range.as_ref()?;
-                    let new_text = lsp_completion
-                        .insert_text
-                        .as_ref()
-                        .unwrap_or(&lsp_completion.label)
-                        .clone();
                     match default_text_edit {
                         CompletionListItemDefaultsEditRange::Range(range) => {
                             Some(lsp::CompletionTextEdit::Edit(lsp::TextEdit {
                                 range: *range,
-                                new_text,
+                                new_text: lsp_completion.label.clone(),
                             }))
                         }
                         CompletionListItemDefaultsEditRange::InsertAndReplace {
@@ -2113,7 +2104,7 @@ impl LspCommand for GetCompletions {
                             replace,
                         } => Some(lsp::CompletionTextEdit::InsertAndReplace(
                             lsp::InsertReplaceEdit {
-                                new_text,
+                                new_text: lsp_completion.label.clone(),
                                 insert: *insert,
                                 replace: *replace,
                             },
@@ -2125,16 +2116,7 @@ impl LspCommand for GetCompletions {
                     // If the language server provides a range to overwrite, then
                     // check that the range is valid.
                     Some(completion_text_edit) => {
-                        let completion_mode = AllLanguageSettings::get_global(cx)
-                            .defaults
-                            .completions
-                            .lsp_insert_mode;
-
-                        match parse_completion_text_edit(
-                            &completion_text_edit,
-                            &snapshot,
-                            completion_mode,
-                        ) {
+                        match parse_completion_text_edit(&completion_text_edit, &snapshot) {
                             Some(edit) => edit,
                             None => return false,
                         }
@@ -2185,7 +2167,6 @@ impl LspCommand for GetCompletions {
                                 .clone()
                         };
 
-                        // We already know text_edit is None here
                         let text = lsp_completion
                             .insert_text
                             .as_ref()
@@ -2315,7 +2296,6 @@ impl LspCommand for GetCompletions {
 pub(crate) fn parse_completion_text_edit(
     edit: &lsp::CompletionTextEdit,
     snapshot: &BufferSnapshot,
-    completion_mode: LspInsertMode,
 ) -> Option<(Range<Anchor>, String)> {
     match edit {
         lsp::CompletionTextEdit::Edit(edit) => {
@@ -2334,55 +2314,7 @@ pub(crate) fn parse_completion_text_edit(
         }
 
         lsp::CompletionTextEdit::InsertAndReplace(edit) => {
-            let replace = match completion_mode {
-                LspInsertMode::Insert => false,
-                LspInsertMode::Replace => true,
-                LspInsertMode::ReplaceSubsequence => {
-                    let range_to_replace = range_from_lsp(edit.replace);
-
-                    let start = snapshot.clip_point_utf16(range_to_replace.start, Bias::Left);
-                    let end = snapshot.clip_point_utf16(range_to_replace.end, Bias::Left);
-                    if start != range_to_replace.start.0 || end != range_to_replace.end.0 {
-                        false
-                    } else {
-                        let mut completion_text = edit.new_text.chars();
-
-                        let mut text_to_replace = snapshot.chars_for_range(
-                            snapshot.anchor_before(start)..snapshot.anchor_after(end),
-                        );
-
-                        // is `text_to_replace` a subsequence of `completion_text`
-                        text_to_replace.all(|needle_ch| {
-                            completion_text.any(|haystack_ch| haystack_ch == needle_ch)
-                        })
-                    }
-                }
-                LspInsertMode::ReplaceSuffix => {
-                    let range_after_cursor = lsp::Range {
-                        start: edit.insert.end,
-                        end: edit.replace.end,
-                    };
-                    let range_after_cursor = range_from_lsp(range_after_cursor);
-
-                    let start = snapshot.clip_point_utf16(range_after_cursor.start, Bias::Left);
-                    let end = snapshot.clip_point_utf16(range_after_cursor.end, Bias::Left);
-                    if start != range_after_cursor.start.0 || end != range_after_cursor.end.0 {
-                        false
-                    } else {
-                        let text_after_cursor = snapshot
-                            .text_for_range(
-                                snapshot.anchor_before(start)..snapshot.anchor_after(end),
-                            )
-                            .collect::<String>();
-                        edit.new_text.ends_with(&text_after_cursor)
-                    }
-                }
-            };
-
-            let range = range_from_lsp(match replace {
-                true => edit.replace,
-                false => edit.insert,
-            });
+            let range = range_from_lsp(edit.replace);
 
             let start = snapshot.clip_point_utf16(range.start, Bias::Left);
             let end = snapshot.clip_point_utf16(range.end, Bias::Left);

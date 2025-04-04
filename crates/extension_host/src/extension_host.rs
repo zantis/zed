@@ -5,14 +5,14 @@ pub mod wasm_host;
 #[cfg(test)]
 mod extension_store_test;
 
-use anyhow::{Context as _, Result, anyhow, bail};
+use anyhow::{anyhow, bail, Context as _, Result};
 use async_compression::futures::bufread::GzipDecoder;
 use async_tar::Archive;
 use client::ExtensionProvides;
-use client::{Client, ExtensionMetadata, GetExtensionsResponse, proto, telemetry::Telemetry};
-use collections::{BTreeMap, BTreeSet, HashMap, HashSet, btree_map};
-pub use extension::ExtensionManifest;
+use client::{proto, telemetry::Telemetry, Client, ExtensionMetadata, GetExtensionsResponse};
+use collections::{btree_map, BTreeMap, BTreeSet, HashMap, HashSet};
 use extension::extension_builder::{CompileExtensionOptions, ExtensionBuilder};
+pub use extension::ExtensionManifest;
 use extension::{
     ExtensionContextServerProxy, ExtensionEvents, ExtensionGrammarProxy, ExtensionHostProxy,
     ExtensionIndexedDocsProviderProxy, ExtensionLanguageProxy, ExtensionLanguageServerProxy,
@@ -20,22 +20,21 @@ use extension::{
 };
 use fs::{Fs, RemoveOptions};
 use futures::{
-    AsyncReadExt as _, Future, FutureExt as _, StreamExt as _,
     channel::{
-        mpsc::{UnboundedSender, unbounded},
+        mpsc::{unbounded, UnboundedSender},
         oneshot,
     },
     io::BufReader,
-    select_biased,
+    select_biased, AsyncReadExt as _, Future, FutureExt as _, StreamExt as _,
 };
 use gpui::{
-    App, AppContext as _, AsyncApp, Context, Entity, EventEmitter, Global, Task, WeakEntity,
-    actions,
+    actions, App, AppContext as _, AsyncApp, Context, Entity, EventEmitter, Global, Task,
+    WeakEntity,
 };
 use http_client::{AsyncBody, HttpClient, HttpClientWithUrl};
 use language::{
-    LanguageConfig, LanguageMatcher, LanguageName, LanguageQueries, LoadedLanguage,
-    QUERY_FILENAME_PREFIXES, Rope,
+    LanguageConfig, LanguageMatcher, LanguageName, LanguageQueries, LoadedLanguage, Rope,
+    QUERY_FILENAME_PREFIXES,
 };
 use node_runtime::NodeRuntime;
 use project::ContextProviderWithTasks;
@@ -55,8 +54,8 @@ use std::{
 use url::Url;
 use util::ResultExt;
 use wasm_host::{
-    WasmExtension, WasmHost,
     wit::{is_supported_wasm_api_version, wasm_api_version_range},
+    WasmExtension, WasmHost,
 };
 
 pub use extension::{
@@ -399,7 +398,7 @@ impl ExtensionStore {
         &mut self,
         modified_extension: Option<Arc<str>>,
         cx: &mut Context<Self>,
-    ) -> impl Future<Output = ()> + use<> {
+    ) -> impl Future<Output = ()> {
         let (tx, rx) = oneshot::channel();
         self.reload_complete_senders.push(tx);
         self.reload_tx
@@ -641,7 +640,7 @@ impl ExtensionStore {
         &self,
         path: &str,
         query: &[(&str, &str)],
-        cx: &mut Context<ExtensionStore>,
+        cx: &mut Context<'_, ExtensionStore>,
     ) -> Task<Result<Vec<ExtensionMetadata>>> {
         let url = self.http_client.build_zed_api_url(path, query);
         let http_client = self.http_client.clone();
@@ -839,19 +838,6 @@ impl ExtensionStore {
             });
 
             fs.remove_dir(
-                &extension_dir,
-                RemoveOptions {
-                    recursive: true,
-                    ignore_if_not_exists: true,
-                },
-            )
-            .await?;
-
-            // todo(windows)
-            // Stop the server here.
-            this.update(cx, |this, cx| this.reload(None, cx))?.await;
-
-            fs.remove_dir(
                 &work_dir,
                 RemoveOptions {
                     recursive: true,
@@ -860,6 +846,16 @@ impl ExtensionStore {
             )
             .await?;
 
+            fs.remove_dir(
+                &extension_dir,
+                RemoveOptions {
+                    recursive: true,
+                    ignore_if_not_exists: true,
+                },
+            )
+            .await?;
+
+            this.update(cx, |this, cx| this.reload(None, cx))?.await;
             anyhow::Ok(())
         })
         .detach_and_log_err(cx)

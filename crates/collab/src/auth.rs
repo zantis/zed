@@ -1,20 +1,20 @@
 use crate::{
-    AppState, Error, Result,
     db::{self, AccessTokenId, Database, UserId},
     rpc::Principal,
+    AppState, Error, Result,
 };
-use anyhow::{Context as _, anyhow};
+use anyhow::{anyhow, Context as _};
 use axum::{
     http::{self, Request, StatusCode},
     middleware::Next,
     response::IntoResponse,
 };
 use base64::prelude::*;
-use prometheus::{Histogram, exponential_buckets, register_histogram};
+use prometheus::{exponential_buckets, register_histogram, Histogram};
 pub use rpc::auth::random_token;
 use scrypt::{
-    Scrypt,
     password_hash::{PasswordHash, PasswordVerifier},
+    Scrypt,
 };
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
@@ -156,7 +156,13 @@ pub fn encrypt_access_token(access_token: &str, public_key: String) -> Result<St
     use rpc::auth::EncryptionFormat;
 
     /// The encryption format to use for the access token.
-    const ENCRYPTION_FORMAT: EncryptionFormat = EncryptionFormat::V1;
+    ///
+    /// Currently we're using the original encryption format to avoid
+    /// breaking compatibility with older clients.
+    ///
+    /// Once enough clients are capable of decrypting the newer encryption
+    /// format we can start encrypting with `EncryptionFormat::V1`.
+    const ENCRYPTION_FORMAT: EncryptionFormat = EncryptionFormat::V0;
 
     let native_app_public_key =
         rpc::auth::PublicKey::try_from(public_key).context("failed to parse app public key")?;
@@ -232,7 +238,7 @@ mod test {
     use sea_orm::EntityTrait;
 
     use super::*;
-    use crate::db::{NewUserParams, access_token};
+    use crate::db::{access_token, NewUserParams};
 
     #[gpui::test]
     async fn test_verify_access_token(cx: &mut gpui::TestAppContext) {

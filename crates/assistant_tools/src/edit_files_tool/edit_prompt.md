@@ -30,17 +30,17 @@ Here are the *SEARCH/REPLACE* blocks:
 
 mathweb/flask/app.py
 ```python
-{{SEARCH_MARKER}}
+<<<<<<< SEARCH
 from flask import Flask
-{{DIVIDER}}
+=======
 import math
 from flask import Flask
-{{REPLACE_MARKER}}
+>>>>>>> REPLACE
 ```
 
 mathweb/flask/app.py
 ```python
-{{SEARCH_MARKER}}
+<<<<<<< SEARCH
 def factorial(n):
     "compute factorial"
 
@@ -49,17 +49,17 @@ def factorial(n):
     else:
         return n * factorial(n-1)
 
-{{DIVIDER}}
-{{REPLACE_MARKER}}
+=======
+>>>>>>> REPLACE
 ```
 
 mathweb/flask/app.py
 ```python
-{{SEARCH_MARKER}}
+<<<<<<< SEARCH
     return str(factorial(n))
-{{DIVIDER}}
+=======
     return str(math.factorial(n))
-{{REPLACE_MARKER}}
+>>>>>>> REPLACE
 ```
 
 
@@ -74,36 +74,36 @@ Here are the *SEARCH/REPLACE* blocks:
 
 hello.py
 ```python
-{{SEARCH_MARKER}}
-{{DIVIDER}}
+<<<<<<< SEARCH
+=======
 def hello():
     "print a greeting"
 
     print("hello")
-{{REPLACE_MARKER}}
+>>>>>>> REPLACE
 ```
 
 main.py
 ```python
-{{SEARCH_MARKER}}
+<<<<<<< SEARCH
 def hello():
     "print a greeting"
 
     print("hello")
-{{DIVIDER}}
+=======
 from hello import hello
-{{REPLACE_MARKER}}
+>>>>>>> REPLACE
 ```
 # *SEARCH/REPLACE block* Rules:
 
 Every *SEARCH/REPLACE block* must use this format:
 1. The *FULL* file path alone on a line, verbatim. No bold asterisks, no quotes around it, no escaping of characters, etc.
 2. The opening fence and code language, eg: ```python
-3. The start of search block: {{SEARCH_MARKER}}
+3. The start of search block: <<<<<<< SEARCH
 4. A contiguous chunk of lines to search for in the existing source code
-5. The dividing line: {{DIVIDER}}
+5. The dividing line: =======
 6. The lines to replace into the source code
-7. The end of the replace block: {{REPLACE_MARKER}}
+7. The end of the replace block: >>>>>>> REPLACE
 8. The closing fence: ```
 
 Use the *FULL* file path, as shown to you by the user. Make sure to include the project's root directory name at the start of the path. *NEVER* specify the absolute path of the file!

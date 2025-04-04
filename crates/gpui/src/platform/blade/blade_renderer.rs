@@ -398,12 +398,8 @@ impl BladeRenderer {
                 log::error!("GPU hung");
                 #[cfg(target_os = "linux")]
                 if self.gpu.device_information().driver_name == "radv" {
-                    log::error!(
-                        "there's a known bug with amdgpu/radv, try setting ZED_PATH_SAMPLE_COUNT=0 as a workaround"
-                    );
-                    log::error!(
-                        "if that helps you're running into https://github.com/zed-industries/zed/issues/26143"
-                    );
+                    log::error!("there's a known bug with amdgpu/radv, try setting ZED_PATH_SAMPLE_COUNT=0 as a workaround");
+                    log::error!("if that helps you're running into https://github.com/zed-industries/zed/issues/26143");
                 }
                 log::error!(
                     "your device information is: {:?}",
@@ -729,8 +725,8 @@ impl BladeRenderer {
                                     use std::ptr;
 
                                     assert_eq!(
-                                        surface.image_buffer.get_pixel_format(),
-                                        core_video::pixel_buffer::kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+                                        surface.image_buffer.pixel_format_type(),
+                                        media::core_video::kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
                                     );
 
                                     let y_texture = self
@@ -739,8 +735,8 @@ impl BladeRenderer {
                                             surface.image_buffer.as_concrete_TypeRef(),
                                             ptr::null(),
                                             metal::MTLPixelFormat::R8Unorm,
-                                            surface.image_buffer.get_width_of_plane(0),
-                                            surface.image_buffer.get_height_of_plane(0),
+                                            surface.image_buffer.plane_width(0),
+                                            surface.image_buffer.plane_height(0),
                                             0,
                                         )
                                         .unwrap();
@@ -750,8 +746,8 @@ impl BladeRenderer {
                                             surface.image_buffer.as_concrete_TypeRef(),
                                             ptr::null(),
                                             metal::MTLPixelFormat::RG8Unorm,
-                                            surface.image_buffer.get_width_of_plane(1),
-                                            surface.image_buffer.get_height_of_plane(1),
+                                            surface.image_buffer.plane_width(1),
+                                            surface.image_buffer.plane_height(1),
                                             1,
                                         )
                                         .unwrap();

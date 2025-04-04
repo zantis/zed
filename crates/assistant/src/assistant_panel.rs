@@ -1,44 +1,42 @@
-use crate::Assistant;
 use crate::assistant_configuration::{ConfigurationView, ConfigurationViewEvent};
 use crate::{
-    DeployHistory, InlineAssistant, NewChat, terminal_inline_assistant::TerminalInlineAssistant,
+    terminal_inline_assistant::TerminalInlineAssistant, DeployHistory, InlineAssistant, NewChat,
 };
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use assistant_context_editor::{
-    AssistantContext, AssistantPanelDelegate, ContextEditor, ContextEditorToolbarItem,
-    ContextEditorToolbarItemEvent, ContextHistory, ContextId, ContextStore, ContextStoreEvent,
-    DEFAULT_TAB_TITLE, InsertDraggedFiles, SlashCommandCompletionProvider,
-    make_lsp_adapter_delegate,
+    make_lsp_adapter_delegate, AssistantContext, AssistantPanelDelegate, ContextEditor,
+    ContextEditorToolbarItem, ContextEditorToolbarItemEvent, ContextHistory, ContextId,
+    ContextStore, ContextStoreEvent, InsertDraggedFiles, SlashCommandCompletionProvider,
+    DEFAULT_TAB_TITLE,
 };
 use assistant_settings::{AssistantDockPosition, AssistantSettings};
 use assistant_slash_command::SlashCommandWorkingSet;
-use client::{Client, Status, proto};
+use client::{proto, Client, Status};
 use editor::{Editor, EditorEvent};
 use fs::Fs;
 use gpui::{
-    Action, App, AsyncWindowContext, Entity, EventEmitter, ExternalPaths, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, ParentElement, Pixels, Render, Styled, Subscription, Task,
-    UpdateGlobal, WeakEntity, prelude::*,
+    prelude::*, Action, App, AsyncWindowContext, Entity, EventEmitter, ExternalPaths, FocusHandle,
+    Focusable, InteractiveElement, IntoElement, ParentElement, Pixels, Render, Styled,
+    Subscription, Task, UpdateGlobal, WeakEntity,
 };
 use language::LanguageRegistry;
 use language_model::{
     AuthenticateError, LanguageModelProviderId, LanguageModelRegistry, ZED_CLOUD_PROVIDER_ID,
 };
 use project::Project;
-use prompt_library::{PromptLibrary, open_prompt_library};
+use prompt_library::{open_prompt_library, PromptLibrary};
 use prompt_store::PromptBuilder;
-use search::{BufferSearchBar, buffer_search::DivRegistrar};
-use settings::{Settings, update_settings_file};
+use search::{buffer_search::DivRegistrar, BufferSearchBar};
+use settings::{update_settings_file, Settings};
 use smol::stream::StreamExt;
 use std::{ops::ControlFlow, path::PathBuf, sync::Arc};
-use terminal_view::{TerminalView, terminal_panel::TerminalPanel};
-use ui::{ContextMenu, PopoverMenu, Tooltip, prelude::*};
-use util::{ResultExt, maybe};
+use terminal_view::{terminal_panel::TerminalPanel, TerminalView};
+use ui::{prelude::*, ContextMenu, PopoverMenu, Tooltip};
+use util::{maybe, ResultExt};
 use workspace::DraggedTab;
 use workspace::{
-    DraggedSelection, Pane, ShowConfiguration, ToggleZoom, Workspace,
     dock::{DockPosition, Panel, PanelEvent},
-    pane,
+    pane, DraggedSelection, Pane, ShowConfiguration, ToggleZoom, Workspace,
 };
 use zed_actions::assistant::{InlineAssist, OpenPromptLibrary, ToggleFocus};
 
@@ -60,7 +58,8 @@ pub fn init(cx: &mut App) {
 
     cx.observe_new(
         |terminal_panel: &mut TerminalPanel, _, cx: &mut Context<TerminalPanel>| {
-            terminal_panel.set_assistant_enabled(Assistant::enabled(cx), cx);
+            let settings = AssistantSettings::get_global(cx);
+            terminal_panel.set_assistant_enabled(settings.enabled, cx);
         },
     )
     .detach();
@@ -343,12 +342,12 @@ impl AssistantPanel {
         window: &mut Window,
         cx: &mut Context<Workspace>,
     ) {
-        if workspace
-            .panel::<Self>(cx)
-            .is_some_and(|panel| panel.read(cx).enabled(cx))
-        {
-            workspace.toggle_panel_focus::<Self>(window, cx);
+        let settings = AssistantSettings::get_global(cx);
+        if !settings.enabled {
+            return;
         }
+
+        workspace.toggle_panel_focus::<Self>(window, cx);
     }
 
     fn watch_client_status(
@@ -596,10 +595,12 @@ impl AssistantPanel {
         window: &mut Window,
         cx: &mut Context<Workspace>,
     ) {
-        let Some(assistant_panel) = workspace
-            .panel::<AssistantPanel>(cx)
-            .filter(|panel| panel.read(cx).enabled(cx))
-        else {
+        let settings = AssistantSettings::get_global(cx);
+        if !settings.enabled {
+            return;
+        }
+
+        let Some(assistant_panel) = workspace.panel::<AssistantPanel>(cx) else {
             return;
         };
 
@@ -1297,8 +1298,12 @@ impl Panel for AssistantPanel {
     }
 
     fn icon(&self, _: &Window, cx: &App) -> Option<IconName> {
-        (self.enabled(cx) && AssistantSettings::get_global(cx).button)
-            .then_some(IconName::ZedAssistant)
+        let settings = AssistantSettings::get_global(cx);
+        if !settings.enabled || !settings.button {
+            return None;
+        }
+
+        Some(IconName::ZedAssistant)
     }
 
     fn icon_tooltip(&self, _: &Window, _: &App) -> Option<&'static str> {
@@ -1311,10 +1316,6 @@ impl Panel for AssistantPanel {
 
     fn activation_priority(&self) -> u32 {
         4
-    }
-
-    fn enabled(&self, cx: &App) -> bool {
-        Assistant::enabled(cx)
     }
 }
 

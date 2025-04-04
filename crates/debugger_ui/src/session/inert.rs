@@ -1,16 +1,16 @@
 use std::path::PathBuf;
 
-use dap::DebugRequestType;
+use dap::{DebugAdapterConfig, DebugAdapterKind, DebugRequestType};
 use editor::{Editor, EditorElement, EditorStyle};
 use gpui::{App, AppContext, Entity, EventEmitter, FocusHandle, Focusable, TextStyle, WeakEntity};
 use settings::Settings as _;
-use task::{DebugTaskDefinition, LaunchConfig, TCPHost};
+use task::TCPHost;
 use theme::ThemeSettings;
 use ui::{
-    ActiveTheme as _, ButtonCommon, ButtonLike, Clickable, Context, ContextMenu, Disableable,
-    DropdownMenu, FluentBuilder, Icon, IconName, IconSize, InteractiveElement, IntoElement, Label,
-    LabelCommon, LabelSize, ParentElement, PopoverMenu, PopoverMenuHandle, Render, SharedString,
-    SplitButton, Styled, Window, div, h_flex, relative, v_flex,
+    div, h_flex, relative, v_flex, ActiveTheme as _, ButtonCommon, ButtonLike, Clickable, Context,
+    ContextMenu, Disableable, DropdownMenu, FluentBuilder, Icon, IconName, IconSize,
+    InteractiveElement, IntoElement, Label, LabelCommon, LabelSize, ParentElement, PopoverMenu,
+    PopoverMenuHandle, Render, SharedString, SplitButton, Styled, Window,
 };
 use workspace::Workspace;
 
@@ -35,7 +35,7 @@ impl SpawnMode {
 impl From<DebugRequestType> for SpawnMode {
     fn from(request: DebugRequestType) -> Self {
         match request {
-            DebugRequestType::Launch(_) => SpawnMode::Launch,
+            DebugRequestType::Launch => SpawnMode::Launch,
             DebugRequestType::Attach(_) => SpawnMode::Attach,
         }
     }
@@ -55,13 +55,18 @@ impl InertState {
     pub(super) fn new(
         workspace: WeakEntity<Workspace>,
         default_cwd: &str,
-        debug_config: Option<DebugTaskDefinition>,
+        debug_config: Option<DebugAdapterConfig>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let selected_debugger = debug_config
-            .as_ref()
-            .map(|config| SharedString::from(config.adapter.clone()));
+        let selected_debugger = debug_config.as_ref().and_then(|config| match config.kind {
+            DebugAdapterKind::Lldb => Some("LLDB".into()),
+            DebugAdapterKind::Go(_) => Some("Delve".into()),
+            DebugAdapterKind::Php(_) => Some("PHP".into()),
+            DebugAdapterKind::Javascript(_) => Some("JavaScript".into()),
+            DebugAdapterKind::Python(_) => Some("Debugpy".into()),
+            _ => None,
+        });
 
         let spawn_mode = debug_config
             .as_ref()
@@ -70,10 +75,7 @@ impl InertState {
 
         let program = debug_config
             .as_ref()
-            .and_then(|config| match &config.request {
-                DebugRequestType::Attach(_) => None,
-                DebugRequestType::Launch(launch_config) => Some(launch_config.program.clone()),
-            });
+            .and_then(|config| config.program.to_owned());
 
         let program_editor = cx.new(|cx| {
             let mut editor = Editor::single_line(window, cx);
@@ -86,10 +88,7 @@ impl InertState {
         });
 
         let cwd = debug_config
-            .and_then(|config| match &config.request {
-                DebugRequestType::Attach(_) => None,
-                DebugRequestType::Launch(launch_config) => launch_config.cwd.clone(),
-            })
+            .and_then(|config| config.cwd.map(|cwd| cwd.to_owned()))
             .unwrap_or_else(|| PathBuf::from(default_cwd));
 
         let cwd_editor = cx.new(|cx| {
@@ -117,7 +116,7 @@ impl Focusable for InertState {
 }
 
 pub(crate) enum InertEvent {
-    Spawned { config: DebugTaskDefinition },
+    Spawned { config: DebugAdapterConfig },
 }
 
 impl EventEmitter<InertEvent> for InertState {}
@@ -131,7 +130,6 @@ impl Render for InertState {
         cx: &mut ui::Context<'_, Self>,
     ) -> impl ui::IntoElement {
         let weak = cx.weak_entity();
-        let workspace = self.workspace.clone();
         let disable_buttons = self.selected_debugger.is_none();
         let spawn_button = ButtonLike::new_rounded_left("spawn-debug-session")
             .child(Label::new(self.spawn_mode.label()).size(LabelSize::Small))
@@ -139,29 +137,21 @@ impl Render for InertState {
                 if this.spawn_mode == SpawnMode::Launch {
                     let program = this.program_editor.read(cx).text(cx);
                     let cwd = PathBuf::from(this.cwd_editor.read(cx).text(cx));
-                    let kind = this
-                        .selected_debugger
-                        .as_deref()
-                        .unwrap_or_else(|| {
+                    let kind =
+                        kind_for_label(this.selected_debugger.as_deref().unwrap_or_else(|| {
                             unimplemented!(
                                 "Automatic selection of a debugger based on users project"
                             )
-                        })
-                        .to_string();
-
+                        }));
                     cx.emit(InertEvent::Spawned {
-                        config: DebugTaskDefinition {
+                        config: DebugAdapterConfig {
                             label: "hard coded".into(),
-                            adapter: kind,
-                            request: DebugRequestType::Launch(LaunchConfig {
-                                program,
-                                cwd: Some(cwd),
-                                args: Default::default(),
-                            }),
-                            tcp_connection: Some(TCPHost::default()),
+                            kind,
+                            request: DebugRequestType::Launch,
+                            program: Some(program),
+                            cwd: Some(cwd),
                             initialize_args: None,
-                            locator: None,
-                            stop_on_entry: None,
+                            supports_attach: false,
                         },
                     });
                 } else {
@@ -169,7 +159,6 @@ impl Render for InertState {
                 }
             }))
             .disabled(disable_buttons);
-
         v_flex()
             .track_focus(&self.focus_handle)
             .size_full()
@@ -190,36 +179,28 @@ impl Render for InertState {
                                         .as_ref()
                                         .unwrap_or_else(|| &SELECT_DEBUGGER_LABEL)
                                         .clone(),
-                                    ContextMenu::build(window, cx, move |mut this, _, cx| {
-                                        let setter_for_name = |name: SharedString| {
+                                    ContextMenu::build(window, cx, move |this, _, _| {
+                                        let setter_for_name = |name: &'static str| {
                                             let weak = weak.clone();
                                             move |_: &mut Window, cx: &mut App| {
-                                                let name = name.clone();
-                                                weak.update(cx, move |this, cx| {
-                                                    this.selected_debugger = Some(name.clone());
-                                                    cx.notify();
-                                                })
-                                                .ok();
+                                                let name = name;
+                                                (&weak)
+                                                    .update(cx, move |this, _| {
+                                                        this.selected_debugger = Some(name.into());
+                                                    })
+                                                    .ok();
                                             }
                                         };
-                                        let available_adapters = workspace
-                                            .update(cx, |this, cx| {
-                                                this.project()
-                                                    .read(cx)
-                                                    .debug_adapters()
-                                                    .enumerate_adapters()
-                                            })
-                                            .ok()
-                                            .unwrap_or_default();
-
-                                        for adapter in available_adapters {
-                                            this = this.entry(
-                                                adapter.0.clone(),
+                                        this.entry("GDB", None, setter_for_name("GDB"))
+                                            .entry("Delve", None, setter_for_name("Delve"))
+                                            .entry("LLDB", None, setter_for_name("LLDB"))
+                                            .entry("PHP", None, setter_for_name("PHP"))
+                                            .entry(
+                                                "JavaScript",
                                                 None,
-                                                setter_for_name(adapter.0.clone()),
-                                            );
-                                        }
-                                        this
+                                                setter_for_name("JavaScript"),
+                                            )
+                                            .entry("Debugpy", None, setter_for_name("Debugpy"))
                                     }),
                                 )),
                             ),
@@ -284,6 +265,18 @@ impl Render for InertState {
     }
 }
 
+fn kind_for_label(label: &str) -> DebugAdapterKind {
+    match label {
+        "LLDB" => DebugAdapterKind::Lldb,
+        "Debugpy" => DebugAdapterKind::Python(TCPHost::default()),
+        "JavaScript" => DebugAdapterKind::Javascript(TCPHost::default()),
+        "PHP" => DebugAdapterKind::Php(TCPHost::default()),
+        "Delve" => DebugAdapterKind::Go(TCPHost::default()),
+        _ => {
+            unimplemented!()
+        } // Maybe we should set a toast notification here
+    }
+}
 impl InertState {
     fn render_editor(editor: &Entity<Editor>, cx: &Context<Self>) -> impl IntoElement {
         let settings = ThemeSettings::get_global(cx);
@@ -309,22 +302,19 @@ impl InertState {
     }
 
     fn attach(&self, window: &mut Window, cx: &mut Context<Self>) {
-        let kind = self
-            .selected_debugger
-            .as_deref()
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| {
-                unimplemented!("Automatic selection of a debugger based on users project")
-            });
+        let cwd = PathBuf::from(self.cwd_editor.read(cx).text(cx));
+        let kind = kind_for_label(self.selected_debugger.as_deref().unwrap_or_else(|| {
+            unimplemented!("Automatic selection of a debugger based on users project")
+        }));
 
-        let config = DebugTaskDefinition {
+        let config = DebugAdapterConfig {
             label: "hard coded attach".into(),
-            adapter: kind,
+            kind,
             request: DebugRequestType::Attach(task::AttachConfig { process_id: None }),
+            program: None,
+            cwd: Some(cwd),
             initialize_args: None,
-            locator: None,
-            tcp_connection: Some(TCPHost::default()),
-            stop_on_entry: None,
+            supports_attach: true,
         };
 
         let _ = self.workspace.update(cx, |workspace, cx| {

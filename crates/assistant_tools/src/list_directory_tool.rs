@@ -1,14 +1,12 @@
-use crate::schema::json_schema_for;
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use assistant_tool::{ActionLog, Tool};
 use gpui::{App, Entity, Task};
-use language_model::{LanguageModelRequestMessage, LanguageModelToolSchemaFormat};
+use language_model::LanguageModelRequestMessage;
 use project::Project;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::{fmt::Write, path::Path, sync::Arc};
 use ui::IconName;
-use util::markdown::MarkdownString;
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ListDirectoryToolInput {
@@ -41,7 +39,7 @@ pub struct ListDirectoryTool;
 
 impl Tool for ListDirectoryTool {
     fn name(&self) -> String {
-        "list_directory".into()
+        "list-directory".into()
     }
 
     fn needs_confirmation(&self) -> bool {
@@ -56,16 +54,14 @@ impl Tool for ListDirectoryTool {
         IconName::Folder
     }
 
-    fn input_schema(&self, format: LanguageModelToolSchemaFormat) -> serde_json::Value {
-        json_schema_for::<ListDirectoryToolInput>(format)
+    fn input_schema(&self) -> serde_json::Value {
+        let schema = schemars::schema_for!(ListDirectoryToolInput);
+        serde_json::to_value(&schema).unwrap()
     }
 
     fn ui_text(&self, input: &serde_json::Value) -> String {
         match serde_json::from_value::<ListDirectoryToolInput>(input.clone()) {
-            Ok(input) => {
-                let path = MarkdownString::inline_code(&input.path);
-                format!("List the {path} directory's contents")
-            }
+            Ok(input) => format!("List the `{}` directory's contents", input.path),
             Err(_) => "List directory".to_string(),
         }
     }

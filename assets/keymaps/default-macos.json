@@ -147,6 +147,10 @@
       "ctrl-shift-v": ["editor::MovePageUp", { "center_cursor": true }],
       "ctrl-cmd-space": "editor::ShowCharacterPalette",
       "cmd-;": "editor::ToggleLineNumbers",
+      "cmd-alt-z": "git::Restore",
+      "cmd-alt-y": "git::ToggleStaged",
+      "cmd-y": "git::StageAndNext",
+      "cmd-shift-y": "git::UnstageAndNext",
       "cmd-'": "editor::ToggleSelectedDiffHunks",
       "cmd-\"": "editor::ExpandAllDiffHunks",
       "cmd-alt-g b": "editor::ToggleGitBlame",
@@ -228,24 +232,6 @@
     }
   },
   {
-    "context": "Editor && !agent_diff",
-    "use_key_equivalents": true,
-    "bindings": {
-      "cmd-alt-z": "git::Restore",
-      "cmd-alt-y": "git::ToggleStaged",
-      "cmd-y": "git::StageAndNext",
-      "cmd-shift-y": "git::UnstageAndNext"
-    }
-  },
-  {
-    "context": "AgentDiff",
-    "use_key_equivalents": true,
-    "bindings": {
-      "cmd-y": "agent::Keep",
-      "cmd-alt-z": "agent::Reject"
-    }
-  },
-  {
     "context": "AssistantPanel",
     "use_key_equivalents": true,
     "bindings": {
@@ -277,35 +263,33 @@
     }
   },
   {
-    "context": "AgentPanel",
+    "context": "AssistantPanel2",
     "use_key_equivalents": true,
     "bindings": {
-      "cmd-n": "agent::NewThread",
-      "cmd-alt-n": "agent::NewPromptEditor",
-      "cmd-shift-h": "agent::OpenHistory",
-      "cmd-alt-c": "agent::OpenConfiguration",
-      "cmd-i": "agent::ToggleProfileSelector",
+      "cmd-n": "assistant2::NewThread",
+      "cmd-alt-p": "assistant2::NewPromptEditor",
+      "cmd-shift-h": "assistant2::OpenHistory",
       "cmd-alt-/": "assistant::ToggleModelSelector",
-      "cmd-shift-a": "agent::ToggleContextPicker",
-      "cmd-e": "agent::ChatMode",
-      "cmd-alt-e": "agent::RemoveAllContext"
+      "cmd-shift-a": "assistant2::ToggleContextPicker",
+      "cmd-e": "assistant2::ChatMode",
+      "cmd-alt-e": "assistant2::RemoveAllContext"
     }
   },
   {
-    "context": "AgentPanel && prompt_editor",
+    "context": "AssistantPanel2 && prompt_editor",
     "use_key_equivalents": true,
     "bindings": {
-      "cmd-n": "agent::NewPromptEditor",
-      "cmd-alt-t": "agent::NewThread"
+      "cmd-n": "assistant2::NewPromptEditor",
+      "cmd-alt-t": "assistant2::NewThread"
     }
   },
   {
     "context": "MessageEditor > Editor",
     "use_key_equivalents": true,
     "bindings": {
-      "enter": "agent::Chat",
-      "cmd-i": "agent::ToggleProfileSelector",
-      "shift-ctrl-r": "agent::OpenAgentDiff"
+      "enter": "assistant2::Chat",
+      "cmd-g d": "git::Diff",
+      "shift-escape": "git::ExpandCommitEditor"
     }
   },
   {
@@ -318,30 +302,21 @@
     }
   },
   {
-    "context": "AgentFeedbackMessageEditor > Editor",
-    "use_key_equivalents": true,
-    "bindings": {
-      "escape": "menu::Cancel",
-      "enter": "menu::Confirm",
-      "alt-enter": "editor::Newline"
-    }
-  },
-  {
     "context": "ContextStrip",
     "use_key_equivalents": true,
     "bindings": {
-      "up": "agent::FocusUp",
-      "right": "agent::FocusRight",
-      "left": "agent::FocusLeft",
-      "down": "agent::FocusDown",
-      "backspace": "agent::RemoveFocusedContext",
-      "enter": "agent::AcceptSuggestedContext"
+      "up": "assistant2::FocusUp",
+      "right": "assistant2::FocusRight",
+      "left": "assistant2::FocusLeft",
+      "down": "assistant2::FocusDown",
+      "backspace": "assistant2::RemoveFocusedContext",
+      "enter": "assistant2::AcceptSuggestedContext"
     }
   },
   {
     "context": "ThreadHistory",
     "bindings": {
-      "backspace": "agent::RemoveSelectedThread"
+      "backspace": "assistant2::RemoveSelectedThread"
     }
   },
   {
@@ -714,12 +689,20 @@
     }
   },
   {
+    "context": "ProposedChangesEditor",
+    "use_key_equivalents": true,
+    "bindings": {
+      "cmd-shift-y": "editor::ApplyDiffHunk",
+      "cmd-shift-a": "editor::ApplyAllDiffHunks"
+    }
+  },
+  {
     "context": "PromptEditor",
     "use_key_equivalents": true,
     "bindings": {
-      "cmd-shift-a": "agent::ToggleContextPicker",
+      "cmd-shift-a": "assistant2::ToggleContextPicker",
       "cmd-alt-/": "assistant::ToggleModelSelector",
-      "cmd-alt-e": "agent::RemoveAllContext",
+      "cmd-alt-e": "assistant2::RemoveAllContext",
       "ctrl-[": "assistant::CyclePreviousInlineAssist",
       "ctrl-]": "assistant::CycleNextInlineAssist"
     }
@@ -820,10 +803,7 @@
       "shift-tab": "git_panel::FocusEditor",
       "escape": "git_panel::ToggleFocus",
       "cmd-enter": "git::Commit",
-      "backspace": ["git::RestoreFile", { "skip_prompt": false }],
-      "delete": ["git::RestoreFile", { "skip_prompt": false }],
-      "cmd-backspace": ["git::RestoreFile", { "skip_prompt": true }],
-      "cmd-delete": ["git::RestoreFile", { "skip_prompt": true }]
+      "cmd-backspace": "git::RestoreFile"
     }
   },
   {

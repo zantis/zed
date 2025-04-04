@@ -302,8 +302,6 @@ messages!(
     (GetImplementationResponse, Background),
     (GetLlmToken, Background),
     (GetLlmTokenResponse, Background),
-    (LanguageServerIdForName, Background),
-    (LanguageServerIdForNameResponse, Background),
     (OpenUnstagedDiff, Foreground),
     (OpenUnstagedDiffResponse, Foreground),
     (OpenUncommittedDiff, Foreground),
@@ -340,8 +338,6 @@ messages!(
     (ListRemoteDirectoryResponse, Background),
     (ListToolchains, Foreground),
     (ListToolchainsResponse, Foreground),
-    (LoadCommitDiff, Foreground),
-    (LoadCommitDiffResponse, Foreground),
     (LspExtExpandMacro, Background),
     (LspExtExpandMacroResponse, Background),
     (LspExtOpenDocs, Background),
@@ -536,7 +532,6 @@ request_messages!(
     (JoinRoom, JoinRoomResponse),
     (LeaveChannelBuffer, Ack),
     (LeaveRoom, Ack),
-    (LoadCommitDiff, LoadCommitDiffResponse),
     (MarkNotificationRead, Ack),
     (MoveChannel, Ack),
     (OnTypeFormatting, OnTypeFormattingResponse),
@@ -585,7 +580,6 @@ request_messages!(
     (UpdateWorktree, Ack),
     (UpdateRepository, Ack),
     (RemoveRepository, Ack),
-    (LanguageServerIdForName, LanguageServerIdForNameResponse),
     (LspExtExpandMacro, LspExtExpandMacroResponse),
     (LspExtOpenDocs, LspExtOpenDocsResponse),
     (SetRoomParticipantRole, Ack),
@@ -671,7 +665,6 @@ entity_messages!(
     JoinProject,
     LeaveProject,
     LinkedEditingRange,
-    LoadCommitDiff,
     MultiLspQuery,
     RestartLanguageServers,
     OnTypeFormatting,
@@ -721,7 +714,6 @@ entity_messages!(
     OpenServerSettings,
     GetPermalinkToLine,
     LanguageServerPromptRequest,
-    LanguageServerIdForName,
     GitGetBranches,
     UpdateGitBranch,
     ListToolchains,
@@ -801,6 +793,31 @@ pub const MAX_WORKTREE_UPDATE_MAX_CHUNK_SIZE: usize = 2;
 #[cfg(not(any(test, feature = "test-support")))]
 pub const MAX_WORKTREE_UPDATE_MAX_CHUNK_SIZE: usize = 256;
 
+#[derive(Clone, Debug)]
+pub enum WorktreeRelatedMessage {
+    UpdateWorktree(UpdateWorktree),
+    UpdateRepository(UpdateRepository),
+    RemoveRepository(RemoveRepository),
+}
+
+impl From<UpdateWorktree> for WorktreeRelatedMessage {
+    fn from(value: UpdateWorktree) -> Self {
+        Self::UpdateWorktree(value)
+    }
+}
+
+impl From<UpdateRepository> for WorktreeRelatedMessage {
+    fn from(value: UpdateRepository) -> Self {
+        Self::UpdateRepository(value)
+    }
+}
+
+impl From<RemoveRepository> for WorktreeRelatedMessage {
+    fn from(value: RemoveRepository) -> Self {
+        Self::RemoveRepository(value)
+    }
+}
+
 pub fn split_worktree_update(mut message: UpdateWorktree) -> impl Iterator<Item = UpdateWorktree> {
     let mut done = false;
 
@@ -834,7 +851,7 @@ pub fn split_worktree_update(mut message: UpdateWorktree) -> impl Iterator<Item 
             let removed_statuses_limit = cmp::min(repo.removed_statuses.len(), limit);
 
             updated_repositories.push(RepositoryEntry {
-                repository_id: repo.repository_id,
+                work_directory_id: repo.work_directory_id,
                 branch_summary: repo.branch_summary.clone(),
                 updated_statuses: repo
                     .updated_statuses
@@ -885,34 +902,40 @@ pub fn split_repository_update(
 ) -> impl Iterator<Item = UpdateRepository> {
     let mut updated_statuses_iter = mem::take(&mut update.updated_statuses).into_iter().fuse();
     let mut removed_statuses_iter = mem::take(&mut update.removed_statuses).into_iter().fuse();
-    std::iter::from_fn({
-        let update = update.clone();
-        move || {
-            let updated_statuses = updated_statuses_iter
-                .by_ref()
-                .take(MAX_WORKTREE_UPDATE_MAX_CHUNK_SIZE)
-                .collect::<Vec<_>>();
-            let removed_statuses = removed_statuses_iter
-                .by_ref()
-                .take(MAX_WORKTREE_UPDATE_MAX_CHUNK_SIZE)
-                .collect::<Vec<_>>();
-            if updated_statuses.is_empty() && removed_statuses.is_empty() {
-                return None;
-            }
-            Some(UpdateRepository {
-                updated_statuses,
-                removed_statuses,
-                is_last_update: false,
-                ..update.clone()
-            })
+    let mut is_first = true;
+    std::iter::from_fn(move || {
+        let updated_statuses = updated_statuses_iter
+            .by_ref()
+            .take(MAX_WORKTREE_UPDATE_MAX_CHUNK_SIZE)
+            .collect::<Vec<_>>();
+        let removed_statuses = removed_statuses_iter
+            .by_ref()
+            .take(MAX_WORKTREE_UPDATE_MAX_CHUNK_SIZE)
+            .collect::<Vec<_>>();
+        if updated_statuses.is_empty() && removed_statuses.is_empty() && !is_first {
+            return None;
         }
+        is_first = false;
+        Some(UpdateRepository {
+            updated_statuses,
+            removed_statuses,
+            ..update.clone()
+        })
     })
-    .chain([UpdateRepository {
-        updated_statuses: Vec::new(),
-        removed_statuses: Vec::new(),
-        is_last_update: true,
-        ..update
-    }])
+}
+
+pub fn split_worktree_related_message(
+    message: WorktreeRelatedMessage,
+) -> Box<dyn Iterator<Item = WorktreeRelatedMessage> + Send> {
+    match message {
+        WorktreeRelatedMessage::UpdateWorktree(message) => {
+            Box::new(split_worktree_update(message).map(WorktreeRelatedMessage::UpdateWorktree))
+        }
+        WorktreeRelatedMessage::UpdateRepository(message) => {
+            Box::new(split_repository_update(message).map(WorktreeRelatedMessage::UpdateRepository))
+        }
+        WorktreeRelatedMessage::RemoveRepository(update) => Box::new([update.into()].into_iter()),
+    }
 }
 
 #[cfg(test)]

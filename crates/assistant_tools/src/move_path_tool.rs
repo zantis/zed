@@ -1,14 +1,12 @@
-use crate::schema::json_schema_for;
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use assistant_tool::{ActionLog, Tool};
 use gpui::{App, AppContext, Entity, Task};
-use language_model::{LanguageModelRequestMessage, LanguageModelToolSchemaFormat};
+use language_model::LanguageModelRequestMessage;
 use project::Project;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::{path::Path, sync::Arc};
 use ui::IconName;
-use util::markdown::MarkdownString;
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct MovePathToolInput {
@@ -39,7 +37,7 @@ pub struct MovePathTool;
 
 impl Tool for MovePathTool {
     fn name(&self) -> String {
-        "move_path".into()
+        "move-path".into()
     }
 
     fn needs_confirmation(&self) -> bool {
@@ -54,28 +52,28 @@ impl Tool for MovePathTool {
         IconName::ArrowRightLeft
     }
 
-    fn input_schema(&self, format: LanguageModelToolSchemaFormat) -> serde_json::Value {
-        json_schema_for::<MovePathToolInput>(format)
+    fn input_schema(&self) -> serde_json::Value {
+        let schema = schemars::schema_for!(MovePathToolInput);
+        serde_json::to_value(&schema).unwrap()
     }
 
     fn ui_text(&self, input: &serde_json::Value) -> String {
         match serde_json::from_value::<MovePathToolInput>(input.clone()) {
             Ok(input) => {
-                let src = MarkdownString::inline_code(&input.source_path);
-                let dest = MarkdownString::inline_code(&input.destination_path);
-                let src_path = Path::new(&input.source_path);
-                let dest_path = Path::new(&input.destination_path);
+                let src = input.source_path.as_str();
+                let dest = input.destination_path.as_str();
+                let src_path = Path::new(src);
+                let dest_path = Path::new(dest);
 
                 match dest_path
                     .file_name()
                     .and_then(|os_str| os_str.to_os_string().into_string().ok())
                 {
                     Some(filename) if src_path.parent() == dest_path.parent() => {
-                        let filename = MarkdownString::inline_code(&filename);
-                        format!("Rename {src} to {filename}")
+                        format!("Rename `{src}` to `{filename}`")
                     }
                     _ => {
-                        format!("Move {src} to {dest}")
+                        format!("Move `{src}` to `{dest}`")
                     }
                 }
             }

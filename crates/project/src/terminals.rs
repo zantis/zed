@@ -1,4 +1,4 @@
-use crate::{Project, ProjectPath};
+use crate::Project;
 use anyhow::{Context as _, Result};
 use collections::HashMap;
 use gpui::{AnyWindowHandle, App, AppContext as _, Context, Entity, Task, WeakEntity};
@@ -15,8 +15,8 @@ use std::{
 };
 use task::{Shell, ShellBuilder, SpawnInTerminal};
 use terminal::{
-    TaskState, TaskStatus, Terminal, TerminalBuilder,
     terminal_settings::{self, TerminalSettings, VenvSettings},
+    TaskState, TaskStatus, Terminal, TerminalBuilder,
 };
 use util::ResultExt;
 
@@ -407,17 +407,14 @@ impl Project {
         cx: &Context<Project>,
     ) -> Task<Option<PathBuf>> {
         cx.spawn(async move |this, cx| {
-            if let Some((worktree, relative_path)) = this
+            if let Some((worktree, _)) = this
                 .update(cx, |this, cx| this.find_worktree(&abs_path, cx))
                 .ok()?
             {
                 let toolchain = this
                     .update(cx, |this, cx| {
                         this.active_toolchain(
-                            ProjectPath {
-                                worktree_id: worktree.read(cx).id(),
-                                path: relative_path.into(),
-                            },
+                            worktree.read(cx).id(),
                             LanguageName::new("Python"),
                             cx,
                         )

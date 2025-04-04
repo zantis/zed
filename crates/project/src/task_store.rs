@@ -7,18 +7,18 @@ use anyhow::Context as _;
 use collections::HashMap;
 use gpui::{App, AsyncApp, Context, Entity, EventEmitter, Task, WeakEntity};
 use language::{
-    ContextProvider as _, LanguageToolchainStore, Location,
     proto::{deserialize_anchor, serialize_anchor},
+    ContextProvider as _, LanguageToolchainStore, Location,
 };
-use rpc::{AnyProtoClient, TypedEnvelope, proto};
+use rpc::{proto, AnyProtoClient, TypedEnvelope};
 use settings::{InvalidSettingsError, SettingsLocation, TaskKind};
 use task::{TaskContext, TaskVariables, VariableName};
 use text::{BufferId, OffsetRangeExt};
 use util::ResultExt;
 
 use crate::{
-    BasicContextProvider, Inventory, ProjectEnvironment, buffer_store::BufferStore,
-    worktree_store::WorktreeStore,
+    buffer_store::BufferStore, worktree_store::WorktreeStore, BasicContextProvider, Inventory,
+    ProjectEnvironment,
 };
 
 #[allow(clippy::large_enum_variant)] // platform-dependent warning
@@ -162,7 +162,7 @@ impl TaskStore {
         worktree_store: Entity<WorktreeStore>,
         toolchain_store: Arc<dyn LanguageToolchainStore>,
         environment: Entity<ProjectEnvironment>,
-        cx: &mut Context<Self>,
+        cx: &mut Context<'_, Self>,
     ) -> Self {
         Self::Functional(StoreState {
             mode: StoreMode::Local {
@@ -182,7 +182,7 @@ impl TaskStore {
         toolchain_store: Arc<dyn LanguageToolchainStore>,
         upstream_client: AnyProtoClient,
         project_id: u64,
-        cx: &mut Context<Self>,
+        cx: &mut Context<'_, Self>,
     ) -> Self {
         Self::Functional(StoreState {
             mode: StoreMode::Remote {
@@ -265,7 +265,7 @@ impl TaskStore {
         location: TaskSettingsLocation<'_>,
         raw_tasks_json: Option<&str>,
         task_type: TaskKind,
-        cx: &mut Context<Self>,
+        cx: &mut Context<'_, Self>,
     ) -> Result<(), InvalidSettingsError> {
         let task_inventory = match self {
             TaskStore::Functional(state) => &state.task_inventory,
@@ -298,7 +298,7 @@ fn local_task_context_for_location(
         let worktree_abs_path = worktree_abs_path.clone();
         let project_env = environment
             .update(cx, |environment, cx| {
-                environment.get_environment(worktree_abs_path.clone(), cx)
+                environment.get_environment(worktree_id, worktree_abs_path.clone(), cx)
             })
             .ok()?
             .await;

@@ -17,7 +17,6 @@ gpui.workspace = true
 linkme.workspace = true
 parking_lot.workspace = true
 theme.workspace = true
-workspace-hack.workspace = true
 
 [features]
 default = []

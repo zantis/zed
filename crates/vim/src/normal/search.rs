@@ -1,18 +1,18 @@
 use editor::Editor;
-use gpui::{Context, Window, actions, impl_actions, impl_internal_actions};
+use gpui::{actions, impl_actions, impl_internal_actions, Context, Window};
 use language::Point;
 use schemars::JsonSchema;
-use search::{BufferSearchBar, SearchOptions, buffer_search};
+use search::{buffer_search, BufferSearchBar, SearchOptions};
 use serde_derive::Deserialize;
 use std::{iter::Peekable, str::Chars, time::Duration};
 use util::serde::default_true;
 use workspace::{notifications::NotifyResultExt, searchable::Direction};
 
 use crate::{
-    Vim,
     command::CommandRange,
     motion::Motion,
     state::{Mode, SearchState},
+    Vim,
 };
 
 #[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq)]
@@ -590,7 +590,7 @@ mod test {
         test::{NeovimBackedTestContext, VimTestContext},
     };
     use editor::EditorSettings;
-    use editor::{DisplayPoint, display_map::DisplayRow};
+    use editor::{display_map::DisplayRow, DisplayPoint};
 
     use indoc::indoc;
     use search::BufferSearchBar;
@@ -783,7 +783,6 @@ mod test {
     async fn test_non_vim_search(cx: &mut gpui::TestAppContext) {
         let mut cx = VimTestContext::new(cx, false).await;
         cx.cx.set_state("ˇone one one one");
-        cx.run_until_parked();
         cx.simulate_keystrokes("cmd-f");
         cx.run_until_parked();
 

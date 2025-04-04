@@ -26,7 +26,7 @@ impl Executor {
         }
     }
 
-    pub fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + use<> {
+    pub fn sleep(&self, duration: Duration) -> impl Future<Output = ()> {
         let this = self.clone();
         async move {
             match this {

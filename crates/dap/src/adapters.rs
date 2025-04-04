@@ -1,11 +1,11 @@
 use ::fs::Fs;
-use anyhow::{Context as _, Ok, Result, anyhow};
+use anyhow::{anyhow, Context as _, Ok, Result};
 use async_compression::futures::bufread::GzipDecoder;
 use async_tar::Archive;
 use async_trait::async_trait;
 use futures::io::BufReader;
 use gpui::{AsyncApp, SharedString};
-pub use http_client::{HttpClient, github::latest_github_release};
+pub use http_client::{github::latest_github_release, HttpClient};
 use language::LanguageToolchainStore;
 use node_runtime::NodeRuntime;
 use serde::{Deserialize, Serialize};
@@ -13,16 +13,15 @@ use serde_json::Value;
 use settings::WorktreeId;
 use smol::{self, fs::File, lock::Mutex};
 use std::{
-    borrow::Borrow,
     collections::{HashMap, HashSet},
     ffi::{OsStr, OsString},
     fmt::Debug,
     net::Ipv4Addr,
     ops::Deref,
-    path::PathBuf,
-    sync::{Arc, LazyLock},
+    path::{Path, PathBuf},
+    sync::Arc,
 };
-use task::{DebugAdapterConfig, DebugTaskDefinition};
+use task::DebugAdapterConfig;
 use util::ResultExt;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -47,7 +46,7 @@ pub trait DapDelegate {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
-pub struct DebugAdapterName(pub SharedString);
+pub struct DebugAdapterName(pub Arc<str>);
 
 impl Deref for DebugAdapterName {
     type Target = str;
@@ -63,9 +62,9 @@ impl AsRef<str> for DebugAdapterName {
     }
 }
 
-impl Borrow<str> for DebugAdapterName {
-    fn borrow(&self) -> &str {
-        &self.0
+impl AsRef<Path> for DebugAdapterName {
+    fn as_ref(&self) -> &Path {
+        Path::new(&*self.0)
     }
 }
 
@@ -77,7 +76,7 @@ impl std::fmt::Display for DebugAdapterName {
 
 impl From<DebugAdapterName> for SharedString {
     fn from(name: DebugAdapterName) -> Self {
-        name.0
+        SharedString::from(name.0)
     }
 }
 
@@ -124,7 +123,7 @@ pub async fn download_adapter_from_github(
     file_type: DownloadedFileType,
     delegate: &dyn DapDelegate,
 ) -> Result<PathBuf> {
-    let adapter_path = paths::debug_adapters_dir().join(&adapter_name.as_ref());
+    let adapter_path = paths::debug_adapters_dir().join(&adapter_name);
     let version_path = adapter_path.join(format!("{}_{}", adapter_name, github_version.tag_name));
     let fs = delegate.fs();
 
@@ -289,21 +288,15 @@ pub trait DebugAdapter: 'static + Send + Sync {
     ) -> Result<DebugAdapterBinary>;
 
     /// Should return base configuration to make the debug adapter work
-    fn request_args(&self, config: &DebugTaskDefinition) -> Value;
-
-    fn attach_processes_filter(&self) -> regex::Regex {
-        EMPTY_REGEX.clone()
-    }
+    fn request_args(&self, config: &DebugAdapterConfig) -> Value;
 }
 
-static EMPTY_REGEX: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new("").expect("Regex compilation to succeed"));
 #[cfg(any(test, feature = "test-support"))]
 pub struct FakeAdapter {}
 
 #[cfg(any(test, feature = "test-support"))]
 impl FakeAdapter {
-    pub const ADAPTER_NAME: &'static str = "fake-adapter";
+    const ADAPTER_NAME: &'static str = "fake-adapter";
 
     pub fn new() -> Self {
         Self {}
@@ -358,13 +351,13 @@ impl DebugAdapter for FakeAdapter {
         unimplemented!("get installed binary");
     }
 
-    fn request_args(&self, config: &DebugTaskDefinition) -> Value {
+    fn request_args(&self, config: &DebugAdapterConfig) -> Value {
         use serde_json::json;
         use task::DebugRequestType;
 
         json!({
             "request": match config.request {
-                DebugRequestType::Launch(_) => "launch",
+                DebugRequestType::Launch => "launch",
                 DebugRequestType::Attach(_) => "attach",
             },
             "process_id": if let DebugRequestType::Attach(attach_config) = &config.request {
@@ -373,11 +366,5 @@ impl DebugAdapter for FakeAdapter {
                 None
             },
         })
-    }
-
-    fn attach_processes_filter(&self) -> regex::Regex {
-        static REGEX: LazyLock<regex::Regex> =
-            LazyLock::new(|| regex::Regex::new("^fake-binary").unwrap());
-        REGEX.clone()
     }
 }

@@ -6,18 +6,18 @@ use anyhow::{Context as _, Result};
 use client::proto::ViewId;
 use collections::HashMap;
 use feature_flags::{FeatureFlagAppExt as _, NotebookFeatureFlag};
-use futures::FutureExt;
 use futures::future::Shared;
+use futures::FutureExt;
 use gpui::{
-    AnyElement, App, Entity, EventEmitter, FocusHandle, Focusable, ListScrollEvent, ListState,
-    Point, Task, actions, list, prelude::*,
+    actions, list, prelude::*, AnyElement, App, Entity, EventEmitter, FocusHandle, Focusable,
+    ListScrollEvent, ListState, Point, Task,
 };
 use language::{Language, LanguageRegistry};
 use project::{Project, ProjectEntryId, ProjectPath};
-use ui::{Tooltip, prelude::*};
+use ui::{prelude::*, Tooltip};
 use workspace::item::{ItemEvent, TabContentParams};
 use workspace::searchable::SearchableItemHandle;
-use workspace::{Item, ItemHandle, Pane, ProjectItem, ToolbarItemLocation};
+use workspace::{Item, ItemHandle, ProjectItem, ToolbarItemLocation};
 use workspace::{ToolbarItemEvent, ToolbarItemView};
 
 use super::{Cell, CellPosition, RenderableCell};
@@ -642,7 +642,7 @@ impl NotebookItem {
                 .and_then(|spec| spec.language.clone()))
     }
 
-    pub fn notebook_language(&self) -> impl Future<Output = Option<Arc<Language>>> + use<> {
+    pub fn notebook_language(&self) -> impl Future<Output = Option<Arc<Language>>> {
         let language_name = self.language_name();
         let languages = self.languages.clone();
 
@@ -825,7 +825,6 @@ impl ProjectItem for NotebookEditor {
 
     fn for_project_item(
         project: Entity<Project>,
-        _: &Pane,
         item: Entity<Self::Item>,
         window: &mut Window,
         cx: &mut Context<Self>,

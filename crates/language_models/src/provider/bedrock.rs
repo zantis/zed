@@ -3,20 +3,23 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::ui::InstructionListItem;
-use anyhow::{Context as _, Result, anyhow};
-use aws_config::Region;
+use anyhow::{anyhow, Context as _, Result};
 use aws_config::stalled_stream_protection::StalledStreamProtectionConfig;
+use aws_config::Region;
 use aws_credential_types::Credentials;
 use aws_http_client::AwsHttpClient;
 use bedrock::bedrock_client::types::{
     ContentBlockDelta, ContentBlockStart, ContentBlockStartEvent, ConverseStreamOutput,
 };
 use bedrock::bedrock_client::{self, Config};
-use bedrock::{BedrockError, BedrockInnerContent, BedrockMessage, BedrockStreamingResponse, Model};
+use bedrock::{
+    value_to_aws_document, BedrockError, BedrockInnerContent, BedrockMessage, BedrockSpecificTool,
+    BedrockStreamingResponse, BedrockTool, BedrockToolChoice, BedrockToolInputSchema, Model,
+};
 use collections::{BTreeMap, HashMap};
 use credentials_provider::CredentialsProvider;
 use editor::{Editor, EditorElement, EditorStyle};
-use futures::{FutureExt, Stream, StreamExt, future::BoxFuture, stream::BoxStream};
+use futures::{future::BoxFuture, stream::BoxStream, FutureExt, Stream, StreamExt};
 use gpui::{
     AnyView, App, AsyncApp, Context, Entity, FontStyle, Subscription, Task, TextStyle, WhiteSpace,
 };
@@ -35,8 +38,8 @@ use settings::{Settings, SettingsStore};
 use strum::IntoEnumIterator;
 use theme::ThemeSettings;
 use tokio::runtime::Handle;
-use ui::{Icon, IconName, List, Tooltip, prelude::*};
-use util::{ResultExt, maybe};
+use ui::{prelude::*, Icon, IconName, List, Tooltip};
+use util::{maybe, ResultExt};
 
 use crate::AllLanguageModelSettings;
 
@@ -361,10 +364,6 @@ impl LanguageModel for BedrockModel {
         LanguageModelProviderName(PROVIDER_NAME.into())
     }
 
-    fn supports_tools(&self) -> bool {
-        true
-    }
-
     fn telemetry_id(&self) -> String {
         format!("bedrock/{}", self.model.id())
     }
@@ -408,6 +407,50 @@ impl LanguageModel for BedrockModel {
             ))
         });
         async move { Ok(future.await?.boxed()) }.boxed()
+    }
+
+    fn use_any_tool(
+        &self,
+        request: LanguageModelRequest,
+        name: String,
+        description: String,
+        schema: Value,
+        _cx: &AsyncApp,
+    ) -> BoxFuture<'static, Result<BoxStream<'static, Result<String>>>> {
+        let mut request = into_bedrock(
+            request,
+            self.model.id().into(),
+            self.model.default_temperature(),
+            self.model.max_output_tokens(),
+        );
+
+        request.tool_choice = BedrockSpecificTool::builder()
+            .name(name.clone())
+            .build()
+            .log_err()
+            .map(BedrockToolChoice::Tool);
+
+        if let Some(tool) = BedrockTool::builder()
+            .name(name.clone())
+            .description(description.clone())
+            .input_schema(BedrockToolInputSchema::Json(value_to_aws_document(&schema)))
+            .build()
+            .log_err()
+        {
+            request.tools.push(tool);
+        }
+
+        let handle = self.handler.clone();
+
+        let request = self.stream_completion(request, _cx);
+        self.request_limiter
+            .run(async move {
+                let response = request.map_err(|err| anyhow!(err))?.await;
+                Ok(extract_tool_args_from_events(name, response, handle)
+                    .await?
+                    .boxed())
+            })
+            .boxed()
     }
 
     fn cache_configuration(&self) -> Option<LanguageModelCacheConfiguration> {

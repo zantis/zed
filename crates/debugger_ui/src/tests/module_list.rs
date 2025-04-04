@@ -4,16 +4,15 @@ use crate::{
     tests::{active_debug_session_panel, init_test, init_test_workspace},
 };
 use dap::{
-    StoppedEvent,
     requests::{Modules, StackTrace, Threads},
+    DebugRequestType, StoppedEvent,
 };
 use gpui::{BackgroundExecutor, TestAppContext, VisualTestContext};
 use project::{FakeFs, Project};
 use std::sync::{
-    Arc,
     atomic::{AtomicBool, AtomicI32, Ordering},
+    Arc,
 };
-use task::LaunchConfig;
 
 #[gpui::test]
 async fn test_module_list(executor: BackgroundExecutor, cx: &mut TestAppContext) {
@@ -31,13 +30,15 @@ async fn test_module_list(executor: BackgroundExecutor, cx: &mut TestAppContext)
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.fake_debug_session(
-            dap::DebugRequestType::Launch(LaunchConfig::default()),
-            Some(dap::Capabilities {
-                supports_modules_request: Some(true),
-                ..Default::default()
-            }),
-            false,
+        project.start_debug_session(
+            dap::test_config(
+                DebugRequestType::Launch,
+                None,
+                Some(dap::Capabilities {
+                    supports_modules_request: Some(true),
+                    ..Default::default()
+                }),
+            ),
             cx,
         )
     });

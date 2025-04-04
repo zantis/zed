@@ -116,10 +116,6 @@ pub fn migrate_settings(text: &str) -> Result<Option<String>> {
             migrations::m_2025_01_30::SETTINGS_PATTERNS,
             &SETTINGS_QUERY_2025_01_30,
         ),
-        (
-            migrations::m_2025_03_29::SETTINGS_PATTERNS,
-            &SETTINGS_QUERY_2025_03_29,
-        ),
     ];
     run_migrations(text, migrations)
 }
@@ -185,10 +181,6 @@ define_query!(
 define_query!(
     SETTINGS_QUERY_2025_01_30,
     migrations::m_2025_01_30::SETTINGS_PATTERNS
-);
-define_query!(
-    SETTINGS_QUERY_2025_03_29,
-    migrations::m_2025_03_29::SETTINGS_PATTERNS
 );
 
 // custom query

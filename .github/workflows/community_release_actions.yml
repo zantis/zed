@@ -59,9 +59,7 @@ jobs:
         if: steps.check-promotion-from-preview.outputs.was_promoted_from_preview == 'true'
         run: |
           TAG="${{ github.event.release.tag_name }}"
-          cat << 'EOF' > release_body.txt
-          ${{ github.event.release.body }}
-          EOF
+          echo \"${{ toJSON(github.event.release.body) }}\" > release_body.txt
           jq -n --arg tag "$TAG" --rawfile body release_body.txt '{version: $tag, markdown_body: $body}' \
             > release_data.json
           curl -X POST "https://zed.dev/api/send_release_notes_email" \
