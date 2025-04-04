@@ -7,7 +7,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::anyhow;
 use calloop::{
     EventLoop, LoopHandle,
     timer::{TimeoutAction, Timer},
@@ -80,7 +79,9 @@ use crate::platform::linux::{
     },
     xdg_desktop_portal::{Event as XDPEvent, XDPEventSource},
 };
-use crate::platform::{PlatformWindow, blade::BladeContext};
+use crate::platform::{
+    PlatformWindow, blade::BladeContext, scap_screen_capture::start_scap_default_target_source,
+};
 use crate::{
     AnyWindowHandle, Bounds, CursorStyle, DOUBLE_CLICK_INTERVAL, DevicePixels, DisplayId,
     FileDropEvent, ForegroundExecutor, KeyDownEvent, KeyUpEvent, Keystroke, LinuxCommon, Modifiers,
@@ -636,21 +637,14 @@ impl LinuxClient for WaylandClient {
     }
 
     fn is_screen_capture_supported(&self) -> bool {
-        false
+        true
     }
 
     fn screen_capture_sources(
         &self,
     ) -> oneshot::Receiver<anyhow::Result<Vec<Box<dyn ScreenCaptureSource>>>> {
-        // TODO: Get screen capture working on wayland. Be sure to try window resizing as that may
-        // be tricky.
-        //
-        // start_scap_default_target_source()
-        let (sources_tx, sources_rx) = oneshot::channel();
-        sources_tx
-            .send(Err(anyhow!("Wayland screen capture not yet implemented.")))
-            .ok();
-        sources_rx
+        // todo! Try window resizing as that may have unexpected results.
+        start_scap_default_target_source(&self.0.borrow().common.foreground_executor)
     }
 
     fn open_window(
