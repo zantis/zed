@@ -4,7 +4,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result, anyhow};
-use assistant_settings::AssistantSettings;
+use assistant_settings::{AgentProfileId, AssistantSettings};
 use assistant_tool::{ActionLog, Tool, ToolWorkingSet};
 use chrono::{DateTime, Utc};
 use collections::{BTreeMap, HashMap};
@@ -245,6 +245,7 @@ pub struct Thread {
     detailed_summary_state: DetailedSummaryState,
     messages: Vec<Message>,
     next_message_id: MessageId,
+    profile_id: AgentProfileId,
     context: BTreeMap<ContextId, AssistantContext>,
     context_by_message: HashMap<MessageId, Vec<ContextId>>,
     system_prompt_context: Option<AssistantSystemPromptContext>,
@@ -270,6 +271,9 @@ impl Thread {
         prompt_builder: Arc<PromptBuilder>,
         cx: &mut Context<Self>,
     ) -> Self {
+        let settings = AssistantSettings::get_global(cx);
+        let profile_id = settings.default_profile.clone();
+
         Self {
             id: ThreadId::new(),
             updated_at: Utc::now(),
@@ -278,6 +282,7 @@ impl Thread {
             detailed_summary_state: DetailedSummaryState::NotGenerated,
             messages: Vec::new(),
             next_message_id: MessageId(0),
+            profile_id,
             context: BTreeMap::default(),
             context_by_message: HashMap::default(),
             system_prompt_context: None,
@@ -310,6 +315,8 @@ impl Thread {
         prompt_builder: Arc<PromptBuilder>,
         cx: &mut Context<Self>,
     ) -> Self {
+        let settings = AssistantSettings::get_global(cx);
+
         let next_message_id = MessageId(
             serialized
                 .messages
@@ -346,6 +353,9 @@ impl Thread {
                 })
                 .collect(),
             next_message_id,
+            profile_id: serialized
+                .profile_id
+                .unwrap_or_else(|| settings.default_profile.clone()),
             context: BTreeMap::default(),
             context_by_message: HashMap::default(),
             system_prompt_context: None,
@@ -799,6 +809,7 @@ impl Thread {
                         context: message.context.clone(),
                     })
                     .collect(),
+                profile_id: Some(this.profile_id.clone()),
                 initial_project_snapshot,
                 cumulative_token_usage: this.cumulative_token_usage.clone(),
                 detailed_summary_state: this.detailed_summary_state.clone(),

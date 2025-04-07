@@ -330,6 +330,8 @@ pub struct SerializedThread {
     pub updated_at: DateTime<Utc>,
     pub messages: Vec<SerializedMessage>,
     #[serde(default)]
+    pub profile_id: Option<AgentProfileId>,
+    #[serde(default)]
     pub initial_project_snapshot: Option<Arc<ProjectSnapshot>>,
     #[serde(default)]
     pub cumulative_token_usage: TokenUsage,
@@ -418,6 +420,7 @@ impl LegacySerializedThread {
             summary: self.summary,
             updated_at: self.updated_at,
             messages: self.messages.into_iter().map(|msg| msg.upgrade()).collect(),
+            profile_id: None,
             initial_project_snapshot: self.initial_project_snapshot,
             cumulative_token_usage: TokenUsage::default(),
             detailed_summary_state: DetailedSummaryState::default(),
