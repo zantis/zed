@@ -1,28 +1,27 @@
 use editor::{CursorLayout, HighlightedRange, HighlightedRangeLine};
 use gpui::{
-    AnyElement, App, AvailableSpace, Bounds, ContentMask, Context, DispatchPhase, Element,
-    ElementId, Entity, FocusHandle, Font, FontStyle, FontWeight, GlobalElementId, HighlightStyle,
-    Hitbox, Hsla, InputHandler, InteractiveElement, Interactivity, IntoElement, LayoutId,
-    ModifiersChangedEvent, MouseButton, MouseMoveEvent, Pixels, Point, ShapedLine,
-    StatefulInteractiveElement, StrikethroughStyle, Styled, TextRun, TextStyle, UTF16Selection,
-    UnderlineStyle, WeakEntity, WhiteSpace, Window, WindowTextSystem, div, fill, point, px,
-    relative, size,
+    div, fill, point, px, relative, size, AnyElement, App, AvailableSpace, Bounds, ContentMask,
+    Context, DispatchPhase, Element, ElementId, Entity, FocusHandle, Font, FontStyle, FontWeight,
+    GlobalElementId, HighlightStyle, Hitbox, Hsla, InputHandler, InteractiveElement, Interactivity,
+    IntoElement, LayoutId, ModifiersChangedEvent, MouseButton, MouseMoveEvent, Pixels, Point,
+    ShapedLine, StatefulInteractiveElement, StrikethroughStyle, Styled, TextRun, TextStyle,
+    UTF16Selection, UnderlineStyle, WeakEntity, WhiteSpace, Window, WindowTextSystem,
 };
 use itertools::Itertools;
 use language::CursorShape;
 use settings::Settings;
 use terminal::{
-    IndexedCell, Terminal, TerminalBounds, TerminalContent,
     alacritty_terminal::{
         grid::Dimensions,
         index::Point as AlacPoint,
-        term::{TermMode, cell::Flags},
+        term::{cell::Flags, TermMode},
         vte::ansi::{
             Color::{self as AnsiColor, Named},
             CursorShape as AlacCursorShape, NamedColor,
         },
     },
     terminal_settings::TerminalSettings,
+    IndexedCell, Terminal, TerminalBounds, TerminalContent,
 };
 use theme::{ActiveTheme, Theme, ThemeSettings};
 use ui::{ParentElement, Tooltip};
@@ -425,23 +424,14 @@ impl TerminalElement {
     fn register_mouse_listeners(&mut self, mode: TermMode, hitbox: &Hitbox, window: &mut Window) {
         let focus = self.focus.clone();
         let terminal = self.terminal.clone();
-        let terminal_view = self.terminal_view.clone();
 
         self.interactivity.on_mouse_down(MouseButton::Left, {
             let terminal = terminal.clone();
             let focus = focus.clone();
-            let terminal_view = terminal_view.clone();
-
             move |e, window, cx| {
                 window.focus(&focus);
-
-                let scroll_top = terminal_view.read(cx).scroll_top;
                 terminal.update(cx, |terminal, cx| {
-                    let mut adjusted_event = e.clone();
-                    if scroll_top > Pixels::ZERO {
-                        adjusted_event.position.y += scroll_top;
-                    }
-                    terminal.mouse_down(&adjusted_event, cx);
+                    terminal.mouse_down(e, cx);
                     cx.notify();
                 })
             }
@@ -451,7 +441,6 @@ impl TerminalElement {
             let terminal = self.terminal.clone();
             let hitbox = hitbox.clone();
             let focus = focus.clone();
-            let terminal_view = terminal_view.clone();
             move |e: &MouseMoveEvent, phase, window, cx| {
                 if phase != DispatchPhase::Bubble {
                     return;
@@ -459,15 +448,9 @@ impl TerminalElement {
 
                 if e.pressed_button.is_some() && !cx.has_active_drag() && focus.is_focused(window) {
                     let hovered = hitbox.is_hovered(window);
-
-                    let scroll_top = terminal_view.read(cx).scroll_top;
                     terminal.update(cx, |terminal, cx| {
                         if terminal.selection_started() || hovered {
-                            let mut adjusted_event = e.clone();
-                            if scroll_top > Pixels::ZERO {
-                                adjusted_event.position.y += scroll_top;
-                            }
-                            terminal.mouse_drag(&adjusted_event, hitbox.bounds, cx);
+                            terminal.mouse_drag(e, hitbox.bounds, cx);
                             cx.notify();
                         }
                     })

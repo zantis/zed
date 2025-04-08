@@ -33,15 +33,14 @@ tempfile.workspace = true
 text.workspace = true
 time.workspace = true
 util.workspace = true
-workspace-hack.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 fsevent.workspace = true
-objc.workspace = true
+objc = "0.2"
 cocoa = "0.26"
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
-notify = "8.0.0"
+notify = "6.1.1"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows.workspace = true

@@ -1,33 +1,30 @@
-mod persistence;
-
 use std::{
     cmp::{self, Reverse},
-    collections::HashMap,
     sync::Arc,
     time::Duration,
 };
 
 use client::parse_zed_link;
+use collections::HashMap;
 use command_palette_hooks::{
     CommandInterceptResult, CommandPaletteFilter, CommandPaletteInterceptor,
 };
-
 use fuzzy::{StringMatch, StringMatchCandidate};
 use gpui::{
-    Action, App, Context, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable,
-    ParentElement, Render, Styled, Task, WeakEntity, Window,
+    Action, App, Context, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable, Global,
+    ParentElement, Render, Styled, Task, UpdateGlobal, WeakEntity, Window,
 };
-use persistence::COMMAND_PALETTE_HISTORY;
 use picker::{Picker, PickerDelegate};
 use postage::{sink::Sink, stream::Stream};
 use settings::Settings;
-use ui::{HighlightedLabel, KeyBinding, ListItem, ListItemSpacing, h_flex, prelude::*, v_flex};
+use ui::{h_flex, prelude::*, v_flex, HighlightedLabel, KeyBinding, ListItem, ListItemSpacing};
 use util::ResultExt;
 use workspace::{ModalView, Workspace, WorkspaceSettings};
-use zed_actions::{OpenZedUrl, command_palette::Toggle};
+use zed_actions::{command_palette::Toggle, OpenZedUrl};
 
 pub fn init(cx: &mut App) {
     client::init_settings(cx);
+    cx.set_global(HitCounts::default());
     command_palette_hooks::init(cx);
     cx.observe_new(CommandPalette::register).detach();
 }
@@ -49,7 +46,7 @@ fn normalize_query(input: &str) -> String {
         match (last_char, char) {
             (Some(':'), ':') => continue,
             (Some(last_char), char) if last_char.is_whitespace() && char.is_whitespace() => {
-                continue;
+                continue
             }
             _ => {
                 last_char = Some(char);
@@ -141,7 +138,6 @@ impl Render for CommandPalette {
 }
 
 pub struct CommandPaletteDelegate {
-    latest_query: String,
     command_palette: WeakEntity<CommandPalette>,
     all_commands: Vec<Command>,
     commands: Vec<Command>,
@@ -168,6 +164,14 @@ impl Clone for Command {
     }
 }
 
+/// Hit count for each command in the palette.
+/// We only account for commands triggered directly via command palette and not by e.g. keystrokes because
+/// if a user already knows a keystroke for a command, they are unlikely to use a command palette to look for it.
+#[derive(Default, Clone)]
+struct HitCounts(HashMap<String, usize>);
+
+impl Global for HitCounts {}
+
 impl CommandPaletteDelegate {
     fn new(
         command_palette: WeakEntity<CommandPalette>,
@@ -181,7 +185,6 @@ impl CommandPaletteDelegate {
             commands,
             selected_ix: 0,
             previous_focus_handle,
-            latest_query: String::new(),
             updating_matches: None,
         }
     }
@@ -194,7 +197,6 @@ impl CommandPaletteDelegate {
         cx: &mut Context<Picker<Self>>,
     ) {
         self.updating_matches.take();
-        self.latest_query = query.clone();
 
         let mut intercept_results = CommandPaletteInterceptor::try_global(cx)
             .map(|interceptor| interceptor.intercept(&query, cx))
@@ -242,20 +244,6 @@ impl CommandPaletteDelegate {
             self.selected_ix = cmp::min(self.selected_ix, self.matches.len() - 1);
         }
     }
-    ///
-    /// Hit count for each command in the palette.
-    /// We only account for commands triggered directly via command palette and not by e.g. keystrokes because
-    /// if a user already knows a keystroke for a command, they are unlikely to use a command palette to look for it.
-    fn hit_counts(&self) -> HashMap<String, u16> {
-        if let Ok(commands) = COMMAND_PALETTE_HISTORY.list_commands_used() {
-            commands
-                .into_iter()
-                .map(|command| (command.command_name, command.invocations))
-                .collect()
-        } else {
-            HashMap::new()
-        }
-    }
 }
 
 impl PickerDelegate for CommandPaletteDelegate {
@@ -295,13 +283,13 @@ impl PickerDelegate for CommandPaletteDelegate {
         let (mut tx, mut rx) = postage::dispatch::channel(1);
         let task = cx.background_spawn({
             let mut commands = self.all_commands.clone();
-            let hit_counts = self.hit_counts();
+            let hit_counts = cx.global::<HitCounts>().clone();
             let executor = cx.background_executor().clone();
             let query = normalize_query(query.as_str());
             async move {
                 commands.sort_by_key(|action| {
                     (
-                        Reverse(hit_counts.get(&action.name).cloned()),
+                        Reverse(hit_counts.0.get(&action.name).cloned()),
                         action.name.clone(),
                     )
                 });
@@ -400,14 +388,9 @@ impl PickerDelegate for CommandPaletteDelegate {
         );
         self.matches.clear();
         self.commands.clear();
-        let command_name = command.name.clone();
-        let latest_query = self.latest_query.clone();
-        cx.background_spawn(async move {
-            COMMAND_PALETTE_HISTORY
-                .write_command_invocation(command_name, latest_query)
-                .await
-        })
-        .detach_and_log_err(cx);
+        HitCounts::update_global(cx, |hit_counts, _cx| {
+            *hit_counts.0.entry(command.name).or_default() += 1;
+        });
         let action = command.action;
         window.focus(&self.previous_focus_handle);
         self.dismissed(window, cx);

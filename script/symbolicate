@@ -53,18 +53,10 @@ else # ips file
 
     mkdir -p target/dsyms/$channel
 
-    # NOTE: if you see "no such file --uuid", you need to update your symbolicate
-    uuid=$(symbolicate $input_file --uuid || true)
-    if [[ $? -ne 0 ]]; then
-        echo "You need to update your symbolicate: cargo install symbolicate"
-        exit 1
-    fi
-
-    dsym="$uuid.dwarf"
+    dsym="$channel/Zed-$version-$arch.dwarf"
     if [[ ! -f target/dsyms/$dsym ]]; then
         echo "Downloading $dsym..."
-        curl -f -o target/dsyms/$dsym.gz "https://zed-debug-symbols.nyc3.digitaloceanspaces.com/by_uuid/${uuid}.dwarf.gz" ||
-            curl -f -o target/dsyms/$dsym.gz "https://zed-debug-symbols.nyc3.digitaloceanspaces.com/$channel/Zed-$version-$arch.dwarf.gz"
+        curl -o target/dsyms/$dsym.gz "https://zed-debug-symbols.nyc3.digitaloceanspaces.com/$channel/Zed-$version-$arch.dwarf.gz"
         gunzip  target/dsyms/$dsym.gz
     fi
 

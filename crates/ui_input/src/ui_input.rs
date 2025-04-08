@@ -5,14 +5,20 @@
 //! It can't be located in the `ui` crate because it depends on `editor`.
 //!
 
-use component::{ComponentPreview, example_group, single_example};
 use editor::{Editor, EditorElement, EditorStyle};
 use gpui::{App, Entity, FocusHandle, Focusable, FontStyle, Hsla, TextStyle};
 use settings::Settings;
 use theme::ThemeSettings;
 use ui::prelude::*;
 
-pub struct SingleLineInputStyle {
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FieldLabelLayout {
+    Hidden,
+    Inline,
+    Stacked,
+}
+
+pub struct TextFieldStyle {
     text_color: Hsla,
     background_color: Hsla,
     border_color: Hsla,
@@ -21,13 +27,11 @@ pub struct SingleLineInputStyle {
 /// A Text Field that can be used to create text fields like search inputs, form fields, etc.
 ///
 /// It wraps a single line [`Editor`] and allows for common field properties like labels, placeholders, icons, etc.
-#[derive(IntoComponent)]
-#[component(scope = "Input")]
-pub struct SingleLineInput {
+pub struct TextField {
     /// An optional label for the text field.
     ///
     /// Its position is determined by the [`FieldLabelLayout`].
-    label: Option<SharedString>,
+    label: SharedString,
     /// The placeholder text for the text field.
     placeholder: SharedString,
     /// Exposes the underlying [`Model<Editor>`] to allow for customizing the editor beyond the provided API.
@@ -38,18 +42,25 @@ pub struct SingleLineInput {
     ///
     /// For example, a magnifying glass icon in a search field.
     start_icon: Option<IconName>,
+    /// The layout of the label relative to the text field.
+    with_label: FieldLabelLayout,
     /// Whether the text field is disabled.
     disabled: bool,
 }
 
-impl Focusable for SingleLineInput {
+impl Focusable for TextField {
     fn focus_handle(&self, cx: &App) -> FocusHandle {
         self.editor.focus_handle(cx)
     }
 }
 
-impl SingleLineInput {
-    pub fn new(window: &mut Window, cx: &mut App, placeholder: impl Into<SharedString>) -> Self {
+impl TextField {
+    pub fn new(
+        window: &mut Window,
+        cx: &mut App,
+        label: impl Into<SharedString>,
+        placeholder: impl Into<SharedString>,
+    ) -> Self {
         let placeholder_text = placeholder.into();
 
         let editor = cx.new(|cx| {
@@ -59,10 +70,11 @@ impl SingleLineInput {
         });
 
         Self {
-            label: None,
+            label: label.into(),
             placeholder: placeholder_text,
             editor,
             start_icon: None,
+            with_label: FieldLabelLayout::Hidden,
             disabled: false,
         }
     }
@@ -72,8 +84,8 @@ impl SingleLineInput {
         self
     }
 
-    pub fn label(mut self, label: impl Into<SharedString>) -> Self {
-        self.label = Some(label.into());
+    pub fn with_label(mut self, layout: FieldLabelLayout) -> Self {
+        self.with_label = layout;
         self
     }
 
@@ -83,29 +95,25 @@ impl SingleLineInput {
             .update(cx, |editor, _| editor.set_read_only(disabled))
     }
 
-    pub fn is_empty(&self, cx: &App) -> bool {
-        self.editor().read(cx).text(cx).trim().is_empty()
-    }
-
     pub fn editor(&self) -> &Entity<Editor> {
         &self.editor
     }
 }
 
-impl Render for SingleLineInput {
+impl Render for TextField {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let settings = ThemeSettings::get_global(cx);
         let theme_color = cx.theme().colors();
 
-        let mut style = SingleLineInputStyle {
+        let mut style = TextFieldStyle {
             text_color: theme_color.text,
-            background_color: theme_color.editor_background,
-            border_color: theme_color.border_variant,
+            background_color: theme_color.ghost_element_background,
+            border_color: theme_color.border,
         };
 
         if self.disabled {
             style.text_color = theme_color.text_disabled;
-            style.background_color = theme_color.editor_background;
+            style.background_color = theme_color.ghost_element_disabled;
             style.border_color = theme_color.border_disabled;
         }
 
@@ -115,8 +123,8 @@ impl Render for SingleLineInput {
         // }
 
         let text_style = TextStyle {
-            font_family: settings.ui_font.family.clone(),
-            font_features: settings.ui_font.features.clone(),
+            font_family: settings.buffer_font.family.clone(),
+            font_features: settings.buffer_font.features.clone(),
             font_size: rems(0.875).into(),
             font_weight: settings.buffer_font.weight,
             font_style: FontStyle::Normal,
@@ -132,13 +140,13 @@ impl Render for SingleLineInput {
             ..Default::default()
         };
 
-        v_flex()
+        div()
             .id(self.placeholder.clone())
+            .group("text-field")
             .w_full()
-            .gap_1()
-            .when_some(self.label.clone(), |this, label| {
+            .when(self.with_label == FieldLabelLayout::Stacked, |this| {
                 this.child(
-                    Label::new(label)
+                    Label::new(self.label.clone())
                         .size(LabelSize::Default)
                         .color(if self.disabled {
                             Color::Disabled
@@ -148,37 +156,35 @@ impl Render for SingleLineInput {
                 )
             })
             .child(
-                h_flex()
-                    .px_2()
-                    .py_1()
-                    .bg(style.background_color)
-                    .text_color(style.text_color)
-                    .rounded_md()
-                    .border_1()
-                    .border_color(style.border_color)
-                    .min_w_48()
-                    .w_full()
-                    .flex_grow()
-                    .when_some(self.start_icon, |this, icon| {
-                        this.gap_1()
-                            .child(Icon::new(icon).size(IconSize::Small).color(Color::Muted))
-                    })
-                    .child(EditorElement::new(&self.editor, editor_style)),
+                v_flex().w_full().child(
+                    h_flex()
+                        .w_full()
+                        .flex_grow()
+                        .gap_2()
+                        .when(self.with_label == FieldLabelLayout::Inline, |this| {
+                            this.child(Label::new(self.label.clone()).size(LabelSize::Default))
+                        })
+                        .child(
+                            h_flex()
+                                .px_2()
+                                .py_1()
+                                .bg(style.background_color)
+                                .text_color(style.text_color)
+                                .rounded_lg()
+                                .border_1()
+                                .border_color(style.border_color)
+                                .min_w_48()
+                                .w_full()
+                                .flex_grow()
+                                .gap_1()
+                                .when_some(self.start_icon, |this, icon| {
+                                    this.child(
+                                        Icon::new(icon).size(IconSize::Small).color(Color::Muted),
+                                    )
+                                })
+                                .child(EditorElement::new(&self.editor, editor_style)),
+                        ),
+                ),
             )
-    }
-}
-
-impl ComponentPreview for SingleLineInput {
-    fn preview(window: &mut Window, cx: &mut App) -> AnyElement {
-        let input_1 =
-            cx.new(|cx| SingleLineInput::new(window, cx, "placeholder").label("Some Label"));
-
-        v_flex()
-            .gap_6()
-            .children(vec![example_group(vec![single_example(
-                "Default",
-                div().child(input_1.clone()).into_any_element(),
-            )])])
-            .into_any_element()
     }
 }

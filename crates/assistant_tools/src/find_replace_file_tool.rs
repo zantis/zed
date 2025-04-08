@@ -1,12 +1,11 @@
-use crate::{replace::replace_with_flexible_indent, schema::json_schema_for};
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{anyhow, Context as _, Result};
 use assistant_tool::{ActionLog, Tool};
-use gpui::{App, AppContext, AsyncApp, Entity, Task};
-use language_model::{LanguageModelRequestMessage, LanguageModelToolSchemaFormat};
+use gpui::{App, AppContext, Entity, Task};
+use language_model::LanguageModelRequestMessage;
 use project::Project;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::{path::PathBuf, sync::Arc};
+use std::{collections::HashSet, path::PathBuf, sync::Arc};
 use ui::IconName;
 
 use crate::replace::replace_exact;
@@ -34,10 +33,10 @@ pub struct FindReplaceFileToolInput {
     /// </example>
     pub path: PathBuf,
 
-    /// A user-friendly markdown description of what's being replaced. This will be shown in the UI.
+    /// A user-friendly description of what's being replaced. This will be shown in the UI.
     ///
     /// <example>Fix API endpoint URLs</example>
-    /// <example>Update copyright year in `page_footer`</example>
+    /// <example>Update copyright year</example>
     pub display_description: String,
 
     /// The unique string to find in the file. This string cannot be empty;
@@ -66,7 +65,7 @@ pub struct FindReplaceFileToolInput {
     /// <example>
     /// If a file contains this code:
     ///
-    /// ```ignore
+    /// ```rust
     /// fn check_user_permissions(user_id: &str) -> Result<bool> {
     ///     // Check if user exists first
     ///     let user = database.find_user(user_id)?;
@@ -84,7 +83,7 @@ pub struct FindReplaceFileToolInput {
     /// Your find string should include at least 3 lines of context before and after the part
     /// you want to change:
     ///
-    /// ```ignore
+    /// ```
     /// fn check_user_permissions(user_id: &str) -> Result<bool> {
     ///     // Check if user exists first
     ///     let user = database.find_user(user_id)?;
@@ -101,7 +100,7 @@ pub struct FindReplaceFileToolInput {
     ///
     /// And your replace string might look like:
     ///
-    /// ```ignore
+    /// ```
     /// fn check_user_permissions(user_id: &str) -> Result<bool> {
     ///     // Check if user exists first
     ///     let user = database.find_user(user_id)?;
@@ -126,11 +125,11 @@ pub struct FindReplaceFileTool;
 
 impl Tool for FindReplaceFileTool {
     fn name(&self) -> String {
-        "find_replace_file".into()
+        "find-replace-file".into()
     }
 
     fn needs_confirmation(&self) -> bool {
-        false
+        true
     }
 
     fn description(&self) -> String {
@@ -141,8 +140,9 @@ impl Tool for FindReplaceFileTool {
         IconName::Pencil
     }
 
-    fn input_schema(&self, format: LanguageModelToolSchemaFormat) -> serde_json::Value {
-        json_schema_for::<FindReplaceFileToolInput>(format)
+    fn input_schema(&self) -> serde_json::Value {
+        let schema = schemars::schema_for!(FindReplaceFileToolInput);
+        serde_json::to_value(&schema).unwrap()
     }
 
     fn ui_text(&self, input: &serde_json::Value) -> String {
@@ -165,7 +165,7 @@ impl Tool for FindReplaceFileTool {
             Err(err) => return Task::ready(Err(anyhow!(err))),
         };
 
-        cx.spawn(async move |cx: &mut AsyncApp| {
+        cx.spawn(async move |cx| {
             let project_path = project.read_with(cx, |project, cx| {
                 project
                     .find_project_path(&input.path, cx)
@@ -182,29 +182,29 @@ impl Tool for FindReplaceFileTool {
                 return Err(anyhow!("`find` string cannot be empty. Use a different tool if you want to create a file."));
             }
 
-            if input.find == input.replace {
-                return Err(anyhow!("The `find` and `replace` strings are identical, so no changes would be made."));
-            }
-
             let result = cx
                 .background_spawn(async move {
-                    // Try to match exactly
-                    let diff = replace_exact(&input.find, &input.replace, &snapshot)
-                    .await
-                    // If that fails, try being flexible about indentation
-                    .or_else(|| replace_with_flexible_indent(&input.find, &input.replace, &snapshot))?;
-
-                    if diff.edits.is_empty() {
-                        return None;
-                    }
-
-                    let old_text = snapshot.text();
-
-                    Some((old_text, diff))
+                    replace_exact(&input.find, &input.replace, &snapshot).await
                 })
                 .await;
 
-            let Some((old_text, diff)) = result else {
+            if let Some(diff) = result {
+                buffer.update(cx, |buffer, cx| {
+                    let _ = buffer.apply_diff(diff, cx);
+                })?;
+
+                project.update(cx, |project, cx| {
+                    project.save_buffer(buffer.clone(), cx)
+                })?.await?;
+
+                action_log.update(cx, |log, cx| {
+                    let mut buffers = HashSet::default();
+                    buffers.insert(buffer);
+                    log.buffer_edited(buffers, cx);
+                })?;
+
+                Ok(format!("Edited {}", input.path.display()))
+            } else {
                 let err = buffer.read_with(cx, |buffer, _cx| {
                     let file_exists = buffer
                         .file()
@@ -222,37 +222,8 @@ impl Tool for FindReplaceFileTool {
                     }
                 })?;
 
-                return Err(err)
-            };
-
-            let snapshot = cx.update(|cx| {
-                action_log.update(cx, |log, cx| {
-                    log.buffer_read(buffer.clone(), cx)
-                });
-                let snapshot = buffer.update(cx, |buffer, cx| {
-                    buffer.finalize_last_transaction();
-                    buffer.apply_diff(diff, cx);
-                    buffer.finalize_last_transaction();
-                    buffer.snapshot()
-                });
-                action_log.update(cx, |log, cx| {
-                    log.buffer_edited(buffer.clone(), cx)
-                });
-                snapshot
-            })?;
-
-            project.update( cx, |project, cx| {
-                project.save_buffer(buffer, cx)
-            })?.await?;
-
-            let diff_str = cx.background_spawn(async move {
-                let new_text = snapshot.text();
-                language::unified_diff(&old_text, &new_text)
-            }).await;
-
-
-            Ok(format!("Edited {}:\n\n```diff\n{}\n```", input.path.display(), diff_str))
-
+                Err(err)
+            }
         })
     }
 }

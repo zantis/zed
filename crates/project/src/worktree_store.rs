@@ -2,36 +2,33 @@ use std::{
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
     pin::pin,
-    sync::{Arc, atomic::AtomicUsize},
+    sync::{atomic::AtomicUsize, Arc},
 };
 
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{anyhow, Context as _, Result};
 use collections::{HashMap, HashSet};
 use fs::Fs;
 use futures::{
-    FutureExt, SinkExt,
     future::{BoxFuture, Shared},
+    FutureExt, SinkExt,
 };
 use gpui::{
     App, AppContext as _, AsyncApp, Context, Entity, EntityId, EventEmitter, Task, WeakEntity,
 };
 use postage::oneshot;
 use rpc::{
+    proto::{self, FromProto, ToProto, SSH_PROJECT_ID},
     AnyProtoClient, ErrorExt, TypedEnvelope,
-    proto::{self, FromProto, SSH_PROJECT_ID, ToProto},
 };
 use smol::{
     channel::{Receiver, Sender},
     stream::StreamExt,
 };
 use text::ReplicaId;
-use util::{ResultExt, paths::SanitizedPath};
-use worktree::{
-    Entry, ProjectEntryId, UpdatedEntriesSet, UpdatedGitRepositoriesSet, Worktree, WorktreeId,
-    WorktreeSettings,
-};
+use util::{paths::SanitizedPath, ResultExt};
+use worktree::{Entry, ProjectEntryId, UpdatedEntriesSet, Worktree, WorktreeId, WorktreeSettings};
 
-use crate::{ProjectPath, search::SearchQuery};
+use crate::{search::SearchQuery, ProjectPath};
 
 struct MatchingEntry {
     worktree_path: Arc<Path>,
@@ -69,7 +66,7 @@ pub enum WorktreeStoreEvent {
     WorktreeOrderChanged,
     WorktreeUpdateSent(Entity<Worktree>),
     WorktreeUpdatedEntries(WorktreeId, UpdatedEntriesSet),
-    WorktreeUpdatedGitRepositories(WorktreeId, UpdatedGitRepositoriesSet),
+    WorktreeUpdatedGitRepositories(WorktreeId),
     WorktreeDeletedEntry(WorktreeId, ProjectEntryId),
 }
 
@@ -157,11 +154,6 @@ impl WorktreeStore {
             }
         }
         None
-    }
-
-    pub fn absolutize(&self, project_path: &ProjectPath, cx: &App) -> Option<PathBuf> {
-        let worktree = self.worktree_for_id(project_path.worktree_id, cx)?;
-        worktree.read(cx).absolutize(&project_path.path).ok()
     }
 
     pub fn find_or_create_worktree(
@@ -375,10 +367,9 @@ impl WorktreeStore {
                         changes.clone(),
                     ));
                 }
-                worktree::Event::UpdatedGitRepositories(set) => {
+                worktree::Event::UpdatedGitRepositories(_) => {
                     cx.emit(WorktreeStoreEvent::WorktreeUpdatedGitRepositories(
                         worktree_id,
-                        set.clone(),
                     ));
                 }
                 worktree::Event::DeletedEntry(id) => {
@@ -570,12 +561,44 @@ impl WorktreeStore {
                                 let client = client.clone();
                                 async move {
                                     if client.is_via_collab() {
-                                        client
-                                            .request(update)
-                                            .map(|result| result.log_err().is_some())
-                                            .await
+                                        match update {
+                                            proto::WorktreeRelatedMessage::UpdateWorktree(
+                                                update,
+                                            ) => {
+                                                client
+                                                    .request(update)
+                                                    .map(|result| result.log_err().is_some())
+                                                    .await
+                                            }
+                                            proto::WorktreeRelatedMessage::UpdateRepository(
+                                                update,
+                                            ) => {
+                                                client
+                                                    .request(update)
+                                                    .map(|result| result.log_err().is_some())
+                                                    .await
+                                            }
+                                            proto::WorktreeRelatedMessage::RemoveRepository(
+                                                update,
+                                            ) => {
+                                                client
+                                                    .request(update)
+                                                    .map(|result| result.log_err().is_some())
+                                                    .await
+                                            }
+                                        }
                                     } else {
-                                        client.send(update).log_err().is_some()
+                                        match update {
+                                            proto::WorktreeRelatedMessage::UpdateWorktree(
+                                                update,
+                                            ) => client.send(update).log_err().is_some(),
+                                            proto::WorktreeRelatedMessage::UpdateRepository(
+                                                update,
+                                            ) => client.send(update).log_err().is_some(),
+                                            proto::WorktreeRelatedMessage::RemoveRepository(
+                                                update,
+                                            ) => client.send(update).log_err().is_some(),
+                                        }
                                     }
                                 }
                             }

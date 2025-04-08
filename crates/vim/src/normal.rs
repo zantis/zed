@@ -1,5 +1,5 @@
+mod case;
 mod change;
-mod convert;
 mod delete;
 mod increment;
 pub(crate) mod mark;
@@ -15,21 +15,21 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::{
-    Vim,
     indent::IndentDirection,
-    motion::{self, Motion, first_non_whitespace, next_line_end, right},
+    motion::{self, first_non_whitespace, next_line_end, right, Motion},
     object::Object,
     state::{Mark, Mode, Operator},
     surrounds::SurroundsType,
+    Vim,
 };
+use case::CaseTarget;
 use collections::BTreeSet;
-use convert::ConvertTarget;
+use editor::scroll::Autoscroll;
 use editor::Anchor;
 use editor::Bias;
 use editor::Editor;
-use editor::scroll::Autoscroll;
 use editor::{display_map::ToDisplayPoint, movement};
-use gpui::{Context, Window, actions};
+use gpui::{actions, Context, Window};
 use language::{Point, SelectionGoal, ToPoint};
 use log::error;
 use multi_buffer::MultiBufferRow;
@@ -48,7 +48,6 @@ actions!(
         JoinLinesNoWhitespace,
         DeleteLeft,
         DeleteRight,
-        HelixDelete,
         ChangeToEndOfLine,
         DeleteToEndOfLine,
         Yank,
@@ -56,8 +55,6 @@ actions!(
         ChangeCase,
         ConvertToUpperCase,
         ConvertToLowerCase,
-        ConvertToRot13,
-        ConvertToRot47,
         ToggleComments,
         ShowLocation,
         Undo,
@@ -76,8 +73,6 @@ pub(crate) fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
     Vim::action(editor, cx, Vim::change_case);
     Vim::action(editor, cx, Vim::convert_to_upper_case);
     Vim::action(editor, cx, Vim::convert_to_lower_case);
-    Vim::action(editor, cx, Vim::convert_to_rot13);
-    Vim::action(editor, cx, Vim::convert_to_rot47);
     Vim::action(editor, cx, Vim::yank_line);
     Vim::action(editor, cx, Vim::toggle_comments);
     Vim::action(editor, cx, Vim::paste);
@@ -93,21 +88,6 @@ pub(crate) fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
         let times = Vim::take_count(cx);
         vim.delete_motion(Motion::Right, times, window, cx);
     });
-
-    Vim::action(editor, cx, |vim, _: &HelixDelete, window, cx| {
-        vim.record_current_action(cx);
-        vim.update_editor(window, cx, |_, editor, window, cx| {
-            editor.change_selections(None, window, cx, |s| {
-                s.move_with(|map, selection| {
-                    if selection.is_empty() {
-                        selection.end = movement::right(map, selection.end)
-                    }
-                })
-            })
-        });
-        vim.visual_delete(false, window, cx);
-    });
-
     Vim::action(editor, cx, |vim, _: &ChangeToEndOfLine, window, cx| {
         vim.start_recording(cx);
         let times = Vim::take_count(cx);
@@ -191,19 +171,13 @@ impl Vim {
             }
             Some(Operator::ShellCommand) => self.shell_command_motion(motion, times, window, cx),
             Some(Operator::Lowercase) => {
-                self.convert_motion(motion, times, ConvertTarget::LowerCase, window, cx)
+                self.change_case_motion(motion, times, CaseTarget::Lowercase, window, cx)
             }
             Some(Operator::Uppercase) => {
-                self.convert_motion(motion, times, ConvertTarget::UpperCase, window, cx)
+                self.change_case_motion(motion, times, CaseTarget::Uppercase, window, cx)
             }
             Some(Operator::OppositeCase) => {
-                self.convert_motion(motion, times, ConvertTarget::OppositeCase, window, cx)
-            }
-            Some(Operator::Rot13) => {
-                self.convert_motion(motion, times, ConvertTarget::Rot13, window, cx)
-            }
-            Some(Operator::Rot47) => {
-                self.convert_motion(motion, times, ConvertTarget::Rot47, window, cx)
+                self.change_case_motion(motion, times, CaseTarget::OppositeCase, window, cx)
             }
             Some(Operator::ToggleComments) => {
                 self.toggle_comments_motion(motion, times, window, cx)
@@ -242,19 +216,13 @@ impl Vim {
                 }
                 Some(Operator::Rewrap) => self.rewrap_object(object, around, window, cx),
                 Some(Operator::Lowercase) => {
-                    self.convert_object(object, around, ConvertTarget::LowerCase, window, cx)
+                    self.change_case_object(object, around, CaseTarget::Lowercase, window, cx)
                 }
                 Some(Operator::Uppercase) => {
-                    self.convert_object(object, around, ConvertTarget::UpperCase, window, cx)
+                    self.change_case_object(object, around, CaseTarget::Uppercase, window, cx)
                 }
                 Some(Operator::OppositeCase) => {
-                    self.convert_object(object, around, ConvertTarget::OppositeCase, window, cx)
-                }
-                Some(Operator::Rot13) => {
-                    self.convert_object(object, around, ConvertTarget::Rot13, window, cx)
-                }
-                Some(Operator::Rot47) => {
-                    self.convert_object(object, around, ConvertTarget::Rot47, window, cx)
+                    self.change_case_object(object, around, CaseTarget::OppositeCase, window, cx)
                 }
                 Some(Operator::AddSurrounds { target: None }) => {
                     waiting_operator = Some(Operator::AddSurrounds {
@@ -662,9 +630,10 @@ mod test {
     use settings::SettingsStore;
 
     use crate::{
-        VimSettings, motion,
+        motion,
         state::Mode::{self},
         test::{NeovimBackedTestContext, VimTestContext},
+        VimSettings,
     };
 
     #[gpui::test]

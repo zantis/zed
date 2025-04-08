@@ -1,16 +1,15 @@
 use crate::commit::get_messages;
-use crate::{GitRemote, Oid};
-use anyhow::{Context as _, Result, anyhow};
+use crate::Oid;
+use anyhow::{anyhow, Context as _, Result};
 use collections::{HashMap, HashSet};
 use futures::AsyncWriteExt;
-use gpui::SharedString;
 use serde::{Deserialize, Serialize};
 use std::process::Stdio;
 use std::{ops::Range, path::Path};
 use text::Rope;
+use time::macros::format_description;
 use time::OffsetDateTime;
 use time::UtcOffset;
-use time::macros::format_description;
 
 pub use git2 as libgit;
 
@@ -19,14 +18,6 @@ pub struct Blame {
     pub entries: Vec<BlameEntry>,
     pub messages: HashMap<Oid, String>,
     pub remote_url: Option<String>,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct ParsedCommitMessage {
-    pub message: SharedString,
-    pub permalink: Option<url::Url>,
-    pub pull_request: Option<crate::hosting_provider::PullRequest>,
-    pub remote: Option<GitRemote>,
 }
 
 impl Blame {
@@ -310,8 +301,8 @@ fn parse_git_blame(output: &str) -> Result<Vec<BlameEntry>> {
 mod tests {
     use std::path::PathBuf;
 
-    use super::BlameEntry;
     use super::parse_git_blame;
+    use super::BlameEntry;
 
     fn read_test_data(filename: &str) -> String {
         let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));

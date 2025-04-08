@@ -6,18 +6,15 @@ use std::{
     sync::Arc,
 };
 
-use ::util::{ResultExt, paths::SanitizedPath};
-use anyhow::{Context as _, Result, anyhow};
+use ::util::{paths::SanitizedPath, ResultExt};
+use anyhow::{anyhow, Context as _, Result};
 use async_task::Runnable;
 use futures::channel::oneshot::{self, Receiver};
 use itertools::Itertools;
 use parking_lot::RwLock;
 use smallvec::SmallVec;
 use windows::{
-    UI::{
-        StartScreen::{JumpList, JumpListItem},
-        ViewManagement::UISettings,
-    },
+    core::*,
     Win32::{
         Foundation::*,
         Graphics::{
@@ -28,7 +25,10 @@ use windows::{
         System::{Com::*, LibraryLoader::*, Ole::*, SystemInformation::*, Threading::*},
         UI::{Input::KeyboardAndMouse::*, Shell::*, WindowsAndMessaging::*},
     },
-    core::*,
+    UI::{
+        StartScreen::{JumpList, JumpListItem},
+        ViewManagement::UISettings,
+    },
 };
 
 use crate::{platform::blade::BladeContext, *};
@@ -394,10 +394,6 @@ impl Platform for WindowsPlatform {
 
     fn primary_display(&self) -> Option<Rc<dyn PlatformDisplay>> {
         WindowsDisplay::primary_monitor().map(|display| Rc::new(display) as Rc<dyn PlatformDisplay>)
-    }
-
-    fn is_screen_capture_supported(&self) -> bool {
-        false
     }
 
     fn screen_capture_sources(
@@ -830,7 +826,7 @@ fn should_auto_hide_scrollbars() -> Result<bool> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ClipboardItem, read_from_clipboard, write_to_clipboard};
+    use crate::{read_from_clipboard, write_to_clipboard, ClipboardItem};
 
     #[test]
     fn test_clipboard() {

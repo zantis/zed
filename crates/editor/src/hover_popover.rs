@@ -1,20 +1,20 @@
 use crate::{
-    Anchor, AnchorRangeExt, DisplayPoint, DisplayRow, Editor, EditorSettings, EditorSnapshot,
-    Hover,
-    display_map::{InlayOffset, ToDisplayPoint, invisibles::is_invisible},
+    display_map::{invisibles::is_invisible, InlayOffset, ToDisplayPoint},
     hover_links::{InlayHighlight, RangeInEditor},
     scroll::{Autoscroll, ScrollAmount},
+    Anchor, AnchorRangeExt, DisplayPoint, DisplayRow, Editor, EditorSettings, EditorSnapshot,
+    Hover,
 };
 use gpui::{
-    AnyElement, AsyncWindowContext, Context, Entity, Focusable as _, FontWeight, Hsla,
+    div, px, AnyElement, AsyncWindowContext, Context, Entity, Focusable as _, FontWeight, Hsla,
     InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, ScrollHandle, Size,
     Stateful, StatefulInteractiveElement, StyleRefinement, Styled, Task, TextStyleRefinement,
-    Window, div, px,
+    Window,
 };
 use itertools::Itertools;
 use language::{DiagnosticEntry, Language, LanguageRegistry};
 use lsp::DiagnosticSeverity;
-use markdown::{Markdown, MarkdownElement, MarkdownStyle};
+use markdown::{Markdown, MarkdownStyle};
 use multi_buffer::{MultiOrSingleBufferOffsetRange, ToOffset};
 use project::{HoverBlock, HoverBlockKind, InlayHintLabelPart};
 use settings::Settings;
@@ -22,7 +22,7 @@ use std::{borrow::Cow, cell::RefCell};
 use std::{ops::Range, sync::Arc, time::Duration};
 use std::{path::PathBuf, rc::Rc};
 use theme::ThemeSettings;
-use ui::{Scrollbar, ScrollbarState, prelude::*, theme_is_transparent};
+use ui::{prelude::*, theme_is_transparent, Scrollbar, ScrollbarState};
 use url::Url;
 use util::TryFutureExt;
 use workspace::{OpenOptions, OpenVisible, Workspace};
@@ -310,7 +310,7 @@ fn show_hover(
                 let mut background_color: Option<Hsla> = None;
 
                 let parsed_content = cx
-                    .new_window_entity(|_window, cx| {
+                    .new_window_entity(|window, cx| {
                         let status_colors = cx.theme().status();
 
                         match local_diagnostic.diagnostic.severity {
@@ -335,8 +335,32 @@ fn show_hover(
                                 border_color = Some(status_colors.ignored_border);
                             }
                         };
+                        let settings = ThemeSettings::get_global(cx);
+                        let mut base_text_style = window.text_style();
+                        base_text_style.refine(&TextStyleRefinement {
+                            font_family: Some(settings.ui_font.family.clone()),
+                            font_fallbacks: settings.ui_font.fallbacks.clone(),
+                            font_size: Some(settings.ui_font_size(cx).into()),
+                            color: Some(cx.theme().colors().editor_foreground),
+                            background_color: Some(gpui::transparent_black()),
 
-                        Markdown::new_text(SharedString::new(text), cx)
+                            ..Default::default()
+                        });
+                        let markdown_style = MarkdownStyle {
+                            base_text_style,
+                            selection_background_color: { cx.theme().players().local().selection },
+                            link: TextStyleRefinement {
+                                underline: Some(gpui::UnderlineStyle {
+                                    thickness: px(1.),
+                                    color: Some(cx.theme().colors().editor_foreground),
+                                    wavy: false,
+                                }),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        };
+                        Markdown::new_text(SharedString::new(text), markdown_style.clone(), cx)
+                            .open_url(open_markdown_url)
                     })
                     .ok();
 
@@ -539,13 +563,16 @@ async fn parse_blocks(
         .join("\n\n");
 
     let rendered_block = cx
-        .new_window_entity(|_window, cx| {
+        .new_window_entity(|window, cx| {
             Markdown::new(
                 combined_text.into(),
+                hover_markdown_style(window, cx),
                 Some(language_registry.clone()),
                 fallback_language_name,
                 cx,
             )
+            .copy_code_block_buttons(false)
+            .open_url(open_markdown_url)
         })
         .ok();
 
@@ -677,7 +704,6 @@ impl HoverState {
         snapshot: &EditorSnapshot,
         visible_rows: Range<DisplayRow>,
         max_size: Size<Pixels>,
-        window: &mut Window,
         cx: &mut Context<Editor>,
     ) -> Option<(DisplayPoint, Vec<AnyElement>)> {
         // If there is a diagnostic, position the popovers based on that.
@@ -712,10 +738,10 @@ impl HoverState {
         let mut elements = Vec::new();
 
         if let Some(diagnostic_popover) = self.diagnostic_popover.as_ref() {
-            elements.push(diagnostic_popover.render(max_size, window, cx));
+            elements.push(diagnostic_popover.render(max_size, cx));
         }
         for info_popover in &mut self.info_popovers {
-            elements.push(info_popover.render(max_size, window, cx));
+            elements.push(info_popover.render(max_size, cx));
         }
 
         Some((point, elements))
@@ -755,7 +781,6 @@ impl InfoPopover {
     pub(crate) fn render(
         &mut self,
         max_size: Size<Pixels>,
-        window: &mut Window,
         cx: &mut Context<Editor>,
     ) -> AnyElement {
         let keyboard_grace = Rc::clone(&self.keyboard_grace);
@@ -781,16 +806,7 @@ impl InfoPopover {
                         .max_h(max_size.height)
                         .p_2()
                         .track_scroll(&self.scroll_handle)
-                        .child(
-                            MarkdownElement::new(
-                                markdown.clone(),
-                                hover_markdown_style(window, cx),
-                            )
-                            .code_block_renderer(markdown::CodeBlockRenderer::Default {
-                                copy_button: false,
-                            })
-                            .on_url_click(open_markdown_url),
-                        ),
+                        .child(markdown.clone()),
                 )
                 .child(self.render_vertical_scrollbar(cx));
         }
@@ -852,46 +868,11 @@ pub struct DiagnosticPopover {
 }
 
 impl DiagnosticPopover {
-    pub fn render(
-        &self,
-        max_size: Size<Pixels>,
-        window: &mut Window,
-        cx: &mut Context<Editor>,
-    ) -> AnyElement {
+    pub fn render(&self, max_size: Size<Pixels>, cx: &mut Context<Editor>) -> AnyElement {
         let keyboard_grace = Rc::clone(&self.keyboard_grace);
         let mut markdown_div = div().py_1().px_2();
         if let Some(markdown) = &self.parsed_content {
-            let settings = ThemeSettings::get_global(cx);
-            let mut base_text_style = window.text_style();
-            base_text_style.refine(&TextStyleRefinement {
-                font_family: Some(settings.ui_font.family.clone()),
-                font_fallbacks: settings.ui_font.fallbacks.clone(),
-                font_size: Some(settings.ui_font_size(cx).into()),
-                color: Some(cx.theme().colors().editor_foreground),
-                background_color: Some(gpui::transparent_black()),
-                ..Default::default()
-            });
-            let markdown_style = MarkdownStyle {
-                base_text_style,
-                selection_background_color: { cx.theme().players().local().selection },
-                link: TextStyleRefinement {
-                    underline: Some(gpui::UnderlineStyle {
-                        thickness: px(1.),
-                        color: Some(cx.theme().colors().editor_foreground),
-                        wavy: false,
-                    }),
-                    ..Default::default()
-                },
-                ..Default::default()
-            };
-
-            markdown_div = markdown_div.child(
-                MarkdownElement::new(markdown.clone(), markdown_style)
-                    .code_block_renderer(markdown::CodeBlockRenderer::Default {
-                        copy_button: false,
-                    })
-                    .on_url_click(open_markdown_url),
-            );
+            markdown_div = markdown_div.child(markdown.clone());
         }
 
         if let Some(background_color) = &self.background_color {
@@ -937,17 +918,17 @@ impl DiagnosticPopover {
 mod tests {
     use super::*;
     use crate::{
-        InlayId, PointForPosition,
         actions::ConfirmCompletion,
         editor_tests::{handle_completion_request, init_test},
         hover_links::update_inlay_link_and_hover_points,
         inlay_hint_cache::tests::{cached_hint_labels, visible_hint_labels},
         test::editor_lsp_test_context::EditorLspTestContext,
+        InlayId, PointForPosition,
     };
     use collections::BTreeSet;
     use gpui::App;
     use indoc::indoc;
-    use language::{Diagnostic, DiagnosticSet, language_settings::InlayHintSettings};
+    use language::{language_settings::InlayHintSettings, Diagnostic, DiagnosticSet};
     use lsp::LanguageServerId;
     use markdown::parser::MarkdownEvent;
     use smol::stream::StreamExt;
@@ -970,10 +951,8 @@ mod tests {
 
                 for (range, event) in slice.iter() {
                     match event {
-                        MarkdownEvent::SubstitutedText(parsed) => rendered_text.push_str(parsed),
-                        MarkdownEvent::Text | MarkdownEvent::Code => {
-                            rendered_text.push_str(&text[range.clone()])
-                        }
+                        MarkdownEvent::Text(parsed) => rendered_text.push_str(parsed),
+                        MarkdownEvent::Code => rendered_text.push_str(&text[range.clone()]),
                         _ => {}
                     }
                 }

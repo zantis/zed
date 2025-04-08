@@ -11,8 +11,8 @@ use gpui::{Context, Entity, Render, Subscription, Task, TextStyle, WeakEntity};
 use language::{Buffer, CodeLabel};
 use menu::Confirm;
 use project::{
-    Completion,
     debugger::session::{CompletionsQuery, OutputToken, Session},
+    Completion,
 };
 use settings::Settings;
 use std::{cell::RefCell, rc::Rc, usize};
@@ -85,9 +85,14 @@ impl Console {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn editor(&self) -> &Entity<Editor> {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn editor(&self) -> &Entity<Editor> {
         &self.console
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn query_bar(&self) -> &Entity<Editor> {
+        &self.query_bar
     }
 
     fn is_local(&self, cx: &Context<Self>) -> bool {
@@ -367,7 +372,6 @@ impl ConsoleQueryBarCompletionProvider {
                             documentation: None,
                             confirm: None,
                             source: project::CompletionSource::Custom,
-                            insert_text_mode: None,
                         })
                     })
                     .collect(),
@@ -410,7 +414,6 @@ impl ConsoleQueryBarCompletionProvider {
                         documentation: None,
                         confirm: None,
                         source: project::CompletionSource::Custom,
-                        insert_text_mode: None,
                     })
                     .collect(),
             ))

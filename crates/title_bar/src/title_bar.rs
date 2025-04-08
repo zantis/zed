@@ -20,9 +20,9 @@ use call::ActiveCall;
 use client::{Client, UserStore};
 use feature_flags::{FeatureFlagAppExt, ZedPro};
 use gpui::{
-    Action, AnyElement, App, Context, Corner, Decorations, Element, Entity, InteractiveElement,
-    Interactivity, IntoElement, MouseButton, ParentElement, Render, Stateful,
-    StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window, actions, div, px,
+    actions, div, px, Action, AnyElement, App, Context, Corner, Decorations, Element, Entity,
+    InteractiveElement, Interactivity, IntoElement, MouseButton, ParentElement, Render, Stateful,
+    StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window,
 };
 use onboarding_banner::OnboardingBanner;
 use project::Project;
@@ -32,11 +32,11 @@ use smallvec::SmallVec;
 use std::sync::Arc;
 use theme::ActiveTheme;
 use ui::{
-    Avatar, Button, ButtonLike, ButtonStyle, ContextMenu, Icon, IconName, IconSize,
-    IconWithIndicator, Indicator, PopoverMenu, Tooltip, h_flex, prelude::*,
+    h_flex, prelude::*, Avatar, Button, ButtonLike, ButtonStyle, ContextMenu, Icon, IconName,
+    IconSize, IconWithIndicator, Indicator, PopoverMenu, Tooltip,
 };
 use util::ResultExt;
-use workspace::{Workspace, notifications::NotifyResultExt};
+use workspace::{notifications::NotifyResultExt, Workspace};
 use zed_actions::{OpenBrowser, OpenRecent, OpenRemote};
 
 pub use onboarding_banner::restore_banner;
@@ -49,7 +49,16 @@ const MAX_BRANCH_NAME_LENGTH: usize = 40;
 
 const BOOK_ONBOARDING: &str = "https://dub.sh/zed-c-onboarding";
 
-actions!(collab, [ToggleUserMenu, ToggleProjectMenu, SwitchBranch]);
+actions!(
+    collab,
+    [
+        ShareProject,
+        UnshareProject,
+        ToggleUserMenu,
+        ToggleProjectMenu,
+        SwitchBranch
+    ]
+);
 
 pub fn init(cx: &mut App) {
     cx.observe_new(|workspace: &mut Workspace, window, cx| {
@@ -513,7 +522,7 @@ impl TitleBar {
     pub fn render_project_branch(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let repository = self.project.read(cx).active_repository(cx)?;
         let workspace = self.workspace.upgrade()?;
-        let branch_name = repository.read(cx).branch.as_ref()?.name.clone();
+        let branch_name = repository.read(cx).current_branch()?.name.clone();
         let branch_name = util::truncate_and_trailoff(&branch_name, MAX_BRANCH_NAME_LENGTH);
         Some(
             Button::new("project_branch_trigger", branch_name)
@@ -558,7 +567,7 @@ impl TitleBar {
         cx.notify();
     }
 
-    fn share_project(&mut self, cx: &mut Context<Self>) {
+    fn share_project(&mut self, _: &ShareProject, cx: &mut Context<Self>) {
         let active_call = ActiveCall::global(cx);
         let project = self.project.clone();
         active_call
@@ -566,7 +575,7 @@ impl TitleBar {
             .detach_and_log_err(cx);
     }
 
-    fn unshare_project(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+    fn unshare_project(&mut self, _: &UnshareProject, _: &mut Window, cx: &mut Context<Self>) {
         let active_call = ActiveCall::global(cx);
         let project = self.project.clone();
         active_call

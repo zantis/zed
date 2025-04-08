@@ -4,31 +4,29 @@
 use crate::headless_project::HeadlessProject;
 use client::{Client, UserStore};
 use clock::FakeSystemClock;
-use dap::DapRegistry;
 use extension::ExtensionHostProxy;
 use fs::{FakeFs, Fs};
 use gpui::{AppContext as _, Entity, SemanticVersion, TestAppContext};
 use http_client::{BlockedHttpClient, FakeHttpClient};
 use language::{
+    language_settings::{language_settings, AllLanguageSettings},
     Buffer, FakeLspAdapter, LanguageConfig, LanguageMatcher, LanguageRegistry, LineEnding,
-    language_settings::{AllLanguageSettings, language_settings},
 };
 use lsp::{CompletionContext, CompletionResponse, CompletionTriggerKind, LanguageServerName};
 use node_runtime::NodeRuntime;
 use project::{
-    Project, ProjectPath,
     search::{SearchQuery, SearchResult},
+    Project, ProjectPath,
 };
 use remote::SshRemoteClient;
 use serde_json::json;
-use settings::{Settings, SettingsLocation, SettingsStore, initial_server_settings_content};
+use settings::{initial_server_settings_content, Settings, SettingsLocation, SettingsStore};
 use smol::stream::StreamExt;
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
     sync::Arc,
 };
-#[cfg(not(windows))]
 use unindent::Unindent as _;
 use util::{path, separator};
 
@@ -1204,8 +1202,6 @@ async fn test_remote_rename_entry(cx: &mut TestAppContext, server_cx: &mut TestA
     });
 }
 
-// TODO: this test fails on Windows.
-#[cfg(not(windows))]
 #[gpui::test]
 async fn test_remote_git_diffs(cx: &mut TestAppContext, server_cx: &mut TestAppContext) {
     let text_2 = "
@@ -1366,14 +1362,10 @@ async fn test_remote_git_branches(cx: &mut TestAppContext, server_cx: &mut TestA
 
     assert_eq!(&remote_branches, &branches_set);
 
-    cx.update(|cx| {
-        repository.update(cx, |repository, _cx| {
-            repository.change_branch(new_branch.to_string())
-        })
-    })
-    .await
-    .unwrap()
-    .unwrap();
+    cx.update(|cx| repository.read(cx).change_branch(new_branch.to_string()))
+        .await
+        .unwrap()
+        .unwrap();
 
     cx.run_until_parked();
 
@@ -1386,8 +1378,7 @@ async fn test_remote_git_branches(cx: &mut TestAppContext, server_cx: &mut TestA
                     .next()
                     .unwrap()
                     .read(cx)
-                    .branch
-                    .as_ref()
+                    .current_branch()
                     .unwrap()
                     .clone()
             })
@@ -1398,18 +1389,18 @@ async fn test_remote_git_branches(cx: &mut TestAppContext, server_cx: &mut TestA
 
     // Also try creating a new branch
     cx.update(|cx| {
-        repository.update(cx, |repo, _cx| {
-            repo.create_branch("totally-new-branch".to_string())
-        })
+        repository
+            .read(cx)
+            .create_branch("totally-new-branch".to_string())
     })
     .await
     .unwrap()
     .unwrap();
 
     cx.update(|cx| {
-        repository.update(cx, |repo, _cx| {
-            repo.change_branch("totally-new-branch".to_string())
-        })
+        repository
+            .read(cx)
+            .change_branch("totally-new-branch".to_string())
     })
     .await
     .unwrap()
@@ -1426,8 +1417,7 @@ async fn test_remote_git_branches(cx: &mut TestAppContext, server_cx: &mut TestA
                     .next()
                     .unwrap()
                     .read(cx)
-                    .branch
-                    .as_ref()
+                    .current_branch()
                     .unwrap()
                     .clone()
             })
@@ -1455,7 +1445,6 @@ pub async fn init_test(
     let http_client = Arc::new(BlockedHttpClient);
     let node_runtime = NodeRuntime::unavailable();
     let languages = Arc::new(LanguageRegistry::new(cx.executor()));
-    let debug_adapters = DapRegistry::default().into();
     let proxy = Arc::new(ExtensionHostProxy::new());
     server_cx.update(HeadlessProject::init);
     let headless = server_cx.new(|cx| {
@@ -1468,7 +1457,6 @@ pub async fn init_test(
                 http_client,
                 node_runtime,
                 languages,
-                debug_adapters,
                 extension_host_proxy: proxy,
             },
             cx,

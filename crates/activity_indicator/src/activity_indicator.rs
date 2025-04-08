@@ -3,29 +3,20 @@ use editor::Editor;
 use extension_host::ExtensionStore;
 use futures::StreamExt;
 use gpui::{
-    Animation, AnimationExt as _, App, Context, CursorStyle, Entity, EventEmitter,
-    InteractiveElement as _, ParentElement as _, Render, SharedString, StatefulInteractiveElement,
-    Styled, Transformation, Window, actions, percentage,
+    actions, percentage, Animation, AnimationExt as _, App, Context, CursorStyle, Entity,
+    EventEmitter, InteractiveElement as _, ParentElement as _, Render, SharedString,
+    StatefulInteractiveElement, Styled, Transformation, Window,
 };
 use language::{BinaryStatus, LanguageRegistry, LanguageServerId};
 use project::{
     EnvironmentErrorMessage, LanguageServerProgress, LspStoreEvent, Project,
-    ProjectEnvironmentEvent,
-    git_store::{GitStoreEvent, Repository},
+    ProjectEnvironmentEvent, WorktreeId,
 };
 use smallvec::SmallVec;
-use std::{
-    cmp::Reverse,
-    fmt::Write,
-    path::Path,
-    sync::Arc,
-    time::{Duration, Instant},
-};
-use ui::{ButtonLike, ContextMenu, PopoverMenu, PopoverMenuHandle, Tooltip, prelude::*};
+use std::{cmp::Reverse, fmt::Write, sync::Arc, time::Duration};
+use ui::{prelude::*, ButtonLike, ContextMenu, PopoverMenu, PopoverMenuHandle, Tooltip};
 use util::truncate_and_trailoff;
-use workspace::{StatusItemView, Workspace, item::ItemHandle};
-
-const GIT_OPERATION_DELAY: Duration = Duration::from_millis(0);
+use workspace::{item::ItemHandle, StatusItemView, Workspace};
 
 actions!(activity_indicator, [ShowErrorMessage]);
 
@@ -110,15 +101,6 @@ impl ActivityIndicator {
                 &project.read(cx).environment().clone(),
                 |_, _, event, cx| match event {
                     ProjectEnvironmentEvent::ErrorsUpdated => cx.notify(),
-                },
-            )
-            .detach();
-
-            cx.subscribe(
-                &project.read(cx).git_store().clone(),
-                |_, _, event: &GitStoreEvent, cx| match event {
-                    project::git_store::GitStoreEvent::JobsUpdated => cx.notify(),
-                    _ => {}
                 },
             )
             .detach();
@@ -236,14 +218,13 @@ impl ActivityIndicator {
     fn pending_environment_errors<'a>(
         &'a self,
         cx: &'a App,
-    ) -> impl Iterator<Item = (&'a Arc<Path>, &'a EnvironmentErrorMessage)> {
+    ) -> impl Iterator<Item = (&'a WorktreeId, &'a EnvironmentErrorMessage)> {
         self.project.read(cx).shell_environment_errors(cx)
     }
 
     fn content_to_render(&mut self, cx: &mut Context<Self>) -> Option<Content> {
         // Show if any direnv calls failed
-        if let Some((abs_path, error)) = self.pending_environment_errors(cx).next() {
-            let abs_path = abs_path.clone();
+        if let Some((&worktree_id, error)) = self.pending_environment_errors(cx).next() {
             return Some(Content {
                 icon: Some(
                     Icon::new(IconName::Warning)
@@ -253,7 +234,7 @@ impl ActivityIndicator {
                 message: error.0.clone(),
                 on_click: Some(Arc::new(move |this, window, cx| {
                     this.project.update(cx, |project, cx| {
-                        project.remove_environment_error(&abs_path, cx);
+                        project.remove_environment_error(worktree_id, cx);
                     });
                     window.dispatch_action(Box::new(workspace::OpenLog), cx);
                 })),
@@ -301,34 +282,6 @@ impl ActivityIndicator {
                 message,
                 on_click: Some(Arc::new(Self::toggle_language_server_work_context_menu)),
             });
-        }
-
-        let current_job = self
-            .project
-            .read(cx)
-            .active_repository(cx)
-            .map(|r| r.read(cx))
-            .and_then(Repository::current_job);
-        // Show any long-running git command
-        if let Some(job_info) = current_job {
-            if Instant::now() - job_info.start >= GIT_OPERATION_DELAY {
-                return Some(Content {
-                    icon: Some(
-                        Icon::new(IconName::ArrowCircle)
-                            .size(IconSize::Small)
-                            .with_animation(
-                                "arrow-circle",
-                                Animation::new(Duration::from_secs(2)).repeat(),
-                                |icon, delta| {
-                                    icon.transform(Transformation::rotate(percentage(delta)))
-                                },
-                            )
-                            .into_any_element(),
-                    ),
-                    message: job_info.message.into(),
-                    on_click: None,
-                });
-            }
         }
 
         // Show any language server installation info.

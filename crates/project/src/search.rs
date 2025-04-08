@@ -15,7 +15,6 @@ use std::{
 use text::Anchor;
 use util::paths::PathMatcher;
 
-#[derive(Debug)]
 pub enum SearchResult {
     Buffer {
         buffer: Entity<Buffer>,

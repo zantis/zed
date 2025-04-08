@@ -1,14 +1,14 @@
 use crate::{
-    Vim,
-    motion::{self, Motion, MotionKind},
+    motion::{self, Motion},
     object::Object,
     state::Mode,
+    Vim,
 };
 use editor::{
-    Bias, DisplayPoint,
     display_map::{DisplaySnapshot, ToDisplayPoint},
     movement::TextLayoutDetails,
     scroll::Autoscroll,
+    Bias, DisplayPoint,
 };
 use gpui::{Context, Window};
 use language::Selection;
@@ -22,18 +22,14 @@ impl Vim {
         cx: &mut Context<Self>,
     ) {
         // Some motions ignore failure when switching to normal mode
-        let mut motion_kind = if matches!(
+        let mut motion_succeeded = matches!(
             motion,
             Motion::Left
                 | Motion::Right
                 | Motion::EndOfLine { .. }
                 | Motion::WrappingLeft
                 | Motion::StartOfLine { .. }
-        ) {
-            Some(MotionKind::Exclusive)
-        } else {
-            None
-        };
+        );
         self.update_editor(window, cx, |vim, editor, window, cx| {
             let text_layout_details = editor.text_layout_details(window);
             editor.transact(window, cx, |editor, window, cx| {
@@ -41,7 +37,7 @@ impl Vim {
                 editor.set_clip_at_line_ends(false, cx);
                 editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
                     s.move_with(|map, selection| {
-                        let kind = match motion {
+                        motion_succeeded |= match motion {
                             Motion::NextWordStart { ignore_punctuation }
                             | Motion::NextSubwordStart { ignore_punctuation } => {
                                 expand_changed_word_selection(
@@ -54,10 +50,11 @@ impl Vim {
                                 )
                             }
                             _ => {
-                                let kind = motion.expand_selection(
+                                let result = motion.expand_selection(
                                     map,
                                     selection,
                                     times,
+                                    false,
                                     &text_layout_details,
                                 );
                                 if let Motion::CurrentLine = motion {
@@ -74,23 +71,18 @@ impl Vim {
                                     }
                                     selection.start = start_offset.to_display_point(map);
                                 }
-                                kind
+                                result
                             }
-                        };
-                        if let Some(kind) = kind {
-                            motion_kind.get_or_insert(kind);
                         }
                     });
                 });
-                if let Some(kind) = motion_kind {
-                    vim.copy_selections_content(editor, kind, window, cx);
-                    editor.insert("", window, cx);
-                    editor.refresh_inline_completion(true, false, window, cx);
-                }
+                vim.copy_selections_content(editor, motion.linewise(), window, cx);
+                editor.insert("", window, cx);
+                editor.refresh_inline_completion(true, false, window, cx);
             });
         });
 
-        if motion_kind.is_some() {
+        if motion_succeeded {
             self.switch_mode(Mode::Insert, false, window, cx)
         } else {
             self.switch_mode(Mode::Normal, false, window, cx)
@@ -115,7 +107,7 @@ impl Vim {
                     });
                 });
                 if objects_found {
-                    vim.copy_selections_content(editor, MotionKind::Exclusive, window, cx);
+                    vim.copy_selections_content(editor, false, window, cx);
                     editor.insert("", window, cx);
                     editor.refresh_inline_completion(true, false, window, cx);
                 }
@@ -143,7 +135,7 @@ fn expand_changed_word_selection(
     ignore_punctuation: bool,
     text_layout_details: &TextLayoutDetails,
     use_subword: bool,
-) -> Option<MotionKind> {
+) -> bool {
     let is_in_word = || {
         let classifier = map
             .buffer_snapshot
@@ -174,14 +166,14 @@ fn expand_changed_word_selection(
                 selection.end = motion::next_char(map, selection.end, false);
             }
         }
-        Some(MotionKind::Inclusive)
+        true
     } else {
         let motion = if use_subword {
             Motion::NextSubwordStart { ignore_punctuation }
         } else {
             Motion::NextWordStart { ignore_punctuation }
         };
-        motion.expand_selection(map, selection, times, text_layout_details)
+        motion.expand_selection(map, selection, times, false, text_layout_details)
     }
 }
 

@@ -1,21 +1,21 @@
 use std::{
-    any::{TypeId, type_name},
+    any::{type_name, TypeId},
     cell::{Ref, RefCell, RefMut},
     marker::PhantomData,
     mem,
     ops::{Deref, DerefMut},
     path::{Path, PathBuf},
     rc::{Rc, Weak},
-    sync::{Arc, atomic::Ordering::SeqCst},
+    sync::{atomic::Ordering::SeqCst, Arc},
     time::Duration,
 };
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use derive_more::{Deref, DerefMut};
 use futures::{
-    Future, FutureExt,
     channel::oneshot,
     future::{LocalBoxFuture, Shared},
+    Future, FutureExt,
 };
 use parking_lot::RwLock;
 use slotmap::SlotMap;
@@ -30,14 +30,14 @@ pub use test_context::*;
 use util::ResultExt;
 
 use crate::{
-    Action, ActionBuildError, ActionRegistry, Any, AnyView, AnyWindowHandle, AppContext, Asset,
-    AssetSource, BackgroundExecutor, Bounds, ClipboardItem, DispatchPhase, DisplayId, EventEmitter,
-    FocusHandle, FocusMap, ForegroundExecutor, Global, KeyBinding, Keymap, Keystroke, LayoutId,
-    Menu, MenuItem, OwnedMenu, PathPromptOptions, Pixels, Platform, PlatformDisplay, Point,
-    PromptBuilder, PromptHandle, PromptLevel, Render, RenderablePromptHandle, Reservation,
-    ScreenCaptureSource, SharedString, SubscriberSet, Subscription, SvgRenderer, Task, TextSystem,
-    Window, WindowAppearance, WindowHandle, WindowId, WindowInvalidator, current_platform, hash,
-    init_app_menus,
+    current_platform, hash, init_app_menus, Action, ActionBuildError, ActionRegistry, Any, AnyView,
+    AnyWindowHandle, AppContext, Asset, AssetSource, BackgroundExecutor, Bounds, ClipboardItem,
+    DispatchPhase, DisplayId, EventEmitter, FocusHandle, FocusMap, ForegroundExecutor, Global,
+    KeyBinding, Keymap, Keystroke, LayoutId, Menu, MenuItem, OwnedMenu, PathPromptOptions, Pixels,
+    Platform, PlatformDisplay, Point, PromptBuilder, PromptHandle, PromptLevel, Render,
+    RenderablePromptHandle, Reservation, ScreenCaptureSource, SharedString, SubscriberSet,
+    Subscription, SvgRenderer, Task, TextSystem, Window, WindowAppearance, WindowHandle, WindowId,
+    WindowInvalidator,
 };
 
 mod async_context;
@@ -648,11 +648,6 @@ impl App {
     /// Returns the primary display that will be used for new windows.
     pub fn primary_display(&self) -> Option<Rc<dyn PlatformDisplay>> {
         self.platform.primary_display()
-    }
-
-    /// Returns whether `screen_capture_sources` may work.
-    pub fn is_screen_capture_supported(&self) -> bool {
-        self.platform.is_screen_capture_supported()
     }
 
     /// Returns a list of available screen capture sources.
@@ -1352,7 +1347,7 @@ impl App {
     /// Get all non-internal actions that have been registered, along with their schemas.
     pub fn action_schemas(
         &self,
-        generator: &mut schemars::r#gen::SchemaGenerator,
+        generator: &mut schemars::gen::SchemaGenerator,
     ) -> Vec<(SharedString, Option<schemars::schema::Schema>)> {
         self.actions.action_schemas(generator)
     }
@@ -1518,15 +1513,15 @@ impl App {
     pub fn set_prompt_builder(
         &mut self,
         renderer: impl Fn(
-            PromptLevel,
-            &str,
-            Option<&str>,
-            &[&str],
-            PromptHandle,
-            &mut Window,
-            &mut App,
-        ) -> RenderablePromptHandle
-        + 'static,
+                PromptLevel,
+                &str,
+                Option<&str>,
+                &[&str],
+                PromptHandle,
+                &mut Window,
+                &mut App,
+            ) -> RenderablePromptHandle
+            + 'static,
     ) {
         self.prompt_builder = Some(PromptBuilder::Custom(Box::new(renderer)))
     }
@@ -1614,7 +1609,10 @@ impl AppContext for App {
     ///
     /// The given function will be invoked with a [`Context`] and must return an object representing the entity. An
     /// [`Entity`] handle will be returned, which can be used to access the entity in a context.
-    fn new<T: 'static>(&mut self, build_entity: impl FnOnce(&mut Context<T>) -> T) -> Entity<T> {
+    fn new<T: 'static>(
+        &mut self,
+        build_entity: impl FnOnce(&mut Context<'_, T>) -> T,
+    ) -> Entity<T> {
         self.update(|cx| {
             let slot = cx.entities.reserve();
             let handle = slot.clone();
@@ -1638,7 +1636,7 @@ impl AppContext for App {
     fn insert_entity<T: 'static>(
         &mut self,
         reservation: Reservation<T>,
-        build_entity: impl FnOnce(&mut Context<T>) -> T,
+        build_entity: impl FnOnce(&mut Context<'_, T>) -> T,
     ) -> Self::Result<Entity<T>> {
         self.update(|cx| {
             let slot = reservation.0;
@@ -1652,7 +1650,7 @@ impl AppContext for App {
     fn update_entity<T: 'static, R>(
         &mut self,
         handle: &Entity<T>,
-        update: impl FnOnce(&mut T, &mut Context<T>) -> R,
+        update: impl FnOnce(&mut T, &mut Context<'_, T>) -> R,
     ) -> R {
         self.update(|cx| {
             let mut entity = cx.entities.lease(handle);

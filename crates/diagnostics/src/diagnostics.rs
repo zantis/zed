@@ -7,22 +7,23 @@ mod diagnostics_tests;
 use anyhow::Result;
 use collections::{BTreeSet, HashSet};
 use editor::{
-    Editor, EditorEvent, ExcerptId, ExcerptRange, MultiBuffer, ToOffset, diagnostic_block_renderer,
+    diagnostic_block_renderer,
     display_map::{BlockPlacement, BlockProperties, BlockStyle, CustomBlockId, RenderBlock},
     highlight_diagnostic_message,
     scroll::Autoscroll,
+    Editor, EditorEvent, ExcerptId, ExcerptRange, MultiBuffer, ToOffset,
 };
 use gpui::{
-    AnyElement, AnyView, App, AsyncApp, Context, Entity, EventEmitter, FocusHandle, Focusable,
-    Global, HighlightStyle, InteractiveElement, IntoElement, ParentElement, Render, SharedString,
-    Styled, StyledText, Subscription, Task, WeakEntity, Window, actions, div, svg,
+    actions, div, svg, AnyElement, AnyView, App, AsyncApp, Context, Entity, EventEmitter,
+    FocusHandle, Focusable, Global, HighlightStyle, InteractiveElement, IntoElement, ParentElement,
+    Render, SharedString, Styled, StyledText, Subscription, Task, WeakEntity, Window,
 };
 use language::{
     Bias, Buffer, BufferRow, BufferSnapshot, Diagnostic, DiagnosticEntry, DiagnosticSeverity,
     Point, Selection, SelectionGoal, ToTreeSitterPoint,
 };
 use lsp::LanguageServerId;
-use project::{DiagnosticSummary, Project, ProjectPath, project_settings::ProjectSettings};
+use project::{project_settings::ProjectSettings, DiagnosticSummary, Project, ProjectPath};
 use settings::Settings;
 use std::{
     any::{Any, TypeId},
@@ -35,12 +36,12 @@ use std::{
 };
 use theme::ActiveTheme;
 pub use toolbar_controls::ToolbarControls;
-use ui::{Icon, IconName, Label, h_flex, prelude::*};
+use ui::{h_flex, prelude::*, Icon, IconName, Label};
 use util::ResultExt;
 use workspace::{
-    ItemNavHistory, ToolbarItemLocation, Workspace,
     item::{BreadcrumbText, Item, ItemEvent, ItemHandle, TabContentParams},
     searchable::SearchableItemHandle,
+    ItemNavHistory, ToolbarItemLocation, Workspace,
 };
 
 actions!(diagnostics, [Deploy, ToggleWarnings]);
@@ -513,7 +514,7 @@ impl ProjectDiagnosticsEditor {
                                         buffer.clone(),
                                         [ExcerptRange {
                                             context: context_range.clone(),
-                                            primary: range.clone(),
+                                            primary: Some(range.clone()),
                                         }],
                                         cx,
                                     )
@@ -535,7 +536,7 @@ impl ProjectDiagnosticsEditor {
                                 group_state.block_count += 1;
                                 blocks_to_add.push(BlockProperties {
                                     placement: BlockPlacement::Above(header_position),
-                                    height: Some(2),
+                                    height: 2,
                                     style: BlockStyle::Sticky,
                                     render: diagnostic_header_renderer(primary),
                                     priority: 0,
@@ -557,9 +558,7 @@ impl ProjectDiagnosticsEditor {
                                             excerpt_id,
                                             entry.range.start,
                                         )),
-                                        height: Some(
-                                            diagnostic.message.matches('\n').count() as u32 + 1,
-                                        ),
+                                        height: diagnostic.message.matches('\n').count() as u32 + 1,
                                         style: BlockStyle::Fixed,
                                         render: diagnostic_block_renderer(diagnostic, None, true),
                                         priority: 0,
@@ -615,9 +614,9 @@ impl ProjectDiagnosticsEditor {
                                     excerpts_snapshot.anchor_in_excerpt(excerpt_id, text_anchor)?,
                                 )
                             }
-                            BlockPlacement::Replace(_) | BlockPlacement::Near(_) => {
+                            BlockPlacement::Replace(_) => {
                                 unreachable!(
-                                    "no Near/Replace block should have been pushed to blocks_to_add"
+                                    "no Replace block should have been pushed to blocks_to_add"
                                 )
                             }
                         };

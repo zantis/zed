@@ -1,4 +1,4 @@
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{anyhow, Context as _, Result};
 use collections::HashMap;
 use gpui::{Context, Entity, Window};
 use multi_buffer::{MultiBuffer, ToOffset};
@@ -817,17 +817,26 @@ mod jsx_tag_autoclose_tests {
             let mut buf = MultiBuffer::new(language::Capability::ReadWrite);
             buf.push_excerpts(
                 buffer_a,
-                [ExcerptRange::new(text::Anchor::MIN..text::Anchor::MAX)],
+                [ExcerptRange {
+                    context: text::Anchor::MIN..text::Anchor::MAX,
+                    primary: None,
+                }],
                 cx,
             );
             buf.push_excerpts(
                 buffer_b,
-                [ExcerptRange::new(text::Anchor::MIN..text::Anchor::MAX)],
+                [ExcerptRange {
+                    context: text::Anchor::MIN..text::Anchor::MAX,
+                    primary: None,
+                }],
                 cx,
             );
             buf.push_excerpts(
                 buffer_c,
-                [ExcerptRange::new(text::Anchor::MIN..text::Anchor::MAX)],
+                [ExcerptRange {
+                    context: text::Anchor::MIN..text::Anchor::MAX,
+                    primary: None,
+                }],
                 cx,
             );
             buf

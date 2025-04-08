@@ -3,12 +3,12 @@ use crate::{
     embedding::{Embedding, EmbeddingProvider, TextToEmbed},
     indexing::{IndexingEntryHandle, IndexingEntrySet},
 };
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{anyhow, Context as _, Result};
 use collections::Bound;
 use feature_flags::FeatureFlagAppExt;
 use fs::Fs;
 use fs::MTime;
-use futures::{FutureExt as _, stream::StreamExt};
+use futures::{stream::StreamExt, FutureExt as _};
 use futures_batch::ChunksTimeoutStreamExt;
 use gpui::{App, AppContext as _, Entity, Task};
 use heed::types::{SerdeBincode, Str};
@@ -56,10 +56,7 @@ impl EmbeddingIndex {
         &self.db
     }
 
-    pub fn index_entries_changed_on_disk(
-        &self,
-        cx: &App,
-    ) -> impl Future<Output = Result<()>> + use<> {
+    pub fn index_entries_changed_on_disk(&self, cx: &App) -> impl Future<Output = Result<()>> {
         if !cx.is_staff() {
             return async move { Ok(()) }.boxed();
         }
@@ -81,7 +78,7 @@ impl EmbeddingIndex {
         &self,
         updated_entries: UpdatedEntriesSet,
         cx: &App,
-    ) -> impl Future<Output = Result<()>> + use<> {
+    ) -> impl Future<Output = Result<()>> {
         if !cx.is_staff() {
             return async move { Ok(()) }.boxed();
         }

@@ -183,24 +183,12 @@ pub mod icon_theme_selector {
     impl_actions!(icon_theme_selector, [Toggle]);
 }
 
-pub mod agent {
-    use gpui::actions;
-
-    actions!(agent, [OpenConfiguration]);
-}
-
 pub mod assistant {
-    use gpui::{action_with_deprecated_aliases, actions, impl_actions};
+    use gpui::{actions, impl_actions};
     use schemars::JsonSchema;
     use serde::Deserialize;
 
-    actions!(assistant, [ToggleFocus, ShowConfiguration]);
-
-    action_with_deprecated_aliases!(
-        assistant,
-        OpenPromptLibrary,
-        ["assistant::DeployPromptLibrary"]
-    );
+    actions!(assistant, [ToggleFocus, OpenPromptLibrary]);
 
     #[derive(Clone, Default, Deserialize, PartialEq, JsonSchema)]
     #[serde(deny_unknown_fields)]
@@ -239,12 +227,6 @@ pub enum Spawn {
     /// Spawns a task by the name given.
     ByName {
         task_name: String,
-        #[serde(default)]
-        reveal_target: Option<RevealTarget>,
-    },
-    /// Spawns a task by the name given.
-    ByTag {
-        task_tag: String,
         #[serde(default)]
         reveal_target: Option<RevealTarget>,
     },
@@ -293,7 +275,7 @@ impl_actions!(task, [Spawn, Rerun]);
 pub mod outline {
     use std::sync::OnceLock;
 
-    use gpui::{AnyView, App, Window, action_as};
+    use gpui::{action_as, AnyView, App, Window};
 
     action_as!(outline, ToggleOutline as Toggle);
     /// A pointer to outline::toggle function, exposed here to sewer the breadcrumbs <-> outline dependency.

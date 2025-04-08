@@ -1,16 +1,16 @@
-use anyhow::{Context, bail};
-use collections::{HashMap, HashSet};
-use schemars::{JsonSchema, r#gen::SchemaSettings};
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use util::serde::default_true;
-use util::{ResultExt, truncate_and_remove_front};
+
+use anyhow::{bail, Context};
+use collections::{HashMap, HashSet};
+use schemars::{gen::SchemaSettings, JsonSchema};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use util::{truncate_and_remove_front, ResultExt};
 
 use crate::{
-    AttachConfig, ResolvedTask, RevealTarget, Shell, SpawnInTerminal, TCPHost, TaskContext, TaskId,
-    VariableName, ZED_VARIABLE_NAME_PREFIX,
-    serde_helpers::{non_empty_string_vec, non_empty_string_vec_json_schema},
+    debug_format::DebugAdapterConfig, ResolvedTask, RevealTarget, Shell, SpawnInTerminal,
+    TaskContext, TaskId, VariableName, ZED_VARIABLE_NAME_PREFIX,
 };
 
 /// A template definition of a Zed task to run.
@@ -61,10 +61,8 @@ pub struct TaskTemplate {
     /// If this task should start a debugger or not
     #[serde(default, skip)]
     pub task_type: TaskType,
-    /// Represents the tags which this template attaches to.
-    /// Adding this removes this task from other UI and gives you ability to run it by tag.
-    #[serde(default, deserialize_with = "non_empty_string_vec")]
-    #[schemars(schema_with = "non_empty_string_vec_json_schema")]
+    /// Represents the tags which this template attaches to. Adding this removes this task from other UI.
+    #[serde(default)]
     pub tags: Vec<String>,
     /// Which shell to use when spawning the task.
     #[serde(default)]
@@ -77,41 +75,61 @@ pub struct TaskTemplate {
     pub show_command: bool,
 }
 
-#[derive(Deserialize, Eq, PartialEq, Clone, Debug)]
-/// Use to represent debug request type
-pub enum DebugArgsRequest {
-    /// launch (program, cwd) are stored in TaskTemplate as (command, cwd)
-    Launch,
-    /// Attach
-    Attach(AttachConfig),
-}
-
-#[derive(Deserialize, Eq, PartialEq, Clone, Debug)]
-/// This represents the arguments for the debug task.
-pub struct DebugArgs {
-    /// The launch type
-    pub request: DebugArgsRequest,
-    /// Adapter choice
-    pub adapter: String,
-    /// TCP connection to make with debug adapter
-    pub tcp_connection: Option<TCPHost>,
-    /// Args to send to debug adapter
-    pub initialize_args: Option<serde_json::value::Value>,
-    /// the locator to use
-    pub locator: Option<String>,
-    /// Whether to tell the debug adapter to stop on entry
-    pub stop_on_entry: Option<bool>,
-}
-
 /// Represents the type of task that is being ran
-#[derive(Default, Eq, PartialEq, Clone, Debug)]
-#[allow(clippy::large_enum_variant)]
+#[derive(Default, Deserialize, Serialize, Eq, PartialEq, JsonSchema, Clone, Debug)]
+#[serde(rename_all = "snake_case", tag = "type")]
+#[expect(clippy::large_enum_variant)]
 pub enum TaskType {
     /// Act like a typically task that runs commands
     #[default]
     Script,
     /// This task starts the debugger for a language
-    Debug(DebugArgs),
+    Debug(DebugAdapterConfig),
+}
+
+#[cfg(test)]
+mod deserialization_tests {
+    use crate::{DebugAdapterKind, TCPHost};
+
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn deserialize_task_type_script() {
+        let json = json!({"type": "script"});
+
+        let task_type: TaskType =
+            serde_json::from_value(json).expect("Failed to deserialize TaskType::Script");
+        assert_eq!(task_type, TaskType::Script);
+    }
+
+    #[test]
+    fn deserialize_task_type_debug() {
+        let adapter_config = DebugAdapterConfig {
+            label: "test config".into(),
+            kind: DebugAdapterKind::Python(TCPHost::default()),
+            request: crate::DebugRequestType::Launch,
+            program: Some("main".to_string()),
+            supports_attach: false,
+            cwd: None,
+            initialize_args: None,
+        };
+        let json = json!({
+            "label": "test config",
+            "type": "debug",
+            "adapter": "python",
+            "program": "main",
+            "supports_attach": false,
+        });
+
+        let task_type: TaskType =
+            serde_json::from_value(json).expect("Failed to deserialize TaskType::Debug");
+        if let TaskType::Debug(config) = task_type {
+            assert_eq!(config, adapter_config);
+        } else {
+            panic!("Expected TaskType::Debug");
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -251,6 +269,22 @@ impl TaskTemplate {
             &mut substituted_variables,
         )?;
 
+        let program = match &self.task_type {
+            TaskType::Script => None,
+            TaskType::Debug(adapter_config) => {
+                if let Some(program) = &adapter_config.program {
+                    Some(substitute_all_template_variables_in_str(
+                        program,
+                        &task_variables,
+                        &variable_names,
+                        &mut substituted_variables,
+                    )?)
+                } else {
+                    None
+                }
+            }
+        };
+
         let task_hash = to_hex_hash(self)
             .context("hashing task template")
             .log_err()?;
@@ -306,6 +340,7 @@ impl TaskTemplate {
                 reveal_target: self.reveal_target,
                 hide: self.hide,
                 shell: self.shell.clone(),
+                program,
                 show_summary: self.show_summary,
                 show_command: self.show_command,
                 show_rerun: true,
@@ -653,10 +688,7 @@ mod tests {
             );
             assert_eq!(
                 spawn_in_terminal.command_label,
-                format!(
-                    "{} arg1 test_selected_text arg2 5678 arg3 {long_value}",
-                    spawn_in_terminal.command
-                ),
+                format!("{} arg1 test_selected_text arg2 5678 arg3 {long_value}", spawn_in_terminal.command),
                 "Command label args should be substituted with variables and those should not be shortened"
             );
 
@@ -693,10 +725,7 @@ mod tests {
                     project_env: HashMap::default(),
                 },
             );
-            assert_eq!(
-                resolved_task_attempt, None,
-                "If any of the Zed task variables is not substituted, the task should not be resolved, but got some resolution without the variable {removed_variable:?} (index {i})"
-            );
+            assert_eq!(resolved_task_attempt, None, "If any of the Zed task variables is not substituted, the task should not be resolved, but got some resolution without the variable {removed_variable:?} (index {i})");
         }
     }
 
@@ -726,10 +755,9 @@ mod tests {
             args: vec!["$ZED_VARIABLE".into()],
             ..TaskTemplate::default()
         };
-        assert!(
-            task.resolve_task(TEST_ID_BASE, &TaskContext::default())
-                .is_none()
-        );
+        assert!(task
+            .resolve_task(TEST_ID_BASE, &TaskContext::default())
+            .is_none());
     }
 
     #[test]

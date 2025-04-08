@@ -1,14 +1,14 @@
 use crate::{
-    AnchorRangeExt, Autoscroll, DisplayPoint, Editor, MultiBuffer, RowExt,
-    display_map::ToDisplayPoint,
+    display_map::ToDisplayPoint, AnchorRangeExt, Autoscroll, DisplayPoint, Editor, MultiBuffer,
+    RowExt,
 };
 use buffer_diff::DiffHunkStatusKind;
 use collections::BTreeMap;
 use futures::Future;
 
 use gpui::{
-    AnyWindowHandle, App, Context, Entity, Focusable as _, Keystroke, Pixels, Point,
-    VisualTestContext, Window, WindowHandle, prelude::*,
+    prelude::*, AnyWindowHandle, App, Context, Entity, Focusable as _, Keystroke, Pixels, Point,
+    VisualTestContext, Window, WindowHandle,
 };
 use itertools::Itertools;
 use language::{Buffer, BufferSnapshot, LanguageRegistry};
@@ -20,8 +20,8 @@ use std::{
     ops::{Deref, DerefMut, Range},
     path::Path,
     sync::{
-        Arc,
         atomic::{AtomicUsize, Ordering},
+        Arc,
     },
 };
 use util::{
@@ -120,9 +120,10 @@ impl EditorTestContext {
                 let buffer = cx.new(|cx| Buffer::local(text, cx));
                 multibuffer.push_excerpts(
                     buffer,
-                    ranges
-                        .into_iter()
-                        .map(|range| ExcerptRange::new(range.clone())),
+                    ranges.into_iter().map(|range| ExcerptRange {
+                        context: range,
+                        primary: None,
+                    }),
                     cx,
                 );
             }
@@ -338,8 +339,7 @@ impl EditorTestContext {
         let mut found = None;
         fs.with_git_state(&Self::root_path().join(".git"), false, |git_state| {
             found = git_state.index_contents.get(path.as_ref()).cloned();
-        })
-        .unwrap();
+        });
         assert_eq!(expected, found.as_deref());
     }
 

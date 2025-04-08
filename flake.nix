@@ -26,30 +26,41 @@
         "aarch64-darwin"
       ];
 
-      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
-      mkZed =
-        pkgs:
-        let
-          rustBin = rust-overlay.lib.mkRustBin { } pkgs;
-        in
-        pkgs.callPackage ./nix/build.nix {
-          crane = crane.mkLib pkgs;
-          rustToolchain = rustBin.fromRustupToolchainFile ./rust-toolchain.toml;
+      overlays = {
+        rust-overlay = rust-overlay.overlays.default;
+        rust-toolchain = final: prev: {
+          rustToolchain = final.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
         };
+        zed-editor = final: prev: {
+          zed-editor = final.callPackage ./nix/build.nix {
+            crane = crane.mkLib final;
+            rustToolchain = final.rustToolchain;
+          };
+        };
+      };
+
+      mkPkgs =
+        system:
+        import nixpkgs {
+          inherit system;
+          overlays = builtins.attrValues overlays;
+        };
+
+      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f (mkPkgs system));
     in
-    rec {
-      packages = forAllSystems (pkgs: rec {
-        default = mkZed pkgs;
-        debug = default.override { profile = "dev"; };
+    {
+      packages = forAllSystems (pkgs: {
+        default = pkgs.zed-editor;
       });
+
       devShells = forAllSystems (pkgs: {
-        default = pkgs.callPackage ./nix/shell.nix {
-          zed-editor = packages.${pkgs.hostPlatform.system}.default;
-        };
+        default = pkgs.callPackage ./nix/shell.nix { };
       });
+
       formatter = forAllSystems (pkgs: pkgs.nixfmt-rfc-style);
-      overlays.default = final: _: {
-        zed-editor = mkZed final;
+
+      overlays = overlays // {
+        default = nixpkgs.lib.composeManyExtensions (builtins.attrValues overlays);
       };
     };
 

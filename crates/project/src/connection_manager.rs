@@ -91,7 +91,7 @@ impl Manager {
                         for (id, repository) in project.repositories(cx) {
                             repositories.push(proto::RejoinRepository {
                                 id: id.to_proto(),
-                                scan_id: repository.read(cx).scan_id,
+                                scan_id: repository.read(cx).completed_scan_id as u64,
                             });
                         }
                         for worktree in project.worktrees(cx) {

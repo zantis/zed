@@ -1,8 +1,8 @@
-use anyhow::{Context, anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use axum::{
-    Extension, Json, Router,
     extract::{self, Query},
     routing::{get, post},
+    Extension, Json, Router,
 };
 use chrono::{DateTime, SecondsFormat, Utc};
 use collections::HashSet;
@@ -24,16 +24,17 @@ use crate::api::events::SnowflakeRow;
 use crate::db::billing_subscription::{StripeCancellationReason, StripeSubscriptionStatus};
 use crate::llm::{DEFAULT_MAX_MONTHLY_SPEND, FREE_TIER_MONTHLY_SPENDING_LIMIT};
 use crate::rpc::{ResultExt as _, Server};
-use crate::{AppState, Cents, Error, Result};
 use crate::{db::UserId, llm::db::LlmDatabase};
 use crate::{
     db::{
-        BillingSubscriptionId, CreateBillingCustomerParams, CreateBillingSubscriptionParams,
-        CreateProcessedStripeEventParams, UpdateBillingCustomerParams,
-        UpdateBillingPreferencesParams, UpdateBillingSubscriptionParams, billing_customer,
+        billing_customer, BillingSubscriptionId, CreateBillingCustomerParams,
+        CreateBillingSubscriptionParams, CreateProcessedStripeEventParams,
+        UpdateBillingCustomerParams, UpdateBillingPreferencesParams,
+        UpdateBillingSubscriptionParams,
     },
     stripe_billing::StripeBilling,
 };
+use crate::{AppState, Cents, Error, Result};
 
 pub fn router() -> Router {
     Router::new()
@@ -127,7 +128,7 @@ async fn update_billing_preferences(
 
     SnowflakeRow::new(
         "Spend Limit Updated",
-        Some(user.metrics_id),
+        user.metrics_id,
         user.admin,
         None,
         json!({
@@ -533,9 +534,7 @@ async fn poll_stripe_events(
         if event_pages.page.has_more {
             if pages_of_already_processed_events >= NUMBER_OF_ALREADY_PROCESSED_PAGES_BEFORE_WE_STOP
             {
-                log::info!(
-                    "Stripe events: stopping, saw {pages_of_already_processed_events} pages of already-processed events"
-                );
+                log::info!("Stripe events: stopping, saw {pages_of_already_processed_events} pages of already-processed events");
                 break;
             } else {
                 log::info!("Stripe events: retrieving next page");

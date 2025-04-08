@@ -5,10 +5,10 @@ use crate::role::Role;
 use crate::{LanguageModelToolUse, LanguageModelToolUseId};
 use base64::write::EncoderWriter;
 use gpui::{
-    App, AppContext as _, DevicePixels, Image, ObjectFit, RenderImage, SharedString, Size, Task,
-    point, px, size,
+    point, px, size, App, AppContext as _, DevicePixels, Image, ObjectFit, RenderImage,
+    SharedString, Size, Task,
 };
-use image::{DynamicImage, ImageDecoder, codecs::png::PngEncoder, imageops::resize};
+use image::{codecs::png::PngEncoder, imageops::resize, DynamicImage, ImageDecoder};
 use serde::{Deserialize, Serialize};
 use util::ResultExt;
 
@@ -167,7 +167,6 @@ impl LanguageModelImage {
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub struct LanguageModelToolResult {
     pub tool_use_id: LanguageModelToolUseId,
-    pub tool_name: Arc<str>,
     pub is_error: bool,
     pub content: Arc<str>,
 }

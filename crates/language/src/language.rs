@@ -24,7 +24,7 @@ pub mod buffer_tests;
 
 pub use crate::language_settings::EditPredictionsMode;
 use crate::language_settings::SoftWrap;
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{anyhow, Context as _, Result};
 use async_trait::async_trait;
 use collections::{HashMap, HashSet};
 use fs::Fs;
@@ -38,11 +38,11 @@ pub use manifest::{ManifestName, ManifestProvider, ManifestQuery};
 use parking_lot::Mutex;
 use regex::Regex;
 use schemars::{
-    JsonSchema,
-    r#gen::SchemaGenerator,
+    gen::SchemaGenerator,
     schema::{InstanceType, Schema, SchemaObject},
+    JsonSchema,
 };
-use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use settings::WorktreeId;
 use smol::future::FutureExt as _;
@@ -57,18 +57,18 @@ use std::{
     pin::Pin,
     str,
     sync::{
-        Arc, LazyLock,
         atomic::{AtomicU64, AtomicUsize, Ordering::SeqCst},
+        Arc, LazyLock,
     },
 };
 use std::{num::NonZeroU32, sync::OnceLock};
 use syntax_map::{QueryCursorHandle, SyntaxSnapshot};
 use task::RunnableTag;
 pub use task_context::{ContextProvider, RunnableRange};
-pub use text_diff::{DiffOptions, line_diff, text_diff, text_diff_with_options, unified_diff};
+pub use text_diff::{line_diff, text_diff, text_diff_with_options, unified_diff, DiffOptions};
 use theme::SyntaxTheme;
 pub use toolchain::{LanguageToolchainStore, Toolchain, ToolchainList, ToolchainLister};
-use tree_sitter::{self, Query, QueryCursor, WasmStore, wasmtime};
+use tree_sitter::{self, wasmtime, Query, QueryCursor, WasmStore};
 use util::serde::default_true;
 
 pub use buffer::Operation;
@@ -598,9 +598,7 @@ pub trait LspAdapter: 'static + Send + Sync {
     /// Should not be called unless the callee is sure that
     /// `Self::is_primary_zed_json_schema_adapter` returns `true`
     async fn clear_zed_json_schema_cache(&self) {
-        unreachable!(
-            "Not implemented for this adapter. This method should only be called on the default JSON language server adapter"
-        );
+        unreachable!("Not implemented for this adapter. This method should only be called on the default JSON language server adapter");
     }
 }
 
@@ -933,8 +931,8 @@ impl BracketPairConfig {
     }
 }
 
-fn bracket_pair_config_json_schema(r#gen: &mut SchemaGenerator) -> Schema {
-    Option::<Vec<BracketPairContent>>::json_schema(r#gen)
+fn bracket_pair_config_json_schema(gen: &mut SchemaGenerator) -> Schema {
+    Option::<Vec<BracketPairContent>>::json_schema(gen)
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -1534,9 +1532,7 @@ impl Language {
                     .scope_opt_in_language_servers
                     .contains(server_name)
                 {
-                    util::debug_panic!(
-                        "Server {server_name:?} has been opted-in by scope {name:?} but has not been marked as an opt-in server"
-                    );
+                    util::debug_panic!("Server {server_name:?} has been opted-in by scope {name:?} but has not been marked as an opt-in server");
                 }
             }
 

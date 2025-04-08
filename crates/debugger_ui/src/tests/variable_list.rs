@@ -1,23 +1,22 @@
 use std::sync::{
-    Arc,
     atomic::{AtomicBool, Ordering},
+    Arc,
 };
 
 use crate::{
-    DebugPanel,
     session::running::variable_list::{CollapseSelectedEntry, ExpandSelectedEntry},
     tests::{active_debug_session_panel, init_test, init_test_workspace},
+    DebugPanel,
 };
 use collections::HashMap;
 use dap::{
-    Scope, StackFrame, Variable,
     requests::{Initialize, Launch, Scopes, StackTrace, Variables},
+    Scope, StackFrame, Variable,
 };
 use gpui::{BackgroundExecutor, TestAppContext, VisualTestContext};
 use menu::{SelectFirst, SelectNext, SelectPrevious};
 use project::{FakeFs, Project};
 use serde_json::json;
-use task::LaunchConfig;
 use unindent::Unindent as _;
 use util::path;
 
@@ -57,10 +56,8 @@ async fn test_basic_fetch_initial_scope_and_variables(
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.fake_debug_session(
-            dap::DebugRequestType::Launch(LaunchConfig::default()),
-            None,
-            false,
+        project.start_debug_session(
+            dap::test_config(dap::DebugRequestType::Launch, None, None),
             cx,
         )
     });
@@ -207,9 +204,7 @@ async fn test_basic_fetch_initial_scope_and_variables(
                 .expect("Session should be running by this point")
                 .clone()
         });
-    running_state.update_in(cx, |this, window, cx| {
-        this.activate_variable_list(window, cx);
-    });
+
     cx.run_until_parked();
 
     running_state.update(cx, |running_state, cx| {
@@ -224,6 +219,7 @@ async fn test_basic_fetch_initial_scope_and_variables(
         running_state
             .variable_list()
             .update(cx, |variable_list, _| {
+                assert_eq!(1, variable_list.scopes().len());
                 assert_eq!(scopes, variable_list.scopes());
                 assert_eq!(
                     vec![variables[0].clone(), variables[1].clone(),],
@@ -287,10 +283,8 @@ async fn test_fetch_variables_for_multiple_scopes(
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.fake_debug_session(
-            dap::DebugRequestType::Launch(LaunchConfig::default()),
-            None,
-            false,
+        project.start_debug_session(
+            dap::test_config(dap::DebugRequestType::Launch, None, None),
             cx,
         )
     });
@@ -481,9 +475,7 @@ async fn test_fetch_variables_for_multiple_scopes(
                 .expect("Session should be running by this point")
                 .clone()
         });
-    running_state.update_in(cx, |this, window, cx| {
-        this.activate_variable_list(window, cx);
-    });
+
     cx.run_until_parked();
 
     running_state.update(cx, |running_state, cx| {
@@ -570,10 +562,8 @@ async fn test_keyboard_navigation(executor: BackgroundExecutor, cx: &mut TestApp
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.fake_debug_session(
-            dap::DebugRequestType::Launch(LaunchConfig::default()),
-            None,
-            false,
+        project.start_debug_session(
+            dap::test_config(dap::DebugRequestType::Launch, None, None),
             cx,
         )
     });
@@ -800,11 +790,7 @@ async fn test_keyboard_navigation(executor: BackgroundExecutor, cx: &mut TestApp
             variable_list.update(cx, |_, cx| cx.focus_self(window));
             running
         });
-    running_state.update_in(cx, |this, window, cx| {
-        this.activate_variable_list(window, cx);
-    });
-    cx.run_until_parked();
-    cx.dispatch_action(SelectFirst);
+
     cx.dispatch_action(SelectFirst);
     cx.run_until_parked();
 
@@ -1376,10 +1362,8 @@ async fn test_variable_list_only_sends_requests_when_rendering(
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.fake_debug_session(
-            dap::DebugRequestType::Launch(LaunchConfig::default()),
-            None,
-            false,
+        project.start_debug_session(
+            dap::test_config(dap::DebugRequestType::Launch, None, None),
             cx,
         )
     });
@@ -1548,13 +1532,16 @@ async fn test_variable_list_only_sends_requests_when_rendering(
         })
         .await;
 
-    let running_state = active_debug_session_panel(workspace, cx).update_in(cx, |item, _, _| {
+    let running_state = active_debug_session_panel(workspace, cx).update_in(cx, |item, _, cx| {
         let state = item
             .mode()
             .as_running()
             .expect("Session should be running by this point")
             .clone();
 
+        state.update(cx, |state, cx| {
+            state.set_thread_item(crate::session::ThreadItem::Modules, cx)
+        });
         state
     });
 
@@ -1581,10 +1568,9 @@ async fn test_variable_list_only_sends_requests_when_rendering(
         assert!(!made_scopes_request.load(Ordering::SeqCst));
 
         cx.focus_self(window);
+        running_state.set_thread_item(crate::session::ThreadItem::Variables, cx);
     });
-    running_state.update_in(cx, |this, window, cx| {
-        this.activate_variable_list(window, cx);
-    });
+
     cx.run_until_parked();
 
     running_state.update(cx, |running_state, cx| {
@@ -1653,10 +1639,8 @@ async fn test_it_fetches_scopes_variables_when_you_select_a_stack_frame(
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.fake_debug_session(
-            dap::DebugRequestType::Launch(LaunchConfig::default()),
-            None,
-            false,
+        project.start_debug_session(
+            dap::test_config(dap::DebugRequestType::Launch, None, None),
             cx,
         )
     });
@@ -1898,9 +1882,7 @@ async fn test_it_fetches_scopes_variables_when_you_select_a_stack_frame(
                 .expect("Session should be running by this point")
                 .clone()
         });
-    running_state.update_in(cx, |this, window, cx| {
-        this.activate_variable_list(window, cx);
-    });
+
     cx.run_until_parked();
 
     running_state.update(cx, |running_state, cx| {

@@ -14,21 +14,20 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context as _, anyhow};
+use anyhow::{anyhow, Context as _};
 use async_task::Runnable;
-use calloop::{LoopSignal, channel::Channel};
+use calloop::{channel::Channel, LoopSignal};
 use futures::channel::oneshot;
 use util::ResultExt as _;
 #[cfg(any(feature = "wayland", feature = "x11"))]
 use xkbcommon::xkb::{self, Keycode, Keysym, State};
 
 use crate::{
-    Action, AnyWindowHandle, BackgroundExecutor, ClipboardItem, CursorStyle, DisplayId,
+    px, Action, AnyWindowHandle, BackgroundExecutor, ClipboardItem, CursorStyle, DisplayId,
     ForegroundExecutor, Keymap, LinuxDispatcher, Menu, MenuItem, OwnedMenu, PathPromptOptions,
     Pixels, Platform, PlatformDisplay, PlatformTextSystem, PlatformWindow, Point, Result,
-    ScreenCaptureSource, Task, WindowAppearance, WindowParams, px,
+    ScreenCaptureSource, Task, WindowAppearance, WindowParams,
 };
-
 #[cfg(any(feature = "wayland", feature = "x11"))]
 pub(crate) const SCROLL_LINES: f32 = 3.0;
 
@@ -51,10 +50,6 @@ pub trait LinuxClient {
     #[allow(unused)]
     fn display(&self, id: DisplayId) -> Option<Rc<dyn PlatformDisplay>>;
     fn primary_display(&self) -> Option<Rc<dyn PlatformDisplay>>;
-    fn is_screen_capture_supported(&self) -> bool;
-    fn screen_capture_sources(
-        &self,
-    ) -> oneshot::Receiver<Result<Vec<Box<dyn ScreenCaptureSource>>>>;
 
     fn open_window(
         &self,
@@ -235,14 +230,12 @@ impl<P: LinuxClient + 'static> Platform for P {
         self.displays()
     }
 
-    fn is_screen_capture_supported(&self) -> bool {
-        self.is_screen_capture_supported()
-    }
-
     fn screen_capture_sources(
         &self,
     ) -> oneshot::Receiver<Result<Vec<Box<dyn ScreenCaptureSource>>>> {
-        self.screen_capture_sources()
+        let (mut tx, rx) = oneshot::channel();
+        tx.send(Err(anyhow!("screen capture not implemented"))).ok();
+        rx
     }
 
     fn active_window(&self) -> Option<AnyWindowHandle> {
@@ -639,7 +632,7 @@ pub(super) fn get_xkb_compose_state(cx: &xkb::Context) -> Option<xkb::compose::S
 
 #[cfg(any(feature = "wayland", feature = "x11"))]
 pub(super) unsafe fn read_fd(mut fd: filedescriptor::FileDescriptor) -> Result<Vec<u8>> {
-    let mut file = unsafe { File::from_raw_fd(fd.as_raw_fd()) };
+    let mut file = File::from_raw_fd(fd.as_raw_fd());
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer)?;
     Ok(buffer)
@@ -859,7 +852,7 @@ impl crate::Modifiers {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Point, px};
+    use crate::{px, Point};
 
     #[test]
     fn test_is_within_click_distance() {

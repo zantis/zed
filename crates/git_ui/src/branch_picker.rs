@@ -1,18 +1,18 @@
-use anyhow::{Context as _, anyhow};
+use anyhow::{anyhow, Context as _};
 use fuzzy::StringMatchCandidate;
 
 use git::repository::Branch;
 use gpui::{
-    App, Context, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, Modifiers, ModifiersChangedEvent, ParentElement, Render, SharedString, Styled,
-    Subscription, Task, Window, rems,
+    rems, App, Context, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable,
+    InteractiveElement, IntoElement, Modifiers, ModifiersChangedEvent, ParentElement, Render,
+    SharedString, Styled, Subscription, Task, Window,
 };
 use picker::{Picker, PickerDelegate, PickerEditorPosition};
 use project::git_store::Repository;
 use std::sync::Arc;
 use time::OffsetDateTime;
 use time_format::format_local_timestamp;
-use ui::{HighlightedLabel, ListItem, ListItemSpacing, prelude::*};
+use ui::{prelude::*, HighlightedLabel, ListItem, ListItemSpacing};
 use util::ResultExt;
 use workspace::notifications::DetachAndPromptErr;
 use workspace::{ModalView, Workspace};
@@ -88,7 +88,7 @@ impl BranchList {
     ) -> Self {
         let all_branches_request = repository
             .clone()
-            .map(|repository| repository.update(cx, |repository, _| repository.branches()));
+            .map(|repository| repository.read(cx).branches());
 
         cx.spawn_in(window, async move |this, cx| {
             let mut all_branches = all_branches_request
@@ -202,15 +202,10 @@ impl BranchListDelegate {
             return;
         };
         cx.spawn(async move |_, cx| {
-            repo.update(cx, |repo, _| {
-                repo.create_branch(new_branch_name.to_string())
-            })?
-            .await??;
-            repo.update(cx, |repo, _| {
-                repo.change_branch(new_branch_name.to_string())
-            })?
-            .await??;
-
+            cx.update(|cx| repo.read(cx).create_branch(new_branch_name.to_string()))?
+                .await??;
+            cx.update(|cx| repo.read(cx).change_branch(new_branch_name.to_string()))?
+                .await??;
             Ok(())
         })
         .detach_and_prompt_err("Failed to create branch", window, cx, |e, _, _| {
@@ -341,7 +336,7 @@ impl PickerDelegate for BranchListDelegate {
 
         let current_branch = self.repo.as_ref().map(|repo| {
             repo.update(cx, |repo, _| {
-                repo.branch.as_ref().map(|branch| branch.name.clone())
+                repo.current_branch().map(|branch| branch.name.clone())
             })
         });
 
@@ -364,13 +359,11 @@ impl PickerDelegate for BranchListDelegate {
                         .ok_or_else(|| anyhow!("No active repository"))?
                         .clone();
 
-                    let mut cx = cx.to_async();
+                    let cx = cx.to_async();
 
                     anyhow::Ok(async move {
-                        repo.update(&mut cx, |repo, _| {
-                            repo.change_branch(branch.name.to_string())
-                        })?
-                        .await?
+                        cx.update(|cx| repo.read(cx).change_branch(branch.name.to_string()))?
+                            .await?
                     })
                 })??;
 
@@ -470,7 +463,7 @@ impl PickerDelegate for BranchListDelegate {
                                 let message = if entry.is_new {
                                     if let Some(current_branch) =
                                         self.repo.as_ref().and_then(|repo| {
-                                            repo.read(cx).branch.as_ref().map(|b| b.name.clone())
+                                            repo.read(cx).current_branch().map(|b| b.name.clone())
                                         })
                                     {
                                         format!("based off {}", current_branch)

@@ -1,13 +1,13 @@
 use anyhow::anyhow;
 use collections::HashMap;
 use futures::{
-    Future, FutureExt as _,
     future::{BoxFuture, LocalBoxFuture},
+    Future, FutureExt as _,
 };
 use gpui::{AnyEntity, AnyWeakEntity, AsyncApp, Entity};
 use proto::{
-    AnyTypedEnvelope, EntityMessage, Envelope, EnvelopedMessage, RequestMessage, TypedEnvelope,
-    error::ErrorExt as _,
+    error::ErrorExt as _, AnyTypedEnvelope, EntityMessage, Envelope, EnvelopedMessage,
+    RequestMessage, TypedEnvelope,
 };
 use std::{
     any::TypeId,
@@ -185,7 +185,7 @@ impl AnyProtoClient {
     pub fn request<T: RequestMessage>(
         &self,
         request: T,
-    ) -> impl Future<Output = anyhow::Result<T::Response>> + use<T> {
+    ) -> impl Future<Output = anyhow::Result<T::Response>> {
         let envelope = request.into_envelope(0, None, None);
         let response = self.0.request(envelope, T::NAME);
         async move {

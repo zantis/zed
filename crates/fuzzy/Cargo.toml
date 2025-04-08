@@ -16,4 +16,3 @@ doctest = false
 gpui.workspace = true
 util.workspace = true
 log.workspace = true
-workspace-hack.workspace = true

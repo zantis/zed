@@ -1,16 +1,16 @@
-use crate::{ChatPanelButton, ChatPanelSettings, collab_panel};
+use crate::{collab_panel, ChatPanelButton, ChatPanelSettings};
 use anyhow::Result;
-use call::{ActiveCall, room};
+use call::{room, ActiveCall};
 use channel::{ChannelChat, ChannelChatEvent, ChannelMessage, ChannelMessageId, ChannelStore};
 use client::{ChannelId, Client};
 use collections::HashMap;
 use db::kvp::KEY_VALUE_STORE;
-use editor::{Editor, actions};
+use editor::{actions, Editor};
 use gpui::{
-    Action, App, AsyncWindowContext, ClipboardItem, Context, CursorStyle, DismissEvent, ElementId,
-    Entity, EventEmitter, FocusHandle, Focusable, FontWeight, HighlightStyle, ListOffset,
-    ListScrollEvent, ListState, Render, Stateful, Subscription, Task, WeakEntity, Window, actions,
-    div, list, prelude::*, px,
+    actions, div, list, prelude::*, px, Action, App, AsyncWindowContext, ClipboardItem, Context,
+    CursorStyle, DismissEvent, ElementId, Entity, EventEmitter, FocusHandle, Focusable, FontWeight,
+    HighlightStyle, ListOffset, ListScrollEvent, ListState, Render, Stateful, Subscription, Task,
+    WeakEntity, Window,
 };
 use language::LanguageRegistry;
 use menu::Confirm;
@@ -22,13 +22,13 @@ use settings::Settings;
 use std::{sync::Arc, time::Duration};
 use time::{OffsetDateTime, UtcOffset};
 use ui::{
-    Avatar, Button, ContextMenu, IconButton, IconName, KeyBinding, Label, PopoverMenu, Tab, TabBar,
-    Tooltip, prelude::*,
+    prelude::*, Avatar, Button, ContextMenu, IconButton, IconName, KeyBinding, Label, PopoverMenu,
+    Tab, TabBar, Tooltip,
 };
 use util::{ResultExt, TryFutureExt};
 use workspace::{
-    Workspace,
     dock::{DockPosition, Panel, PanelEvent},
+    Workspace,
 };
 
 mod message_editor;
@@ -332,7 +332,7 @@ impl ChatPanel {
                                     .color(Color::Muted),
                             )
                         }),
-                );
+                )
             }
             Some(val) => val,
         };
@@ -1156,7 +1156,20 @@ impl Panel for ChatPanel {
     }
 
     fn icon(&self, _window: &Window, cx: &App) -> Option<ui::IconName> {
-        self.enabled(cx).then(|| ui::IconName::MessageBubbles)
+        let show_icon = match ChatPanelSettings::get_global(cx).button {
+            ChatPanelButton::Never => false,
+            ChatPanelButton::Always => true,
+            ChatPanelButton::WhenInCall => {
+                let is_in_call = ActiveCall::global(cx)
+                    .read(cx)
+                    .room()
+                    .map_or(false, |room| room.read(cx).contains_guests());
+
+                self.active || is_in_call
+            }
+        };
+
+        show_icon.then(|| ui::IconName::MessageBubbles)
     }
 
     fn icon_tooltip(&self, _: &Window, _: &App) -> Option<&'static str> {
@@ -1176,21 +1189,6 @@ impl Panel for ChatPanel {
 
     fn activation_priority(&self) -> u32 {
         7
-    }
-
-    fn enabled(&self, cx: &App) -> bool {
-        match ChatPanelSettings::get_global(cx).button {
-            ChatPanelButton::Never => false,
-            ChatPanelButton::Always => true,
-            ChatPanelButton::WhenInCall => {
-                let is_in_call = ActiveCall::global(cx)
-                    .read(cx)
-                    .room()
-                    .map_or(false, |room| room.read(cx).contains_guests());
-
-                self.active || is_in_call
-            }
-        }
     }
 }
 

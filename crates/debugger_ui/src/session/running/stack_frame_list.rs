@@ -1,17 +1,17 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use dap::StackFrameId;
 use gpui::{
-    AnyElement, Entity, EventEmitter, FocusHandle, Focusable, ListState, Subscription, Task,
-    WeakEntity, list,
+    list, AnyElement, Entity, EventEmitter, FocusHandle, Focusable, ListState, Subscription, Task,
+    WeakEntity,
 };
 
 use language::PointUtf16;
 use project::debugger::session::{Session, SessionEvent, StackFrame};
 use project::{ProjectItem, ProjectPath};
-use ui::{Tooltip, prelude::*};
+use ui::{prelude::*, Tooltip};
 use util::ResultExt;
 use workspace::Workspace;
 
@@ -87,13 +87,13 @@ impl StackFrameList {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn entries(&self) -> &Vec<StackFrameEntry> {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn entries(&self) -> &Vec<StackFrameEntry> {
         &self.entries
     }
 
-    #[cfg(test)]
-    pub(crate) fn flatten_entries(&self) -> Vec<dap::StackFrame> {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn flatten_entries(&self) -> Vec<dap::StackFrame> {
         self.entries
             .iter()
             .flat_map(|frame| match frame {
@@ -115,8 +115,8 @@ impl StackFrameList {
             .unwrap_or_default()
     }
 
-    #[cfg(test)]
-    pub(crate) fn dap_stack_frames(&self, cx: &mut App) -> Vec<dap::StackFrame> {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn dap_stack_frames(&self, cx: &mut App) -> Vec<dap::StackFrame> {
         self.stack_frames(cx)
             .into_iter()
             .map(|stack_frame| stack_frame.dap.clone())

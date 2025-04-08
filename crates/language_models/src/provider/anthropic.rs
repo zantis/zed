@@ -1,12 +1,12 @@
-use crate::AllLanguageModelSettings;
 use crate::ui::InstructionListItem;
+use crate::AllLanguageModelSettings;
 use anthropic::{AnthropicError, AnthropicModelMode, ContentDelta, Event, ResponseContent, Usage};
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{anyhow, Context as _, Result};
 use collections::{BTreeMap, HashMap};
 use credentials_provider::CredentialsProvider;
 use editor::{Editor, EditorElement, EditorStyle};
 use futures::Stream;
-use futures::{FutureExt, StreamExt, future::BoxFuture, stream::BoxStream};
+use futures::{future::BoxFuture, stream::BoxStream, FutureExt, StreamExt, TryStreamExt as _};
 use gpui::{
     AnyView, App, AsyncApp, Context, Entity, FontStyle, Subscription, Task, TextStyle, WhiteSpace,
 };
@@ -25,8 +25,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
 use theme::ThemeSettings;
-use ui::{Icon, IconName, List, Tooltip, prelude::*};
-use util::{ResultExt, maybe};
+use ui::{prelude::*, Icon, IconName, List, Tooltip};
+use util::{maybe, ResultExt};
 
 const PROVIDER_ID: &str = language_model::ANTHROPIC_PROVIDER_ID;
 const PROVIDER_NAME: &str = "Anthropic";
@@ -400,10 +400,6 @@ impl LanguageModel for AnthropicModel {
         LanguageModelProviderName(PROVIDER_NAME.into())
     }
 
-    fn supports_tools(&self) -> bool {
-        true
-    }
-
     fn telemetry_id(&self) -> String {
         format!("anthropic/{}", self.model.id())
     }
@@ -456,6 +452,44 @@ impl LanguageModel for AnthropicModel {
                 should_speculate: config.should_speculate,
                 min_total_token: config.min_total_token,
             })
+    }
+
+    fn use_any_tool(
+        &self,
+        request: LanguageModelRequest,
+        tool_name: String,
+        tool_description: String,
+        input_schema: serde_json::Value,
+        cx: &AsyncApp,
+    ) -> BoxFuture<'static, Result<BoxStream<'static, Result<String>>>> {
+        let mut request = into_anthropic(
+            request,
+            self.model.tool_model_id().into(),
+            self.model.default_temperature(),
+            self.model.max_output_tokens(),
+            self.model.mode(),
+        );
+        request.tool_choice = Some(anthropic::ToolChoice::Tool {
+            name: tool_name.clone(),
+        });
+        request.tools = vec![anthropic::Tool {
+            name: tool_name.clone(),
+            description: tool_description,
+            input_schema,
+        }];
+
+        let response = self.stream_completion(request, cx);
+        self.request_limiter
+            .run(async move {
+                let response = response.await?;
+                Ok(anthropic::extract_tool_args_from_events(
+                    tool_name,
+                    Box::pin(response.map_err(|e| anyhow!(e))),
+                )
+                .await?
+                .boxed())
+            })
+            .boxed()
     }
 }
 
@@ -552,11 +586,7 @@ pub fn into_anthropic(
         model,
         messages: new_messages,
         max_tokens: max_output_tokens,
-        system: if system_message.is_empty() {
-            None
-        } else {
-            Some(anthropic::StringOrContents::String(system_message))
-        },
+        system: Some(system_message),
         thinking: if let AnthropicModelMode::Thinking { budget_tokens } = mode {
             Some(anthropic::Thinking::Enabled { budget_tokens })
         } else {

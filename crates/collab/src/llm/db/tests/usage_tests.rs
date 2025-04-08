@@ -1,12 +1,11 @@
 use crate::llm::FREE_TIER_MONTHLY_SPENDING_LIMIT;
 use crate::{
-    Cents,
     db::UserId,
     llm::db::{
-        LlmDatabase, TokenUsage,
         queries::{providers::ModelParams, usages::Usage},
+        LlmDatabase, TokenUsage,
     },
-    test_llm_db,
+    test_llm_db, Cents,
 };
 use chrono::{DateTime, Duration, Utc};
 use pretty_assertions::assert_eq;
@@ -83,8 +82,6 @@ async fn test_tracking_usage(db: &mut LlmDatabase) {
         Usage {
             requests_this_minute: 2,
             tokens_this_minute: 3000,
-            input_tokens_this_minute: 3000,
-            output_tokens_this_minute: 0,
             tokens_this_day: 3000,
             tokens_this_month: TokenUsage {
                 input: 3000,
@@ -104,8 +101,6 @@ async fn test_tracking_usage(db: &mut LlmDatabase) {
         Usage {
             requests_this_minute: 1,
             tokens_this_minute: 2000,
-            input_tokens_this_minute: 2000,
-            output_tokens_this_minute: 0,
             tokens_this_day: 3000,
             tokens_this_month: TokenUsage {
                 input: 3000,
@@ -144,8 +139,6 @@ async fn test_tracking_usage(db: &mut LlmDatabase) {
         Usage {
             requests_this_minute: 2,
             tokens_this_minute: 5000,
-            input_tokens_this_minute: 5000,
-            output_tokens_this_minute: 0,
             tokens_this_day: 6000,
             tokens_this_month: TokenUsage {
                 input: 6000,
@@ -166,8 +159,6 @@ async fn test_tracking_usage(db: &mut LlmDatabase) {
         Usage {
             requests_this_minute: 0,
             tokens_this_minute: 0,
-            input_tokens_this_minute: 0,
-            output_tokens_this_minute: 0,
             tokens_this_day: 5000,
             tokens_this_month: TokenUsage {
                 input: 6000,
@@ -205,8 +196,6 @@ async fn test_tracking_usage(db: &mut LlmDatabase) {
         Usage {
             requests_this_minute: 1,
             tokens_this_minute: 4000,
-            input_tokens_this_minute: 4000,
-            output_tokens_this_minute: 0,
             tokens_this_day: 9000,
             tokens_this_month: TokenUsage {
                 input: 10000,
@@ -250,8 +239,6 @@ async fn test_tracking_usage(db: &mut LlmDatabase) {
         Usage {
             requests_this_minute: 1,
             tokens_this_minute: 1500,
-            input_tokens_this_minute: 1500,
-            output_tokens_this_minute: 0,
             tokens_this_day: 1500,
             tokens_this_month: TokenUsage {
                 input: 1000,
@@ -290,8 +277,6 @@ async fn test_tracking_usage(db: &mut LlmDatabase) {
         Usage {
             requests_this_minute: 2,
             tokens_this_minute: 2800,
-            input_tokens_this_minute: 2500,
-            output_tokens_this_minute: 0,
             tokens_this_day: 2800,
             tokens_this_month: TokenUsage {
                 input: 2000,

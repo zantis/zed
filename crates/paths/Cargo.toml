@@ -14,4 +14,3 @@ path = "src/paths.rs"
 [dependencies]
 dirs.workspace = true
 util.workspace = true
-workspace-hack.workspace = true

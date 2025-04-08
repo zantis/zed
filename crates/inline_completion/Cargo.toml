@@ -15,4 +15,3 @@ path = "src/inline_completion.rs"
 gpui.workspace = true
 language.workspace = true
 project.workspace = true
-workspace-hack.workspace = true

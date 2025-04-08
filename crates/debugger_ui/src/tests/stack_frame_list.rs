@@ -4,15 +4,14 @@ use crate::{
     tests::{active_debug_session_panel, init_test, init_test_workspace},
 };
 use dap::{
-    StackFrame,
     requests::{StackTrace, Threads},
+    StackFrame,
 };
 use editor::{Editor, ToPoint as _};
 use gpui::{BackgroundExecutor, TestAppContext, VisualTestContext};
 use project::{FakeFs, Project};
 use serde_json::json;
 use std::sync::Arc;
-use task::LaunchConfig;
 use unindent::Unindent as _;
 use util::path;
 
@@ -53,10 +52,8 @@ async fn test_fetch_initial_stack_frames_and_go_to_stack_frame(
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.fake_debug_session(
-            dap::DebugRequestType::Launch(LaunchConfig::default()),
-            None,
-            false,
+        project.start_debug_session(
+            dap::test_config(dap::DebugRequestType::Launch, None, None),
             cx,
         )
     });
@@ -243,10 +240,8 @@ async fn test_select_stack_frame(executor: BackgroundExecutor, cx: &mut TestAppC
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.fake_debug_session(
-            dap::DebugRequestType::Launch(LaunchConfig::default()),
-            None,
-            false,
+        project.start_debug_session(
+            dap::test_config(dap::DebugRequestType::Launch, None, None),
             cx,
         )
     });
@@ -410,7 +405,7 @@ async fn test_select_stack_frame(executor: BackgroundExecutor, cx: &mut TestAppC
         .update(cx, |workspace, _window, cx| {
             let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
             let active_debug_panel_item = debug_panel
-                .update(cx, |this, _| this.active_session())
+                .update(cx, |this, cx| this.active_session(cx))
                 .unwrap();
 
             active_debug_panel_item
@@ -518,10 +513,8 @@ async fn test_collapsed_entries(executor: BackgroundExecutor, cx: &mut TestAppCo
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
     let task = project.update(cx, |project, cx| {
-        project.fake_debug_session(
-            dap::DebugRequestType::Launch(LaunchConfig::default()),
-            None,
-            false,
+        project.start_debug_session(
+            dap::test_config(dap::DebugRequestType::Launch, None, None),
             cx,
         )
     });

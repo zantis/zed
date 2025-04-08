@@ -1,25 +1,25 @@
 use anyhow::ensure;
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use collections::HashMap;
 use gpui::{App, Task};
 use gpui::{AsyncApp, SharedString};
+use language::language_settings::language_settings;
 use language::LanguageToolchainStore;
 use language::Toolchain;
 use language::ToolchainList;
 use language::ToolchainLister;
-use language::language_settings::language_settings;
 use language::{ContextProvider, LspAdapter, LspAdapterDelegate};
 use language::{LanguageName, ManifestName, ManifestProvider, ManifestQuery};
 use lsp::LanguageServerBinary;
 use lsp::LanguageServerName;
 use node_runtime::NodeRuntime;
-use pet_core::Configuration;
 use pet_core::os_environment::Environment;
 use pet_core::python_environment::PythonEnvironmentKind;
-use project::Fs;
+use pet_core::Configuration;
 use project::lsp_store::language_server_settings;
-use serde_json::{Value, json};
+use project::Fs;
+use serde_json::{json, Value};
 use smol::lock::OnceCell;
 use std::cmp::Ordering;
 
@@ -29,9 +29,6 @@ use std::{
     any::Any,
     borrow::Cow,
     ffi::OsString,
-    fmt::Write,
-    fs,
-    io::{self, BufRead},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -295,12 +292,7 @@ impl LspAdapter for PythonLspAdapter {
         cx: &mut AsyncApp,
     ) -> Result<Value> {
         let toolchain = toolchains
-            .active_toolchain(
-                adapter.worktree_id(),
-                Arc::from("".as_ref()),
-                LanguageName::new("Python"),
-                cx,
-            )
+            .active_toolchain(adapter.worktree_id(), LanguageName::new("Python"), cx)
             .await;
         cx.update(move |cx| {
             let mut user_settings =
@@ -380,7 +372,7 @@ impl ContextProvider for PythonContextProvider {
         cx.spawn(async move |cx| {
             let active_toolchain = if let Some(worktree_id) = worktree_id {
                 toolchains
-                    .active_toolchain(worktree_id, Arc::from("".as_ref()), "Python".into(), cx)
+                    .active_toolchain(worktree_id, "Python".into(), cx)
                     .await
                     .map_or_else(
                         || "python3".to_owned(),
@@ -596,28 +588,6 @@ fn python_module_name_from_relative_path(relative_path: &str) -> String {
         .to_string()
 }
 
-fn python_env_kind_display(k: &PythonEnvironmentKind) -> &'static str {
-    match k {
-        PythonEnvironmentKind::Conda => "Conda",
-        PythonEnvironmentKind::Pixi => "pixi",
-        PythonEnvironmentKind::Homebrew => "Homebrew",
-        PythonEnvironmentKind::Pyenv => "global (Pyenv)",
-        PythonEnvironmentKind::GlobalPaths => "global",
-        PythonEnvironmentKind::PyenvVirtualEnv => "Pyenv",
-        PythonEnvironmentKind::Pipenv => "Pipenv",
-        PythonEnvironmentKind::Poetry => "Poetry",
-        PythonEnvironmentKind::MacPythonOrg => "global (Python.org)",
-        PythonEnvironmentKind::MacCommandLineTools => "global (Command Line Tools for Xcode)",
-        PythonEnvironmentKind::LinuxGlobal => "global",
-        PythonEnvironmentKind::MacXCode => "global (Xcode)",
-        PythonEnvironmentKind::Venv => "venv",
-        PythonEnvironmentKind::VirtualEnv => "virtualenv",
-        PythonEnvironmentKind::VirtualEnvWrapper => "virtualenvwrapper",
-        PythonEnvironmentKind::WindowsStore => "global (Windows Store)",
-        PythonEnvironmentKind::WindowsRegistry => "global (Windows Registry)",
-    }
-}
-
 pub(crate) struct PythonToolchainProvider {
     term: SharedString,
 }
@@ -637,7 +607,6 @@ static ENV_PRIORITY_LIST: &'static [PythonEnvironmentKind] = &[
     PythonEnvironmentKind::VirtualEnvWrapper,
     PythonEnvironmentKind::Venv,
     PythonEnvironmentKind::VirtualEnv,
-    PythonEnvironmentKind::PyenvVirtualEnv,
     PythonEnvironmentKind::Pixi,
     PythonEnvironmentKind::Conda,
     PythonEnvironmentKind::Pyenv,
@@ -657,19 +626,6 @@ fn env_priority(kind: Option<PythonEnvironmentKind>) -> usize {
     }
 }
 
-/// Return the name of environment declared in <worktree-root/.venv.
-///
-/// https://virtualfish.readthedocs.io/en/latest/plugins.html#auto-activation-auto-activation
-fn get_worktree_venv_declaration(worktree_root: &Path) -> Option<String> {
-    fs::File::open(worktree_root.join(".venv"))
-        .and_then(|file| {
-            let mut venv_name = String::new();
-            io::BufReader::new(file).read_line(&mut venv_name)?;
-            Ok(venv_name.trim().to_string())
-        })
-        .ok()
-}
-
 #[async_trait]
 impl ToolchainLister for PythonToolchainProvider {
     async fn list(
@@ -685,7 +641,7 @@ impl ToolchainLister for PythonToolchainProvider {
             &environment,
         );
         let mut config = Configuration::default();
-        config.workspace_directories = Some(vec![worktree_root.clone()]);
+        config.workspace_directories = Some(vec![worktree_root]);
         for locator in locators.iter() {
             locator.configure(&config);
         }
@@ -699,91 +655,42 @@ impl ToolchainLister for PythonToolchainProvider {
             .ok()
             .map_or(Vec::new(), |mut guard| std::mem::take(&mut guard));
 
-        let wr = worktree_root;
-        let wr_venv = get_worktree_venv_declaration(&wr);
-        // Sort detected environments by:
-        //     environment name matching activation file (<workdir>/.venv)
-        //     environment project dir matching worktree_root
-        //     general env priority
-        //     environment path matching the CONDA_PREFIX env var
-        //     executable path
         toolchains.sort_by(|lhs, rhs| {
-            // Compare venv names against worktree .venv file
-            let venv_ordering =
-                wr_venv
-                    .as_ref()
-                    .map_or(Ordering::Equal, |venv| match (&lhs.name, &rhs.name) {
-                        (Some(l), Some(r)) => (r == venv).cmp(&(l == venv)),
-                        (Some(l), None) if l == venv => Ordering::Less,
-                        (None, Some(r)) if r == venv => Ordering::Greater,
-                        _ => Ordering::Equal,
-                    });
-
-            // Compare project paths against worktree root
-            let proj_ordering = || match (&lhs.project, &rhs.project) {
-                (Some(l), Some(r)) => (r == &wr).cmp(&(l == &wr)),
-                (Some(l), None) if l == &wr => Ordering::Less,
-                (None, Some(r)) if r == &wr => Ordering::Greater,
-                _ => Ordering::Equal,
-            };
-
-            // Compare environment priorities
-            let priority_ordering = || env_priority(lhs.kind).cmp(&env_priority(rhs.kind));
-
-            // Compare conda prefixes
-            let conda_ordering = || {
-                if lhs.kind == Some(PythonEnvironmentKind::Conda) {
-                    environment
-                        .get_env_var("CONDA_PREFIX".to_string())
-                        .map(|conda_prefix| {
-                            let is_match = |exe: &Option<PathBuf>| {
-                                exe.as_ref().map_or(false, |e| e.starts_with(&conda_prefix))
-                            };
-                            match (is_match(&lhs.executable), is_match(&rhs.executable)) {
-                                (true, false) => Ordering::Less,
-                                (false, true) => Ordering::Greater,
-                                _ => Ordering::Equal,
-                            }
-                        })
-                        .unwrap_or(Ordering::Equal)
-                } else {
-                    Ordering::Equal
-                }
-            };
-
-            // Compare Python executables
-            let exe_ordering = || lhs.executable.cmp(&rhs.executable);
-
-            venv_ordering
-                .then_with(proj_ordering)
-                .then_with(priority_ordering)
-                .then_with(conda_ordering)
-                .then_with(exe_ordering)
+            env_priority(lhs.kind)
+                .cmp(&env_priority(rhs.kind))
+                .then_with(|| {
+                    if lhs.kind == Some(PythonEnvironmentKind::Conda) {
+                        environment
+                            .get_env_var("CONDA_PREFIX".to_string())
+                            .map(|conda_prefix| {
+                                let is_match = |exe: &Option<PathBuf>| {
+                                    exe.as_ref().map_or(false, |e| e.starts_with(&conda_prefix))
+                                };
+                                match (is_match(&lhs.executable), is_match(&rhs.executable)) {
+                                    (true, false) => Ordering::Less,
+                                    (false, true) => Ordering::Greater,
+                                    _ => Ordering::Equal,
+                                }
+                            })
+                            .unwrap_or(Ordering::Equal)
+                    } else {
+                        Ordering::Equal
+                    }
+                })
+                .then_with(|| lhs.executable.cmp(&rhs.executable))
         });
 
         let mut toolchains: Vec<_> = toolchains
             .into_iter()
             .filter_map(|toolchain| {
-                let mut name = String::from("Python");
-                if let Some(ref version) = toolchain.version {
-                    _ = write!(name, " {version}");
+                let name = if let Some(version) = &toolchain.version {
+                    format!("Python {version} ({:?})", toolchain.kind?)
+                } else {
+                    format!("{:?}", toolchain.kind?)
                 }
-
-                let name_and_kind = match (&toolchain.name, &toolchain.kind) {
-                    (Some(name), Some(kind)) => {
-                        Some(format!("({name}; {})", python_env_kind_display(kind)))
-                    }
-                    (Some(name), None) => Some(format!("({name})")),
-                    (None, Some(kind)) => Some(format!("({})", python_env_kind_display(kind))),
-                    (None, None) => None,
-                };
-
-                if let Some(nk) = name_and_kind {
-                    _ = write!(name, " {nk}");
-                }
-
+                .into();
                 Some(Toolchain {
-                    name: name.into(),
+                    name,
                     path: toolchain.executable.as_ref()?.to_str()?.to_owned().into(),
                     language_name: LanguageName::new("Python"),
                     as_json: serde_json::to_value(toolchain).ok()?,
@@ -958,7 +865,6 @@ impl LspAdapter for PyLspAdapter {
             let venv = toolchains
                 .active_toolchain(
                     delegate.worktree_id(),
-                    Arc::from("".as_ref()),
                     LanguageName::new("Python"),
                     &mut cx.clone(),
                 )
@@ -1105,12 +1011,7 @@ impl LspAdapter for PyLspAdapter {
         cx: &mut AsyncApp,
     ) -> Result<Value> {
         let toolchain = toolchains
-            .active_toolchain(
-                adapter.worktree_id(),
-                Arc::from("".as_ref()),
-                LanguageName::new("Python"),
-                cx,
-            )
+            .active_toolchain(adapter.worktree_id(), LanguageName::new("Python"), cx)
             .await;
         cx.update(move |cx| {
             let mut user_settings =
@@ -1180,7 +1081,7 @@ impl LspAdapter for PyLspAdapter {
 #[cfg(test)]
 mod tests {
     use gpui::{AppContext as _, BorrowAppContext, Context, TestAppContext};
-    use language::{AutoindentMode, Buffer, language_settings::AllLanguageSettings};
+    use language::{language_settings::AllLanguageSettings, AutoindentMode, Buffer};
     use settings::SettingsStore;
     use std::num::NonZeroU32;
 

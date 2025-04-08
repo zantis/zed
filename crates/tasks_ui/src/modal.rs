@@ -3,24 +3,22 @@ use std::sync::Arc;
 use crate::TaskContexts;
 use fuzzy::{StringMatch, StringMatchCandidate};
 use gpui::{
-    Action, AnyElement, App, AppContext as _, Context, DismissEvent, Entity, EventEmitter,
+    rems, Action, AnyElement, App, AppContext as _, Context, DismissEvent, Entity, EventEmitter,
     Focusable, InteractiveElement, ParentElement, Render, SharedString, Styled, Subscription, Task,
-    WeakEntity, Window, rems,
+    WeakEntity, Window,
 };
-use picker::{Picker, PickerDelegate, highlighted_match_with_paths::HighlightedMatch};
-use project::{TaskSourceKind, task_store::TaskStore};
+use picker::{highlighted_match_with_paths::HighlightedMatch, Picker, PickerDelegate};
+use project::{task_store::TaskStore, TaskSourceKind};
 use task::{
-    DebugRequestType, DebugTaskDefinition, ResolvedTask, RevealTarget, TaskContext, TaskModal,
-    TaskTemplate, TaskType,
+    DebugRequestType, ResolvedTask, RevealTarget, TaskContext, TaskModal, TaskTemplate, TaskType,
 };
 use ui::{
-    ActiveTheme, Button, ButtonCommon, ButtonSize, Clickable, Color, FluentBuilder as _, Icon,
-    IconButton, IconButtonShape, IconName, IconSize, IntoElement, KeyBinding, Label, LabelSize,
-    ListItem, ListItemSpacing, RenderOnce, Toggleable, Tooltip, div, h_flex, v_flex,
+    div, h_flex, v_flex, ActiveTheme, Button, ButtonCommon, ButtonSize, Clickable, Color,
+    FluentBuilder as _, Icon, IconButton, IconButtonShape, IconName, IconSize, IntoElement,
+    KeyBinding, LabelSize, ListItem, ListItemSpacing, RenderOnce, Toggleable, Tooltip,
 };
-
-use util::{ResultExt, truncate_and_trailoff};
-use workspace::{ModalView, Workspace, tasks::schedule_resolved_task};
+use util::ResultExt;
+use workspace::{tasks::schedule_resolved_task, ModalView, Workspace};
 pub use zed_actions::{Rerun, Spawn};
 
 /// A modal used to spawn new tasks.
@@ -188,8 +186,6 @@ impl Focusable for TasksModal {
 
 impl ModalView for TasksModal {}
 
-const MAX_TAGS_LINE_LEN: usize = 30;
-
 impl PickerDelegate for TasksModalDelegate {
     type ListItem = ListItem;
 
@@ -324,11 +320,15 @@ impl PickerDelegate for TasksModalDelegate {
         self.workspace
             .update(cx, |workspace, cx| {
                 match task.task_type() {
-                    TaskType::Debug(config) if config.locator.is_none() => {
-                        let Some(config): Option<DebugTaskDefinition> = task
-                            .resolved_debug_adapter_config()
-                            .and_then(|config| config.try_into().ok())
-                        else {
+                    TaskType::Script => schedule_resolved_task(
+                        workspace,
+                        task_source_kind,
+                        task,
+                        omit_history_entry,
+                        cx,
+                    ),
+                    TaskType::Debug(_) => {
+                        let Some(config) = task.resolved_debug_adapter_config() else {
                             return;
                         };
                         let project = workspace.project().clone();
@@ -341,7 +341,6 @@ impl PickerDelegate for TasksModalDelegate {
                                     debugger_ui::attach_modal::AttachModal::new(
                                         project,
                                         config.clone(),
-                                        true,
                                         window,
                                         cx,
                                     )
@@ -350,19 +349,12 @@ impl PickerDelegate for TasksModalDelegate {
                             _ => {
                                 project.update(cx, |project, cx| {
                                     project
-                                        .start_debug_session(config.into(), cx)
+                                        .start_debug_session(config, cx)
                                         .detach_and_log_err(cx);
                                 });
                             }
                         }
                     }
-                    _ => schedule_resolved_task(
-                        workspace,
-                        task_source_kind,
-                        task,
-                        omit_history_entry,
-                        cx,
-                    ),
                 };
             })
             .ok();
@@ -400,18 +392,6 @@ impl PickerDelegate for TasksModalDelegate {
                 }
                 tooltip_label_text.push_str(&resolved.command_label);
             }
-        }
-        if template.tags.len() > 0 {
-            tooltip_label_text.push('\n');
-            tooltip_label_text.push_str(
-                template
-                    .tags
-                    .iter()
-                    .map(|tag| format!("\n#{}", tag))
-                    .collect::<Vec<_>>()
-                    .join("")
-                    .as_str(),
-            );
         }
         let tooltip_label = if tooltip_label_text.trim().is_empty() {
             None
@@ -454,22 +434,7 @@ impl PickerDelegate for TasksModalDelegate {
             ListItem::new(SharedString::from(format!("tasks-modal-{ix}")))
                 .inset(true)
                 .start_slot::<Icon>(icon)
-                .end_slot::<AnyElement>(
-                    h_flex()
-                        .gap_1()
-                        .child(Label::new(truncate_and_trailoff(
-                            &template
-                                .tags
-                                .iter()
-                                .map(|tag| format!("#{}", tag))
-                                .collect::<Vec<_>>()
-                                .join(" "),
-                            MAX_TAGS_LINE_LEN,
-                        )))
-                        .flex_none()
-                        .child(history_run_icon.unwrap())
-                        .into_any_element(),
-                )
+                .end_slot::<AnyElement>(history_run_icon)
                 .spacing(ListItemSpacing::Sparse)
                 .when_some(tooltip_label, |list_item, item_label| {
                     list_item.tooltip(move |_, _| item_label.clone())
@@ -552,30 +517,13 @@ impl PickerDelegate for TasksModalDelegate {
                         omit_history_entry,
                         cx,
                     ),
-                    // todo(debugger): Should create a schedule_resolved_debug_task function
+                    // TODO: Should create a schedule_resolved_debug_task function
                     // This would allow users to access to debug history and other issues
-                    TaskType::Debug(debug_args) => {
-                        let Some(debug_config) = task.resolved_debug_adapter_config() else {
-                            // todo(debugger) log an error, this should never happen
-                            return;
-                        };
-
-                        if debug_args.locator.is_some() {
-                            schedule_resolved_task(
-                                workspace,
-                                task_source_kind,
-                                task,
-                                omit_history_entry,
-                                cx,
-                            );
-                        } else {
-                            workspace.project().update(cx, |project, cx| {
-                                project
-                                    .start_debug_session(debug_config, cx)
-                                    .detach_and_log_err(cx);
-                            });
-                        }
-                    }
+                    TaskType::Debug(_) => workspace.project().update(cx, |project, cx| {
+                        project
+                            .start_debug_session(task.resolved_debug_adapter_config().unwrap(), cx)
+                            .detach_and_log_err(cx);
+                    }),
                 };
             })
             .ok();

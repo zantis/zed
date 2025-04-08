@@ -19,7 +19,6 @@ pub struct ToolWorkingSet {
 struct WorkingSetState {
     context_server_tools_by_id: HashMap<ToolId, Arc<dyn Tool>>,
     context_server_tools_by_name: HashMap<String, Arc<dyn Tool>>,
-    enabled_sources: HashSet<ToolSource>,
     enabled_tools_by_source: HashMap<ToolSource, HashSet<Arc<str>>>,
     next_tool_id: ToolId,
 }
@@ -169,22 +168,21 @@ impl WorkingSetState {
     }
 
     fn enable_source(&mut self, source: ToolSource, cx: &App) {
-        self.enabled_sources.insert(source.clone());
-
         let tools_by_source = self.tools_by_source(cx);
-        if let Some(tools) = tools_by_source.get(&source) {
-            self.enabled_tools_by_source.insert(
-                source,
-                tools
-                    .into_iter()
-                    .map(|tool| tool.name().into())
-                    .collect::<HashSet<_>>(),
-            );
-        }
+        let Some(tools) = tools_by_source.get(&source) else {
+            return;
+        };
+
+        self.enabled_tools_by_source.insert(
+            source,
+            tools
+                .into_iter()
+                .map(|tool| tool.name().into())
+                .collect::<HashSet<_>>(),
+        );
     }
 
     fn disable_source(&mut self, source: &ToolSource) {
-        self.enabled_sources.remove(source);
         self.enabled_tools_by_source.remove(source);
     }
 
