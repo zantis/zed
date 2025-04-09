@@ -43,7 +43,6 @@ pub fn init(app_state: Arc<AppState>, cx: &mut App) {
                         language_registry,
                         user_store,
                         None,
-                        None,
                         cx,
                     )
                 });
@@ -107,12 +106,10 @@ impl ComponentPreview {
         language_registry: Arc<LanguageRegistry>,
         user_store: Entity<UserStore>,
         selected_index: impl Into<Option<usize>>,
-        active_page: Option<PreviewPage>,
         cx: &mut Context<Self>,
     ) -> Self {
         let sorted_components = components().all_sorted();
         let selected_index = selected_index.into().unwrap_or(0);
-        let active_page = active_page.unwrap_or(PreviewPage::AllComponents);
 
         let component_list = ListState::new(
             sorted_components.len(),
@@ -138,7 +135,7 @@ impl ComponentPreview {
             language_registry,
             user_store,
             workspace,
-            active_page,
+            active_page: PreviewPage::AllComponents,
             component_map: components().0,
             components: sorted_components,
             component_list,
@@ -172,7 +169,8 @@ impl ComponentPreview {
     fn scope_ordered_entries(&self) -> Vec<PreviewEntry> {
         use std::collections::HashMap;
 
-        let mut scope_groups: HashMap<ComponentScope, Vec<ComponentMetadata>> = HashMap::default();
+        let mut scope_groups: HashMap<Option<ComponentScope>, Vec<ComponentMetadata>> =
+            HashMap::default();
 
         for component in &self.components {
             scope_groups
@@ -194,7 +192,6 @@ impl ComponentPreview {
             ComponentScope::Notification,
             ComponentScope::Collaboration,
             ComponentScope::VersionControl,
-            ComponentScope::None,
         ];
 
         // Always show all components first
@@ -202,27 +199,38 @@ impl ComponentPreview {
         entries.push(PreviewEntry::Separator);
 
         for scope in known_scopes.iter() {
-            if let Some(components) = scope_groups.remove(scope) {
+            let scope_key = Some(scope.clone());
+            if let Some(components) = scope_groups.remove(&scope_key) {
                 if !components.is_empty() {
                     entries.push(PreviewEntry::SectionHeader(scope.to_string().into()));
-                    let mut sorted_components = components;
-                    sorted_components.sort_by_key(|component| component.sort_name());
 
-                    for component in sorted_components {
+                    for component in components {
                         entries.push(PreviewEntry::Component(component));
                     }
                 }
             }
         }
 
-        if let Some(components) = scope_groups.get(&ComponentScope::None) {
+        for (scope, components) in &scope_groups {
+            if let Some(ComponentScope::Unknown(_)) = scope {
+                if !components.is_empty() {
+                    if let Some(scope_value) = scope {
+                        entries.push(PreviewEntry::SectionHeader(scope_value.to_string().into()));
+                    }
+
+                    for component in components {
+                        entries.push(PreviewEntry::Component(component.clone()));
+                    }
+                }
+            }
+        }
+
+        if let Some(components) = scope_groups.get(&None) {
             if !components.is_empty() {
                 entries.push(PreviewEntry::Separator);
                 entries.push(PreviewEntry::SectionHeader("Uncategorized".into()));
-                let mut sorted_components = components.clone();
-                sorted_components.sort_by_key(|c| c.sort_name());
 
-                for component in sorted_components {
+                for component in components {
                     entries.push(PreviewEntry::Component(component.clone()));
                 }
             }
@@ -242,10 +250,7 @@ impl ComponentPreview {
                 let id = component_metadata.id();
                 let selected = self.active_page == PreviewPage::Component(id.clone());
                 ListItem::new(ix)
-                    .child(
-                        Label::new(component_metadata.scopeless_name().clone())
-                            .color(Color::Default),
-                    )
+                    .child(Label::new(component_metadata.name().clone()).color(Color::Default))
                     .selectable(true)
                     .toggle_state(selected)
                     .inset(true)
@@ -328,7 +333,7 @@ impl ComponentPreview {
         window: &mut Window,
         cx: &mut App,
     ) -> impl IntoElement {
-        let name = component.scopeless_name();
+        let name = component.name();
         let scope = component.scope();
 
         let description = component.description();
@@ -349,12 +354,13 @@ impl ComponentPreview {
                         v_flex()
                             .gap_1()
                             .child(
-                                h_flex().gap_1().text_xl().child(div().child(name)).when(
-                                    !matches!(scope, ComponentScope::None),
-                                    |this| {
+                                h_flex()
+                                    .gap_1()
+                                    .text_xl()
+                                    .child(div().child(name))
+                                    .when_some(scope, |this, scope| {
                                         this.child(div().opacity(0.5).child(format!("({})", scope)))
-                                    },
-                                ),
+                                    }),
                             )
                             .when_some(description, |this, description| {
                                 this.child(
@@ -367,7 +373,7 @@ impl ComponentPreview {
                             }),
                     )
                     .when_some(component.preview(), |this, preview| {
-                        this.children(preview(window, cx))
+                        this.child(preview(window, cx))
                     }),
             )
             .into_any_element()
@@ -389,16 +395,17 @@ impl ComponentPreview {
     fn render_component_page(
         &mut self,
         component_id: &ComponentId,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let component = self.component_map.get(&component_id);
 
         if let Some(component) = component {
             v_flex()
-                .id("render-component-page")
-                .size_full()
-                .child(ComponentPreviewPage::new(component.clone()))
+                .w_full()
+                .flex_initial()
+                .min_h_full()
+                .child(self.render_preview(component, window, cx))
                 .into_any_element()
         } else {
             v_flex()
@@ -438,11 +445,10 @@ impl Render for ComponentPreview {
             .overflow_hidden()
             .size_full()
             .track_focus(&self.focus_handle)
+            .px_2()
             .bg(cx.theme().colors().editor_background)
             .child(
                 v_flex()
-                    .border_r_1()
-                    .border_color(cx.theme().colors().border)
                     .h_full()
                     .child(
                         uniform_list(
@@ -459,7 +465,6 @@ impl Render for ComponentPreview {
                         )
                         .track_scroll(self.nav_scroll_handle.clone())
                         .pt_4()
-                        .px_4()
                         .w(px(240.))
                         .h_full()
                         .flex_1(),
@@ -522,7 +527,6 @@ impl Item for ComponentPreview {
         let user_store = self.user_store.clone();
         let weak_workspace = self.workspace.clone();
         let selected_index = self.cursor_index;
-        let active_page = self.active_page.clone();
 
         Some(cx.new(|cx| {
             Self::new(
@@ -530,7 +534,6 @@ impl Item for ComponentPreview {
                 language_registry,
                 user_store,
                 selected_index,
-                Some(active_page),
                 cx,
             )
         }))
@@ -563,14 +566,7 @@ impl SerializableItem for ComponentPreview {
             let weak_workspace = workspace.clone();
             cx.update(|_, cx| {
                 Ok(cx.new(|cx| {
-                    ComponentPreview::new(
-                        weak_workspace,
-                        language_registry,
-                        user_store,
-                        None,
-                        None,
-                        cx,
-                    )
+                    ComponentPreview::new(weak_workspace, language_registry, user_store, None, cx)
                 }))
             })?
         })
@@ -602,78 +598,5 @@ impl SerializableItem for ComponentPreview {
 
     fn should_serialize(&self, _event: &Self::Event) -> bool {
         false
-    }
-}
-
-#[derive(IntoElement)]
-pub struct ComponentPreviewPage {
-    // languages: Arc<LanguageRegistry>,
-    component: ComponentMetadata,
-}
-
-impl ComponentPreviewPage {
-    pub fn new(
-        component: ComponentMetadata,
-        // languages: Arc<LanguageRegistry>
-    ) -> Self {
-        Self {
-            // languages,
-            component,
-        }
-    }
-
-    fn render_header(&self, _: &Window, cx: &App) -> impl IntoElement {
-        v_flex()
-            .px_12()
-            .pt_16()
-            .pb_12()
-            .gap_6()
-            .bg(cx.theme().colors().surface_background)
-            .border_b_1()
-            .border_color(cx.theme().colors().border)
-            .child(
-                v_flex()
-                    .gap_0p5()
-                    .child(
-                        Label::new(self.component.scope().to_string())
-                            .size(LabelSize::Small)
-                            .color(Color::Muted),
-                    )
-                    .child(
-                        Headline::new(self.component.scopeless_name()).size(HeadlineSize::XLarge),
-                    ),
-            )
-            .when_some(self.component.description(), |this, description| {
-                this.child(div().text_sm().child(description))
-            })
-    }
-
-    fn render_preview(&self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        v_flex()
-            .flex_1()
-            .px_12()
-            .py_6()
-            .bg(cx.theme().colors().editor_background)
-            .child(if let Some(preview) = self.component.preview() {
-                preview(window, cx).unwrap_or_else(|| {
-                    div()
-                        .child("Failed to load preview. This path should be unreachable")
-                        .into_any_element()
-                })
-            } else {
-                div().child("No preview available").into_any_element()
-            })
-    }
-}
-
-impl RenderOnce for ComponentPreviewPage {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        v_flex()
-            .id("component-preview-page")
-            .overflow_y_scroll()
-            .overflow_x_hidden()
-            .w_full()
-            .child(self.render_header(window, cx))
-            .child(self.render_preview(window, cx))
     }
 }

@@ -273,7 +273,7 @@ mod tests {
     use language::{
         Point,
         language_settings::{
-            AllLanguageSettings, AllLanguageSettingsContent, CompletionSettings, LspInsertMode,
+            AllLanguageSettings, AllLanguageSettingsContent, CompletionSettings,
             WordsCompletionMode,
         },
     };
@@ -294,7 +294,6 @@ mod tests {
                 words: WordsCompletionMode::Disabled,
                 lsp: true,
                 lsp_fetch_timeout_ms: 0,
-                lsp_insert_mode: LspInsertMode::Insert,
             });
         });
 
@@ -526,7 +525,6 @@ mod tests {
                 words: WordsCompletionMode::Disabled,
                 lsp: true,
                 lsp_fetch_timeout_ms: 0,
-                lsp_insert_mode: LspInsertMode::Insert,
             });
         });
 

@@ -1,4 +1,6 @@
 mod context_menu;
+mod disclosure;
+mod icon;
 mod icon_button;
 mod keybinding;
 mod list;
@@ -9,6 +11,8 @@ mod tab_bar;
 mod toggle_button;
 
 pub use context_menu::*;
+pub use disclosure::*;
+pub use icon::*;
 pub use icon_button::*;
 pub use keybinding::*;
 pub use list::*;

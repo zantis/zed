@@ -452,24 +452,9 @@ impl EditorElement {
             }
         });
         register_action(editor, window, Editor::restart_language_server);
-        register_action(editor, window, Editor::stop_language_server);
         register_action(editor, window, Editor::show_character_palette);
         register_action(editor, window, |editor, action, window, cx| {
             if let Some(task) = editor.confirm_completion(action, window, cx) {
-                task.detach_and_notify_err(window, cx);
-            } else {
-                cx.propagate();
-            }
-        });
-        register_action(editor, window, |editor, action, window, cx| {
-            if let Some(task) = editor.confirm_completion_replace(action, window, cx) {
-                task.detach_and_notify_err(window, cx);
-            } else {
-                cx.propagate();
-            }
-        });
-        register_action(editor, window, |editor, action, window, cx| {
-            if let Some(task) = editor.confirm_completion_insert(action, window, cx) {
                 task.detach_and_notify_err(window, cx);
             } else {
                 cx.propagate();
@@ -2423,11 +2408,13 @@ impl EditorElement {
 
                 let color = active_rows
                     .get(&display_row)
-                    .map(|spec| {
+                    .and_then(|spec| {
                         if spec.breakpoint {
-                            cx.theme().colors().debugger_accent
+                            Some(cx.theme().colors().debugger_accent)
+                        } else if spec.selection {
+                            Some(cx.theme().colors().editor_active_line_number)
                         } else {
-                            cx.theme().colors().editor_active_line_number
+                            None
                         }
                     })
                     .unwrap_or_else(|| cx.theme().colors().editor_line_number);
@@ -3409,7 +3396,7 @@ impl EditorElement {
                         height - height_above_menu
                     };
                     let mut element = self
-                        .render_context_menu(line_height, menu_height, window, cx)
+                        .render_context_menu(line_height, menu_height, y_flipped, window, cx)
                         .expect("Visible context menu should always render.");
                     let size = element.layout_as_root(AvailableSpace::min_size(), window, cx);
                     Some((CursorPopoverType::CodeContextMenu, element, size))
@@ -3566,9 +3553,9 @@ impl EditorElement {
             viewport_bounds,
             window,
             cx,
-            move |height, _max_width_for_stable_x, _, window, cx| {
+            move |height, _max_width_for_stable_x, y_flipped, window, cx| {
                 let mut element = self
-                    .render_context_menu(line_height, height, window, cx)
+                    .render_context_menu(line_height, height, y_flipped, window, cx)
                     .expect("Visible context menu should always render.");
                 let size = element.layout_as_root(AvailableSpace::min_size(), window, cx);
                 vec![(CursorPopoverType::CodeContextMenu, element, size)]
@@ -3798,12 +3785,13 @@ impl EditorElement {
         &self,
         line_height: Pixels,
         height: Pixels,
+        y_flipped: bool,
         window: &mut Window,
         cx: &mut App,
     ) -> Option<AnyElement> {
         let max_height_in_lines = ((height - POPOVER_Y_PADDING) / line_height).floor() as u32;
         self.editor.update(cx, |editor, cx| {
-            editor.render_context_menu(&self.style, max_height_in_lines, window, cx)
+            editor.render_context_menu(&self.style, max_height_in_lines, y_flipped, window, cx)
         })
     }
 
@@ -8418,7 +8406,7 @@ enum CursorPopoverType {
 }
 
 pub fn scale_vertical_mouse_autoscroll_delta(delta: Pixels) -> f32 {
-    (delta.pow(1.2) / 100.0).min(px(3.0)).into()
+    (delta.pow(1.5) / 100.0).into()
 }
 
 fn scale_horizontal_mouse_autoscroll_delta(delta: Pixels) -> f32 {

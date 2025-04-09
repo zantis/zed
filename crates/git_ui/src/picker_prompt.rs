@@ -44,7 +44,10 @@ pub fn prompt(
             })
             .ok();
 
-        (rx.await).ok()
+        match rx.await {
+            Ok(selection) => Some(selection),
+            Err(_) => None, // User cancelled
+        }
     })
 }
 

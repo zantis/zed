@@ -222,8 +222,7 @@ impl MessageEditor {
 
         let thread = self.thread.clone();
         let context_store = self.context_store.clone();
-        let git_store = self.project.read(cx).git_store().clone();
-        let checkpoint = git_store.update(cx, |git_store, cx| git_store.checkpoint(cx));
+        let checkpoint = self.project.read(cx).git_store().read(cx).checkpoint(cx);
 
         cx.spawn(async move |this, cx| {
             let checkpoint = checkpoint.await.ok();

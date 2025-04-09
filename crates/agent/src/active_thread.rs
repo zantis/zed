@@ -376,7 +376,7 @@ fn render_markdown_code_block(
                 .cursor_pointer()
                 .rounded_sm()
                 .hover(|item| item.bg(cx.theme().colors().element_hover.opacity(0.5)))
-                .tooltip(Tooltip::text("Jump to File"))
+                .tooltip(Tooltip::text("Jump to file"))
                 .children(
                     file_icons::FileIcons::get_icon(&path_range.path, cx)
                         .map(Icon::from_path)
@@ -456,7 +456,6 @@ fn render_markdown_code_block(
         .contains(&(message_id, ix));
 
     let codeblock_header = h_flex()
-        .group("codeblock_header")
         .p_1()
         .gap_1()
         .justify_between()
@@ -466,47 +465,45 @@ fn render_markdown_code_block(
         .rounded_t_md()
         .children(label)
         .child(
-            div().visible_on_hover("codeblock_header").child(
-                IconButton::new(
-                    ("copy-markdown-code", ix),
-                    if codeblock_was_copied {
-                        IconName::Check
-                    } else {
-                        IconName::Copy
-                    },
-                )
-                .icon_color(Color::Muted)
-                .shape(ui::IconButtonShape::Square)
-                .tooltip(Tooltip::text("Copy Code"))
-                .on_click({
-                    let active_thread = active_thread.clone();
-                    let parsed_markdown = parsed_markdown.clone();
-                    move |_event, _window, cx| {
-                        active_thread.update(cx, |this, cx| {
-                            this.copied_code_block_ids.insert((message_id, ix));
+            IconButton::new(
+                ("copy-markdown-code", ix),
+                if codeblock_was_copied {
+                    IconName::Check
+                } else {
+                    IconName::Copy
+                },
+            )
+            .icon_color(Color::Muted)
+            .shape(ui::IconButtonShape::Square)
+            .tooltip(Tooltip::text("Copy Code"))
+            .on_click({
+                let active_thread = active_thread.clone();
+                let parsed_markdown = parsed_markdown.clone();
+                move |_event, _window, cx| {
+                    active_thread.update(cx, |this, cx| {
+                        this.copied_code_block_ids.insert((message_id, ix));
 
-                            let code =
-                                without_fences(&parsed_markdown.source()[codeblock_range.clone()])
-                                    .to_string();
+                        let code =
+                            without_fences(&parsed_markdown.source()[codeblock_range.clone()])
+                                .to_string();
 
-                            cx.write_to_clipboard(ClipboardItem::new_string(code.clone()));
+                        cx.write_to_clipboard(ClipboardItem::new_string(code.clone()));
 
-                            cx.spawn(async move |this, cx| {
-                                cx.background_executor().timer(Duration::from_secs(2)).await;
+                        cx.spawn(async move |this, cx| {
+                            cx.background_executor().timer(Duration::from_secs(2)).await;
 
-                                cx.update(|cx| {
-                                    this.update(cx, |this, cx| {
-                                        this.copied_code_block_ids.remove(&(message_id, ix));
-                                        cx.notify();
-                                    })
+                            cx.update(|cx| {
+                                this.update(cx, |this, cx| {
+                                    this.copied_code_block_ids.remove(&(message_id, ix));
+                                    cx.notify();
                                 })
-                                .ok();
                             })
-                            .detach();
-                        });
-                    }
-                }),
-            ),
+                            .ok();
+                        })
+                        .detach();
+                    });
+                }
+            }),
         );
 
     v_flex()
@@ -1222,30 +1219,17 @@ impl ActiveThread {
             Label::new("Generating")
                 .color(Color::Muted)
                 .size(LabelSize::Small)
-                .with_animations(
+                .with_animation(
                     "generating-label",
-                    vec![
-                        Animation::new(Duration::from_secs(1)),
-                        Animation::new(Duration::from_secs(1)).repeat(),
-                    ],
-                    |mut label, animation_ix, delta| {
-                        match animation_ix {
-                            0 => {
-                                let chars_to_show = (delta * 10.).ceil() as usize;
-                                let text = &"Generating"[0..chars_to_show];
-                                label.set_text(text);
-                            }
-                            1 => {
-                                let text = match delta {
-                                    d if d < 0.25 => "Generating",
-                                    d if d < 0.5 => "Generating.",
-                                    d if d < 0.75 => "Generating..",
-                                    _ => "Generating...",
-                                };
-                                label.set_text(text);
-                            }
-                            _ => {}
-                        }
+                    Animation::new(Duration::from_secs(1)).repeat(),
+                    |mut label, delta| {
+                        let text = match delta {
+                            d if d < 0.25 => "Generating",
+                            d if d < 0.5 => "Generating.",
+                            d if d < 0.75 => "Generating..",
+                            _ => "Generating...",
+                        };
+                        label.set_text(text);
                         label
                     },
                 )
@@ -1762,14 +1746,14 @@ impl ActiveThread {
                 .segments
                 .iter()
                 .enumerate()
-                .next_back()
+                .last()
                 .filter(|(_, segment)| matches!(segment, RenderedMessageSegment::Thinking { .. }))
                 .map(|(index, _)| index)
         } else {
             None
         };
 
-        v_flex()
+        div()
             .text_ui(cx)
             .gap_2()
             .children(
@@ -1854,225 +1838,177 @@ impl ActiveThread {
             .copied()
             .unwrap_or_default();
 
-        let editor_bg = cx.theme().colors().panel_background;
+        let editor_bg = cx.theme().colors().editor_background;
 
-        div().map(|this| {
-            if pending {
-                this.v_flex()
-                    .mt_neg_2()
-                    .mb_1p5()
-                    .child(
-                        h_flex()
-                            .group("disclosure-header")
-                            .justify_between()
-                            .child(
-                                h_flex()
-                                    .gap_1p5()
-                                    .child(
-                                        Icon::new(IconName::LightBulb)
-                                            .size(IconSize::XSmall)
-                                            .color(Color::Muted),
-                                    )
-                                    .child({
-                                        Label::new("Thinking")
-                                            .color(Color::Muted)
+        div().pt_0p5().pb_2().child(
+            v_flex()
+                .rounded_lg()
+                .border_1()
+                .border_color(self.tool_card_border_color(cx))
+                .child(
+                    h_flex()
+                        .group("disclosure-header")
+                        .justify_between()
+                        .py_1()
+                        .px_2()
+                        .bg(self.tool_card_header_bg(cx))
+                        .map(|this| {
+                            if pending || is_open {
+                                this.rounded_t_md()
+                                    .border_b_1()
+                                    .border_color(self.tool_card_border_color(cx))
+                            } else {
+                                this.rounded_md()
+                            }
+                        })
+                        .child(
+                            h_flex()
+                                .gap_1p5()
+                                .child(
+                                    Icon::new(IconName::Brain)
+                                        .size(IconSize::XSmall)
+                                        .color(Color::Muted),
+                                )
+                                .child({
+                                    if pending {
+                                        Label::new("Thinking…")
                                             .size(LabelSize::Small)
-                                            .with_animation(
-                                                "generating-label",
-                                                Animation::new(Duration::from_secs(1)).repeat(),
-                                                |mut label, delta| {
-                                                    let text = match delta {
-                                                        d if d < 0.25 => "Thinking",
-                                                        d if d < 0.5 => "Thinking.",
-                                                        d if d < 0.75 => "Thinking..",
-                                                        _ => "Thinking...",
-                                                    };
-                                                    label.set_text(text);
-                                                    label
-                                                },
-                                            )
+                                            .buffer_font(cx)
                                             .with_animation(
                                                 "pulsating-label",
                                                 Animation::new(Duration::from_secs(2))
                                                     .repeat()
-                                                    .with_easing(pulsating_between(0.6, 1.)),
-                                                |label, delta| {
-                                                    label.map_element(|label| label.alpha(delta))
-                                                },
+                                                    .with_easing(pulsating_between(0.4, 0.8)),
+                                                |label, delta| label.alpha(delta),
                                             )
-                                    }),
-                            )
-                            .child(
-                                h_flex()
-                                    .gap_1()
-                                    .child(
-                                        div().visible_on_hover("disclosure-header").child(
-                                            Disclosure::new("thinking-disclosure", is_open)
-                                                .opened_icon(IconName::ChevronUp)
-                                                .closed_icon(IconName::ChevronDown)
-                                                .on_click(cx.listener({
-                                                    move |this, _event, _window, _cx| {
-                                                        let is_open = this
-                                                            .expanded_thinking_segments
-                                                            .entry((message_id, ix))
-                                                            .or_insert(false);
-
-                                                        *is_open = !*is_open;
-                                                    }
-                                                })),
-                                        ),
-                                    )
-                                    .child({
-                                        Icon::new(IconName::ArrowCircle)
-                                            .color(Color::Accent)
-                                            .size(IconSize::Small)
-                                            .with_animation(
-                                                "arrow-circle",
-                                                Animation::new(Duration::from_secs(2)).repeat(),
-                                                |icon, delta| {
-                                                    icon.transform(Transformation::rotate(
-                                                        percentage(delta),
-                                                    ))
-                                                },
-                                            )
-                                    }),
-                            ),
-                    )
-                    .when(!is_open, |this| {
-                        let gradient_overlay = div()
-                            .rounded_b_lg()
-                            .h_full()
-                            .absolute()
-                            .w_full()
-                            .bottom_0()
-                            .left_0()
-                            .bg(linear_gradient(
-                                180.,
-                                linear_color_stop(editor_bg, 1.),
-                                linear_color_stop(editor_bg.opacity(0.2), 0.),
-                            ));
-
-                        this.child(
-                            div()
-                                .relative()
-                                .bg(editor_bg)
-                                .rounded_b_lg()
-                                .mt_2()
-                                .pl_4()
+                                            .into_any_element()
+                                    } else {
+                                        Label::new("Thought Process")
+                                            .size(LabelSize::Small)
+                                            .buffer_font(cx)
+                                            .into_any_element()
+                                    }
+                                }),
+                        )
+                        .child(
+                            h_flex()
+                                .gap_1()
                                 .child(
-                                    div()
-                                        .id(("thinking-content", ix))
-                                        .max_h_20()
-                                        .track_scroll(scroll_handle)
-                                        .text_ui_sm(cx)
-                                        .overflow_hidden()
-                                        .child(
-                                            MarkdownElement::new(
-                                                markdown.clone(),
-                                                default_markdown_style(window, cx),
-                                            )
-                                            .on_url_click({
-                                                let workspace = self.workspace.clone();
-                                                move |text, window, cx| {
-                                                    open_markdown_link(
-                                                        text,
-                                                        workspace.clone(),
-                                                        window,
-                                                        cx,
-                                                    );
+                                    div().visible_on_hover("disclosure-header").child(
+                                        Disclosure::new("thinking-disclosure", is_open)
+                                            .opened_icon(IconName::ChevronUp)
+                                            .closed_icon(IconName::ChevronDown)
+                                            .on_click(cx.listener({
+                                                move |this, _event, _window, _cx| {
+                                                    let is_open = this
+                                                        .expanded_thinking_segments
+                                                        .entry((message_id, ix))
+                                                        .or_insert(false);
+
+                                                    *is_open = !*is_open;
                                                 }
-                                            }),
-                                        ),
+                                            })),
+                                    ),
                                 )
-                                .child(gradient_overlay),
-                        )
-                    })
-                    .when(is_open, |this| {
-                        this.child(
-                            div()
-                                .id(("thinking-content", ix))
-                                .h_full()
-                                .bg(editor_bg)
-                                .text_ui_sm(cx)
-                                .child(
-                                    MarkdownElement::new(
-                                        markdown.clone(),
-                                        default_markdown_style(window, cx),
-                                    )
-                                    .on_url_click({
-                                        let workspace = self.workspace.clone();
-                                        move |text, window, cx| {
-                                            open_markdown_link(text, workspace.clone(), window, cx);
-                                        }
-                                    }),
-                                ),
-                        )
-                    })
-            } else {
-                this.v_flex()
-                    .mt_neg_2()
-                    .child(
-                        h_flex()
-                            .group("disclosure-header")
-                            .pr_1()
-                            .justify_between()
-                            .opacity(0.8)
-                            .hover(|style| style.opacity(1.))
-                            .child(
-                                h_flex()
-                                    .gap_1p5()
-                                    .child(
-                                        Icon::new(IconName::LightBulb)
-                                            .size(IconSize::XSmall)
-                                            .color(Color::Muted),
-                                    )
-                                    .child(Label::new("Thought Process").size(LabelSize::Small)),
-                            )
-                            .child(
-                                div().visible_on_hover("disclosure-header").child(
-                                    Disclosure::new("thinking-disclosure", is_open)
-                                        .opened_icon(IconName::ChevronUp)
-                                        .closed_icon(IconName::ChevronDown)
-                                        .on_click(cx.listener({
-                                            move |this, _event, _window, _cx| {
-                                                let is_open = this
-                                                    .expanded_thinking_segments
-                                                    .entry((message_id, ix))
-                                                    .or_insert(false);
+                                .child({
+                                    let (icon_name, color, animated) = if pending {
+                                        (IconName::ArrowCircle, Color::Accent, true)
+                                    } else {
+                                        (IconName::Check, Color::Success, false)
+                                    };
 
-                                                *is_open = !*is_open;
+                                    let icon =
+                                        Icon::new(icon_name).color(color).size(IconSize::Small);
+
+                                    if animated {
+                                        icon.with_animation(
+                                            "arrow-circle",
+                                            Animation::new(Duration::from_secs(2)).repeat(),
+                                            |icon, delta| {
+                                                icon.transform(Transformation::rotate(percentage(
+                                                    delta,
+                                                )))
+                                            },
+                                        )
+                                        .into_any_element()
+                                    } else {
+                                        icon.into_any_element()
+                                    }
+                                }),
+                        ),
+                )
+                .when(pending && !is_open, |this| {
+                    let gradient_overlay = div()
+                        .rounded_b_lg()
+                        .h_20()
+                        .absolute()
+                        .w_full()
+                        .bottom_0()
+                        .left_0()
+                        .bg(linear_gradient(
+                            180.,
+                            linear_color_stop(editor_bg, 1.),
+                            linear_color_stop(editor_bg.opacity(0.2), 0.),
+                        ));
+
+                    this.child(
+                        div()
+                            .relative()
+                            .bg(editor_bg)
+                            .rounded_b_lg()
+                            .child(
+                                div()
+                                    .id(("thinking-content", ix))
+                                    .p_2()
+                                    .h_20()
+                                    .track_scroll(scroll_handle)
+                                    .text_ui_sm(cx)
+                                    .child(
+                                        MarkdownElement::new(
+                                            markdown.clone(),
+                                            default_markdown_style(window, cx),
+                                        )
+                                        .on_url_click({
+                                            let workspace = self.workspace.clone();
+                                            move |text, window, cx| {
+                                                open_markdown_link(
+                                                    text,
+                                                    workspace.clone(),
+                                                    window,
+                                                    cx,
+                                                );
                                             }
-                                        })),
-                                ),
-                            ),
+                                        }),
+                                    )
+                                    .overflow_hidden(),
+                            )
+                            .child(gradient_overlay),
                     )
-                    .child(
+                })
+                .when(is_open, |this| {
+                    this.child(
                         div()
                             .id(("thinking-content", ix))
-                            .relative()
-                            .mt_1p5()
-                            .ml_1p5()
-                            .pl_2p5()
-                            .border_l_1()
-                            .border_color(cx.theme().colors().border_variant)
+                            .h_full()
+                            .p_2()
+                            .rounded_b_lg()
+                            .bg(editor_bg)
                             .text_ui_sm(cx)
-                            .when(is_open, |this| {
-                                this.child(
-                                    MarkdownElement::new(
-                                        markdown.clone(),
-                                        default_markdown_style(window, cx),
-                                    )
-                                    .on_url_click({
-                                        let workspace = self.workspace.clone();
-                                        move |text, window, cx| {
-                                            open_markdown_link(text, workspace.clone(), window, cx);
-                                        }
-                                    }),
+                            .child(
+                                MarkdownElement::new(
+                                    markdown.clone(),
+                                    default_markdown_style(window, cx),
                                 )
-                            }),
+                                .on_url_click({
+                                    let workspace = self.workspace.clone();
+                                    move |text, window, cx| {
+                                        open_markdown_link(text, workspace.clone(), window, cx);
+                                    }
+                                }),
+                            ),
                     )
-            }
-        })
+                }),
+        )
     }
 
     fn render_tool_use(
@@ -2094,7 +2030,6 @@ impl ActiveThread {
             .upgrade()
             .map(|workspace| workspace.read(cx).app_state().fs.clone());
         let needs_confirmation = matches!(&tool_use.status, ToolUseStatus::NeedsConfirmation);
-        let edit_tools = tool_use.needs_confirmation;
 
         let status_icons = div().child(match &tool_use.status {
             ToolUseStatus::Pending | ToolUseStatus::NeedsConfirmation => {
@@ -2271,10 +2206,10 @@ impl ActiveThread {
         };
 
         div().map(|element| {
-            if !edit_tools {
+            if !tool_use.needs_confirmation {
                 element.child(
                     v_flex()
-                        .my_2()
+                        .my_1p5()
                         .child(
                             h_flex()
                                 .group("disclosure-header")
@@ -2581,7 +2516,7 @@ impl ActiveThread {
         let label_text = match rules_files.as_slice() {
             &[] => return div().into_any(),
             &[rules_file] => {
-                format!("Using {:?} file", rules_file.path_in_worktree)
+                format!("Using {:?} file", rules_file.rel_path)
             }
             rules_files => {
                 format!("Using {} rules files", rules_files.len())

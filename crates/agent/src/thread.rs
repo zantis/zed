@@ -3,7 +3,6 @@ use std::io::Write;
 use std::ops::Range;
 use std::sync::Arc;
 
-use agent_rules::load_worktree_rules_file;
 use anyhow::{Context as _, Result, anyhow};
 use assistant_settings::AssistantSettings;
 use assistant_tool::{ActionLog, Tool, ToolWorkingSet};
@@ -22,11 +21,13 @@ use language_model::{
 };
 use project::git_store::{GitStore, GitStoreCheckpoint, RepositoryState};
 use project::{Project, Worktree};
-use prompt_store::{AssistantSystemPromptContext, PromptBuilder, WorktreeInfoForSystemPrompt};
+use prompt_store::{
+    AssistantSystemPromptContext, PromptBuilder, RulesFile, WorktreeInfoForSystemPrompt,
+};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use settings::Settings;
-use util::{ResultExt as _, TryFutureExt as _, post_inc};
+use util::{ResultExt as _, TryFutureExt as _, maybe, post_inc};
 use uuid::Uuid;
 
 use crate::context::{AssistantContext, ContextId, format_context_as_string};
@@ -470,11 +471,11 @@ impl Thread {
         cx.emit(ThreadEvent::CheckpointChanged);
         cx.notify();
 
-        let git_store = self.project().read(cx).git_store().clone();
-        let restore = git_store.update(cx, |git_store, cx| {
-            git_store.restore_checkpoint(checkpoint.git_checkpoint.clone(), cx)
-        });
-
+        let project = self.project.read(cx);
+        let restore = project
+            .git_store()
+            .read(cx)
+            .restore_checkpoint(checkpoint.git_checkpoint.clone(), cx);
         cx.spawn(async move |this, cx| {
             let result = restore.await;
             this.update(cx, |this, cx| {
@@ -505,11 +506,11 @@ impl Thread {
         };
 
         let git_store = self.project.read(cx).git_store().clone();
-        let final_checkpoint = git_store.update(cx, |git_store, cx| git_store.checkpoint(cx));
+        let final_checkpoint = git_store.read(cx).checkpoint(cx);
         cx.spawn(async move |this, cx| match final_checkpoint.await {
             Ok(final_checkpoint) => {
                 let equal = git_store
-                    .update(cx, |store, cx| {
+                    .read_with(cx, |store, cx| {
                         store.compare_checkpoints(
                             pending_checkpoint.git_checkpoint.clone(),
                             final_checkpoint.clone(),
@@ -521,7 +522,7 @@ impl Thread {
 
                 if equal {
                     git_store
-                        .update(cx, |store, cx| {
+                        .read_with(cx, |store, cx| {
                             store.delete_checkpoint(pending_checkpoint.git_checkpoint, cx)
                         })?
                         .detach();
@@ -532,7 +533,7 @@ impl Thread {
                 }
 
                 git_store
-                    .update(cx, |store, cx| {
+                    .read_with(cx, |store, cx| {
                         store.delete_checkpoint(final_checkpoint, cx)
                     })?
                     .detach();
@@ -853,36 +854,67 @@ impl Thread {
         let root_name = worktree.root_name().into();
         let abs_path = worktree.abs_path();
 
-        let rules_task = load_worktree_rules_file(fs, worktree, cx);
-        let Some(rules_task) = rules_task else {
-            return Task::ready((
+        // Note that Cline supports `.clinerules` being a directory, but that is not currently
+        // supported. This doesn't seem to occur often in GitHub repositories.
+        const RULES_FILE_NAMES: [&'static str; 6] = [
+            ".rules",
+            ".cursorrules",
+            ".windsurfrules",
+            ".clinerules",
+            ".github/copilot-instructions.md",
+            "CLAUDE.md",
+        ];
+        let selected_rules_file = RULES_FILE_NAMES
+            .into_iter()
+            .filter_map(|name| {
+                worktree
+                    .entry_for_path(name)
+                    .filter(|entry| entry.is_file())
+                    .map(|entry| (entry.path.clone(), worktree.absolutize(&entry.path)))
+            })
+            .next();
+
+        if let Some((rel_rules_path, abs_rules_path)) = selected_rules_file {
+            cx.spawn(async move |_| {
+                let rules_file_result = maybe!(async move {
+                    let abs_rules_path = abs_rules_path?;
+                    let text = fs.load(&abs_rules_path).await.with_context(|| {
+                        format!("Failed to load assistant rules file {:?}", abs_rules_path)
+                    })?;
+                    anyhow::Ok(RulesFile {
+                        rel_path: rel_rules_path,
+                        abs_path: abs_rules_path.into(),
+                        text: text.trim().to_string(),
+                    })
+                })
+                .await;
+                let (rules_file, rules_file_error) = match rules_file_result {
+                    Ok(rules_file) => (Some(rules_file), None),
+                    Err(err) => (
+                        None,
+                        Some(ThreadError::Message {
+                            header: "Error loading rules file".into(),
+                            message: format!("{err}").into(),
+                        }),
+                    ),
+                };
+                let worktree_info = WorktreeInfoForSystemPrompt {
+                    root_name,
+                    abs_path,
+                    rules_file,
+                };
+                (worktree_info, rules_file_error)
+            })
+        } else {
+            Task::ready((
                 WorktreeInfoForSystemPrompt {
                     root_name,
                     abs_path,
                     rules_file: None,
                 },
                 None,
-            ));
-        };
-
-        cx.spawn(async move |_| {
-            let (rules_file, rules_file_error) = match rules_task.await {
-                Ok(rules_file) => (Some(rules_file), None),
-                Err(err) => (
-                    None,
-                    Some(ThreadError::Message {
-                        header: "Error loading rules file".into(),
-                        message: format!("{err}").into(),
-                    }),
-                ),
-            };
-            let worktree_info = WorktreeInfoForSystemPrompt {
-                root_name,
-                abs_path,
-                rules_file,
-            };
-            (worktree_info, rules_file_error)
-        })
+            ))
+        }
     }
 
     pub fn send_to_model(
@@ -1382,7 +1414,7 @@ impl Thread {
 
         for tool_use in pending_tool_uses.iter() {
             if let Some(tool) = self.tools.tool(&tool_use.name, cx) {
-                if tool.needs_confirmation(&tool_use.input, cx)
+                if tool.needs_confirmation()
                     && !AssistantSettings::get_global(cx).always_allow_tool_actions
                 {
                     self.tool_use.confirm_tool_use(
@@ -1619,10 +1651,10 @@ impl Thread {
                 .ok()
                 .flatten()
                 .map(|repo| {
-                    repo.update(cx, |repo, _| {
+                    repo.read_with(cx, |repo, _| {
                         let current_branch =
                             repo.branch.as_ref().map(|branch| branch.name.to_string());
-                        repo.send_job(None, |state, _| async move {
+                        repo.send_job(|state, _| async move {
                             let RepositoryState::Local { backend, .. } = state else {
                                 return GitState {
                                     remote_url: None,

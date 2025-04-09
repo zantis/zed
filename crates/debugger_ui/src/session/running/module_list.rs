@@ -1,14 +1,13 @@
 use anyhow::anyhow;
 use gpui::{
-    AnyElement, Empty, Entity, FocusHandle, Focusable, ListState, MouseButton, Stateful,
-    Subscription, WeakEntity, list,
+    AnyElement, Empty, Entity, FocusHandle, Focusable, ListState, Subscription, WeakEntity, list,
 };
 use project::{
     ProjectItem as _, ProjectPath,
     debugger::session::{Session, SessionEvent},
 };
 use std::{path::Path, sync::Arc};
-use ui::{Scrollbar, ScrollbarState, prelude::*};
+use ui::prelude::*;
 use util::maybe;
 use workspace::Workspace;
 
@@ -18,7 +17,6 @@ pub struct ModuleList {
     session: Entity<Session>,
     workspace: WeakEntity<Workspace>,
     focus_handle: FocusHandle,
-    scrollbar_state: ScrollbarState,
     _subscription: Subscription,
 }
 
@@ -52,7 +50,6 @@ impl ModuleList {
         });
 
         Self {
-            scrollbar_state: ScrollbarState::new(list.clone()),
             list,
             session,
             workspace,
@@ -150,43 +147,13 @@ impl ModuleList {
             )
             .into_any()
     }
+}
 
-    #[cfg(test)]
-    pub(crate) fn modules(&self, cx: &mut Context<Self>) -> Vec<dap::Module> {
+#[cfg(any(test, feature = "test-support"))]
+impl ModuleList {
+    pub fn modules(&self, cx: &mut Context<Self>) -> Vec<dap::Module> {
         self.session
             .update(cx, |session, cx| session.modules(cx).to_vec())
-    }
-    fn render_vertical_scrollbar(&self, cx: &mut Context<Self>) -> Stateful<Div> {
-        div()
-            .occlude()
-            .id("module-list-vertical-scrollbar")
-            .on_mouse_move(cx.listener(|_, _, _, cx| {
-                cx.notify();
-                cx.stop_propagation()
-            }))
-            .on_hover(|_, _, cx| {
-                cx.stop_propagation();
-            })
-            .on_any_mouse_down(|_, _, cx| {
-                cx.stop_propagation();
-            })
-            .on_mouse_up(
-                MouseButton::Left,
-                cx.listener(|_, _, _, cx| {
-                    cx.stop_propagation();
-                }),
-            )
-            .on_scroll_wheel(cx.listener(|_, _, _, cx| {
-                cx.notify();
-            }))
-            .h_full()
-            .absolute()
-            .right_1()
-            .top_1()
-            .bottom_0()
-            .w(px(12.))
-            .cursor_default()
-            .children(Scrollbar::vertical(self.scrollbar_state.clone()))
     }
 }
 
@@ -212,6 +179,5 @@ impl Render for ModuleList {
             .size_full()
             .p_1()
             .child(list(self.list.clone()).size_full())
-            .child(self.render_vertical_scrollbar(cx))
     }
 }

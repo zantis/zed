@@ -781,7 +781,7 @@ fn test_expand_excerpts(cx: &mut App) {
 }
 
 #[gpui::test(iterations = 100)]
-async fn test_set_anchored_excerpts_for_path(cx: &mut TestAppContext) {
+async fn test_push_multiple_excerpts_with_context_lines(cx: &mut TestAppContext) {
     let buffer_1 = cx.new(|cx| Buffer::local(sample_text(20, 3, 'a'), cx));
     let buffer_2 = cx.new(|cx| Buffer::local(sample_text(15, 4, 'a'), cx));
     let snapshot_1 = buffer_1.update(cx, |buffer, _| buffer.snapshot());
@@ -797,39 +797,15 @@ async fn test_set_anchored_excerpts_for_path(cx: &mut TestAppContext) {
     ];
 
     let multibuffer = cx.new(|_| MultiBuffer::new(Capability::ReadWrite));
-    let anchor_ranges_1 = multibuffer
+    let anchor_ranges = multibuffer
         .update(cx, |multibuffer, cx| {
-            multibuffer.set_anchored_excerpts_for_path(buffer_1.clone(), ranges_1, 2, cx)
+            multibuffer.push_multiple_excerpts_with_context_lines(
+                vec![(buffer_1.clone(), ranges_1), (buffer_2.clone(), ranges_2)],
+                2,
+                cx,
+            )
         })
         .await;
-    let snapshot_1 = multibuffer.update(cx, |multibuffer, cx| multibuffer.snapshot(cx));
-    assert_eq!(
-        anchor_ranges_1
-            .iter()
-            .map(|range| range.to_point(&snapshot_1))
-            .collect::<Vec<_>>(),
-        vec![
-            Point::new(2, 2)..Point::new(3, 2),
-            Point::new(6, 1)..Point::new(6, 3),
-            Point::new(11, 0)..Point::new(11, 0),
-        ]
-    );
-    let anchor_ranges_2 = multibuffer
-        .update(cx, |multibuffer, cx| {
-            multibuffer.set_anchored_excerpts_for_path(buffer_2.clone(), ranges_2, 2, cx)
-        })
-        .await;
-    let snapshot_2 = multibuffer.update(cx, |multibuffer, cx| multibuffer.snapshot(cx));
-    assert_eq!(
-        anchor_ranges_2
-            .iter()
-            .map(|range| range.to_point(&snapshot_2))
-            .collect::<Vec<_>>(),
-        vec![
-            Point::new(16, 1)..Point::new(17, 1),
-            Point::new(22, 0)..Point::new(22, 2)
-        ]
-    );
 
     let snapshot = multibuffer.update(cx, |multibuffer, cx| multibuffer.snapshot(cx));
     assert_eq!(
@@ -864,6 +840,20 @@ async fn test_set_anchored_excerpts_for_path(cx: &mut TestAppContext) {
             "llll\n", //
             "mmmm",   //
         )
+    );
+
+    assert_eq!(
+        anchor_ranges
+            .iter()
+            .map(|range| range.to_point(&snapshot))
+            .collect::<Vec<_>>(),
+        vec![
+            Point::new(2, 2)..Point::new(3, 2),
+            Point::new(6, 1)..Point::new(6, 3),
+            Point::new(11, 0)..Point::new(11, 0),
+            Point::new(16, 1)..Point::new(17, 1),
+            Point::new(22, 0)..Point::new(22, 2)
+        ]
     );
 }
 
@@ -1796,88 +1786,6 @@ fn test_set_excerpts_for_buffer(cx: &mut TestAppContext) {
             cx,
         );
     });
-}
-
-#[gpui::test]
-fn test_set_excerpts_for_buffer_rename(cx: &mut TestAppContext) {
-    let buf1 = cx.new(|cx| {
-        Buffer::local(
-            indoc! {
-            "zero
-            one
-            two
-            three
-            four
-            five
-            six
-            seven
-            ",
-            },
-            cx,
-        )
-    });
-    let path: PathKey = PathKey::namespaced(0, Path::new("/").into());
-    let buf2 = cx.new(|cx| {
-        Buffer::local(
-            indoc! {
-            "000
-            111
-            222
-            333
-            "
-            },
-            cx,
-        )
-    });
-
-    let multibuffer = cx.new(|_| MultiBuffer::new(Capability::ReadWrite));
-    multibuffer.update(cx, |multibuffer, cx| {
-        multibuffer.set_excerpts_for_path(
-            path.clone(),
-            buf1.clone(),
-            vec![Point::row_range(1..1), Point::row_range(4..5)],
-            1,
-            cx,
-        );
-    });
-
-    assert_excerpts_match(
-        &multibuffer,
-        cx,
-        indoc! {
-        "-----
-        zero
-        one
-        two
-        -----
-        three
-        four
-        five
-        six
-        "
-        },
-    );
-
-    multibuffer.update(cx, |multibuffer, cx| {
-        multibuffer.set_excerpts_for_path(
-            path.clone(),
-            buf2.clone(),
-            vec![Point::row_range(0..1)],
-            2,
-            cx,
-        );
-    });
-
-    assert_excerpts_match(
-        &multibuffer,
-        cx,
-        indoc! {"-----
-                000
-                111
-                222
-                333
-                "},
-    );
 }
 
 #[gpui::test]

@@ -42,9 +42,12 @@ use std::{
 /// }
 /// register_action!(Paste);
 /// ```
-pub trait Action: Any + Send {
+pub trait Action: 'static + Send {
     /// Clone the action into a new box
     fn boxed_clone(&self) -> Box<dyn Action>;
+
+    /// Cast the action to the any type
+    fn as_any(&self) -> &dyn Any;
 
     /// Do a partial equality check on this action and the other
     fn partial_eq(&self, action: &dyn Action) -> bool;
@@ -91,9 +94,9 @@ impl std::fmt::Debug for dyn Action {
 }
 
 impl dyn Action {
-    /// Type-erase Action type.
-    pub fn as_any(&self) -> &dyn Any {
-        self as &dyn Any
+    /// Get the type id of this action
+    pub fn type_id(&self) -> TypeId {
+        self.as_any().type_id()
     }
 }
 
@@ -554,6 +557,9 @@ macro_rules! __impl_action {
                 ::std::boxed::Box::new(self.clone())
             }
 
+            fn as_any(&self) -> &dyn ::std::any::Any {
+                self
+            }
 
             $($items)*
         }

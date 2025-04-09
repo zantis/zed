@@ -89,3 +89,12 @@ impl RemoteTrackPublication {
         }
     }
 }
+
+impl RemoteTrack {
+    pub fn set_enabled(&self, enabled: bool, _cx: &App) {
+        match self {
+            RemoteTrack::Audio(remote_audio_track) => remote_audio_track.set_enabled(enabled),
+            RemoteTrack::Video(remote_video_track) => remote_video_track.set_enabled(enabled),
+        }
+    }
+}

@@ -1590,7 +1590,7 @@ impl Terminal {
             return None;
         };
 
-        Some(scroll_lines.clamp(-3, 3))
+        Some(scroll_lines)
     }
 
     pub fn mouse_down(&mut self, e: &MouseDownEvent, _cx: &mut Context<Self>) {

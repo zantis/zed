@@ -5,12 +5,10 @@ body:
   - type: textarea
     attributes:
       label: Summary
-      description: Summarize the issue with detailed reproduction steps
+      description: Describe the bug with a one line summary, and provide detailed reproduction steps
       value: |
-        <!-- Begin your issue with a one sentence summary -->
-        SUMMARY_SENTENCE_HERE
+        <!-- Please insert a one line summary of the issue below -->
 
-        ### Description
         <!-- Include all steps necessary to reproduce from a clean Zed installation. Be verbose -->
         Steps to trigger the problem:
         1.
@@ -18,6 +16,7 @@ body:
         3.
 
         Actual Behavior:
+
         Expected Behavior:
 
     validations:
@@ -41,11 +40,10 @@ body:
       value: |
         <details><summary>Zed.log</summary>
 
-        <!-- Paste your log inside the code block. -->
-        ```log
-
+        <!-- Click below this line and paste or drag-and-drop your log-->
         ```
 
-        </details>
+        ```
+        <!-- Click above this line and paste or drag-and-drop your log--></details>
     validations:
       required: false

@@ -27,7 +27,7 @@ use lsp::{
     WillRenameFiles, notification::DidRenameFiles,
 };
 use parking_lot::Mutex;
-use paths::{config_dir, tasks_file};
+use paths::tasks_file;
 use postage::stream::Stream as _;
 use pretty_assertions::{assert_eq, assert_matches};
 use serde_json::json;
@@ -459,8 +459,6 @@ async fn test_fallback_to_single_worktree_tasks(cx: &mut gpui::TestAppContext) {
                 active_item_context: Some((Some(worktree_id), None, TaskContext::default())),
                 active_worktree_context: None,
                 other_worktree_contexts: Vec::new(),
-                lsp_task_sources: HashMap::default(),
-                latest_selection: None,
             },
             cx,
         )
@@ -483,8 +481,6 @@ async fn test_fallback_to_single_worktree_tasks(cx: &mut gpui::TestAppContext) {
                     worktree_context
                 })),
                 other_worktree_contexts: Vec::new(),
-                lsp_task_sources: HashMap::default(),
-                latest_selection: None,
             },
             cx,
         )
@@ -801,7 +797,7 @@ async fn test_managing_language_servers(cx: &mut gpui::TestAppContext) {
             .receive_notification::<lsp::notification::DidCloseTextDocument>()
             .await
             .text_document,
-        lsp::TextDocumentIdentifier::new(lsp::Url::from_file_path(path!("/dir/test3.rs")).unwrap()),
+        lsp::TextDocumentIdentifier::new(lsp::Url::from_file_path(path!("/dir/test3.rs")).unwrap(),),
     );
     assert_eq!(
         fake_json_server
@@ -923,7 +919,6 @@ async fn test_reporting_fs_changes_to_language_servers(cx: &mut gpui::TestAppCon
         path!("/the-root"),
         json!({
             ".gitignore": "target\n",
-            "Cargo.lock": "",
             "src": {
                 "a.rs": "",
                 "b.rs": "",
@@ -948,37 +943,9 @@ async fn test_reporting_fs_changes_to_language_servers(cx: &mut gpui::TestAppCon
         }),
     )
     .await;
-    fs.insert_tree(
-        path!("/the-registry"),
-        json!({
-            "dep1": {
-                "src": {
-                    "dep1.rs": "",
-                }
-            },
-            "dep2": {
-                "src": {
-                    "dep2.rs": "",
-                }
-            },
-        }),
-    )
-    .await;
-    fs.insert_tree(
-        path!("/the/stdlib"),
-        json!({
-            "LICENSE": "",
-            "src": {
-                "string.rs": "",
-            }
-        }),
-    )
-    .await;
 
     let project = Project::test(fs.clone(), [path!("/the-root").as_ref()], cx).await;
-    let (language_registry, lsp_store) = project.read_with(cx, |project, _| {
-        (project.languages().clone(), project.lsp_store())
-    });
+    let language_registry = project.read_with(cx, |project, _| project.languages().clone());
     language_registry.add(rust_lang());
     let mut fake_servers = language_registry.register_fake_lsp(
         "Rust",
@@ -1011,7 +978,6 @@ async fn test_reporting_fs_changes_to_language_servers(cx: &mut gpui::TestAppCon
             &[
                 (Path::new(""), false),
                 (Path::new(".gitignore"), false),
-                (Path::new("Cargo.lock"), false),
                 (Path::new("src"), false),
                 (Path::new("src/a.rs"), false),
                 (Path::new("src/b.rs"), false),
@@ -1022,26 +988,8 @@ async fn test_reporting_fs_changes_to_language_servers(cx: &mut gpui::TestAppCon
 
     let prev_read_dir_count = fs.read_dir_call_count();
 
-    let fake_server = fake_servers.next().await.unwrap();
-    let (server_id, server_name) = lsp_store.read_with(cx, |lsp_store, _| {
-        let (id, status) = lsp_store.language_server_statuses().next().unwrap();
-        (id, LanguageServerName::from(status.name.as_str()))
-    });
-
-    // Simulate jumping to a definition in a dependency outside of the worktree.
-    let _out_of_worktree_buffer = project
-        .update(cx, |project, cx| {
-            project.open_local_buffer_via_lsp(
-                lsp::Url::from_file_path(path!("/the-registry/dep1/src/dep1.rs")).unwrap(),
-                server_id,
-                server_name.clone(),
-                cx,
-            )
-        })
-        .await
-        .unwrap();
-
     // Keep track of the FS events reported to the language server.
+    let fake_server = fake_servers.next().await.unwrap();
     let file_changes = Arc::new(Mutex::new(Vec::new()));
     fake_server
         .request::<lsp::request::RegisterCapability>(lsp::RegistrationParams {
@@ -1069,18 +1017,6 @@ async fn test_reporting_fs_changes_to_language_servers(cx: &mut gpui::TestAppCon
                                 ),
                                 kind: None,
                             },
-                            lsp::FileSystemWatcher {
-                                glob_pattern: lsp::GlobPattern::String(
-                                    path!("/the/stdlib/src/**/*.rs").to_string(),
-                                ),
-                                kind: None,
-                            },
-                            lsp::FileSystemWatcher {
-                                glob_pattern: lsp::GlobPattern::String(
-                                    path!("**/Cargo.lock").to_string(),
-                                ),
-                                kind: None,
-                            },
                         ],
                     },
                 )
@@ -1100,23 +1036,12 @@ async fn test_reporting_fs_changes_to_language_servers(cx: &mut gpui::TestAppCon
 
     cx.executor().run_until_parked();
     assert_eq!(mem::take(&mut *file_changes.lock()), &[]);
-    assert_eq!(fs.read_dir_call_count() - prev_read_dir_count, 5);
-
-    let mut new_watched_paths = fs.watched_paths();
-    new_watched_paths.retain(|path| !path.starts_with(config_dir()));
-    assert_eq!(
-        &new_watched_paths,
-        &[
-            Path::new(path!("/the-root")),
-            Path::new(path!("/the-registry/dep1/src/dep1.rs")),
-            Path::new(path!("/the/stdlib/src"))
-        ]
-    );
+    assert_eq!(fs.read_dir_call_count() - prev_read_dir_count, 4);
 
     // Now the language server has asked us to watch an ignored directory path,
     // so we recursively load it.
     project.update(cx, |project, cx| {
-        let worktree = project.visible_worktrees(cx).next().unwrap();
+        let worktree = project.worktrees(cx).next().unwrap();
         assert_eq!(
             worktree
                 .read(cx)
@@ -1127,7 +1052,6 @@ async fn test_reporting_fs_changes_to_language_servers(cx: &mut gpui::TestAppCon
             &[
                 (Path::new(""), false),
                 (Path::new(".gitignore"), false),
-                (Path::new("Cargo.lock"), false),
                 (Path::new("src"), false),
                 (Path::new("src/a.rs"), false),
                 (Path::new("src/b.rs"), false),
@@ -1164,37 +1088,12 @@ async fn test_reporting_fs_changes_to_language_servers(cx: &mut gpui::TestAppCon
     )
     .await
     .unwrap();
-    fs.save(
-        path!("/the-root/Cargo.lock").as_ref(),
-        &"".into(),
-        Default::default(),
-    )
-    .await
-    .unwrap();
-    fs.save(
-        path!("/the-stdlib/LICENSE").as_ref(),
-        &"".into(),
-        Default::default(),
-    )
-    .await
-    .unwrap();
-    fs.save(
-        path!("/the/stdlib/src/string.rs").as_ref(),
-        &"".into(),
-        Default::default(),
-    )
-    .await
-    .unwrap();
 
     // The language server receives events for the FS mutations that match its watch patterns.
     cx.executor().run_until_parked();
     assert_eq!(
         &*file_changes.lock(),
         &[
-            lsp::FileEvent {
-                uri: lsp::Url::from_file_path(path!("/the-root/Cargo.lock")).unwrap(),
-                typ: lsp::FileChangeType::CHANGED,
-            },
             lsp::FileEvent {
                 uri: lsp::Url::from_file_path(path!("/the-root/src/b.rs")).unwrap(),
                 typ: lsp::FileChangeType::DELETED,
@@ -1206,10 +1105,6 @@ async fn test_reporting_fs_changes_to_language_servers(cx: &mut gpui::TestAppCon
             lsp::FileEvent {
                 uri: lsp::Url::from_file_path(path!("/the-root/target/y/out/y2.rs")).unwrap(),
                 typ: lsp::FileChangeType::CREATED,
-            },
-            lsp::FileEvent {
-                uri: lsp::Url::from_file_path(path!("/the/stdlib/src/string.rs")).unwrap(),
-                typ: lsp::FileChangeType::CHANGED,
             },
         ]
     );
@@ -3018,7 +2913,7 @@ async fn test_completions_with_text_edit(cx: &mut gpui::TestAppContext) {
     assert_eq!(completions.len(), 1);
     assert_eq!(completions[0].new_text, "textEditText");
     assert_eq!(
-        completions[0].replace_range.to_offset(&snapshot),
+        completions[0].old_range.to_offset(&snapshot),
         text.len() - 3..text.len()
     );
 }
@@ -3101,7 +2996,7 @@ async fn test_completions_with_edit_ranges(cx: &mut gpui::TestAppContext) {
         assert_eq!(completions.len(), 1);
         assert_eq!(completions[0].new_text, "insertText");
         assert_eq!(
-            completions[0].replace_range.to_offset(&snapshot),
+            completions[0].old_range.to_offset(&snapshot),
             text.len() - 3..text.len()
         );
     }
@@ -3143,7 +3038,7 @@ async fn test_completions_with_edit_ranges(cx: &mut gpui::TestAppContext) {
         assert_eq!(completions.len(), 1);
         assert_eq!(completions[0].new_text, "labelText");
         assert_eq!(
-            completions[0].replace_range.to_offset(&snapshot),
+            completions[0].old_range.to_offset(&snapshot),
             text.len() - 3..text.len()
         );
     }
@@ -3213,7 +3108,7 @@ async fn test_completions_without_edit_ranges(cx: &mut gpui::TestAppContext) {
     assert_eq!(completions.len(), 1);
     assert_eq!(completions[0].new_text, "fullyQualifiedName");
     assert_eq!(
-        completions[0].replace_range.to_offset(&snapshot),
+        completions[0].old_range.to_offset(&snapshot),
         text.len() - 3..text.len()
     );
 
@@ -3240,7 +3135,7 @@ async fn test_completions_without_edit_ranges(cx: &mut gpui::TestAppContext) {
     assert_eq!(completions.len(), 1);
     assert_eq!(completions[0].new_text, "component");
     assert_eq!(
-        completions[0].replace_range.to_offset(&snapshot),
+        completions[0].old_range.to_offset(&snapshot),
         text.len() - 4..text.len() - 1
     );
 }

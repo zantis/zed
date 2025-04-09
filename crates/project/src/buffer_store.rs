@@ -275,7 +275,6 @@ impl RemoteBufferStore {
                 if push_to_history {
                     buffer.update(cx, |buffer, _| {
                         buffer.push_transaction(transaction.clone(), Instant::now());
-                        buffer.finalize_last_transaction();
                     })?;
                 }
             }

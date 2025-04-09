@@ -74,4 +74,6 @@ pub use toggle::*;
 pub use tooltip::*;
 
 #[cfg(feature = "stories")]
+pub use image::story::*;
+#[cfg(feature = "stories")]
 pub use stories::*;

@@ -991,7 +991,6 @@ impl LspAdapter for PyLspAdapter {
             util::command::new_smol_command(pip_path.as_path())
                 .arg("install")
                 .arg("python-lsp-server")
-                .arg("-U")
                 .output()
                 .await?
                 .status
@@ -1002,7 +1001,6 @@ impl LspAdapter for PyLspAdapter {
             util::command::new_smol_command(pip_path.as_path())
                 .arg("install")
                 .arg("python-lsp-server[all]")
-                .arg("-U")
                 .output()
                 .await?
                 .status
@@ -1013,7 +1011,6 @@ impl LspAdapter for PyLspAdapter {
             util::command::new_smol_command(pip_path)
                 .arg("install")
                 .arg("pylsp-mypy")
-                .arg("-U")
                 .output()
                 .await?
                 .status

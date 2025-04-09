@@ -18,7 +18,7 @@ use cocoa::{
     base::{id, nil},
     foundation::{
         NSArray, NSAutoreleasePool, NSDictionary, NSFastEnumeration, NSInteger, NSNotFound,
-        NSOperatingSystemVersion, NSPoint, NSProcessInfo, NSRect, NSSize, NSString, NSUInteger,
+        NSPoint, NSRect, NSSize, NSString, NSUInteger,
     },
 };
 use core_graphics::display::{CGDirectDisplayID, CGPoint, CGRect};
@@ -744,10 +744,6 @@ impl MacWindow {
         unsafe {
             let app = NSApplication::sharedApplication(nil);
             let main_window: id = msg_send![app, mainWindow];
-            if main_window.is_null() {
-                return None;
-            }
-
             if msg_send![main_window, isKindOfClass: WINDOW_CLASS] {
                 let handle = get_window_state(&*main_window).lock().handle;
                 Some(handle)
@@ -1161,9 +1157,6 @@ impl PlatformWindow for MacWindow {
                 unsafe {
                     let input_context: id =
                         msg_send![class!(NSTextInputContext), currentInputContext];
-                    if input_context.is_null() {
-                        return;
-                    }
                     let _: () = msg_send![input_context, invalidateCharacterCoordinates];
                 }
             })
@@ -1549,9 +1542,7 @@ extern "C" fn window_will_enter_fullscreen(this: &Object, _: Sel, _: id) {
     let mut lock = window_state.as_ref().lock();
     lock.fullscreen_restore_bounds = lock.bounds();
 
-    let min_version = NSOperatingSystemVersion::new(15, 3, 0);
-
-    if is_macos_version_at_least(min_version) {
+    if is_macos_version_at_least(15, 3, 0) {
         unsafe {
             lock.native_window.setTitlebarAppearsTransparent_(NO);
         }
@@ -1562,17 +1553,30 @@ extern "C" fn window_will_exit_fullscreen(this: &Object, _: Sel, _: id) {
     let window_state = unsafe { get_window_state(this) };
     let mut lock = window_state.as_ref().lock();
 
-    let min_version = NSOperatingSystemVersion::new(15, 3, 0);
-
-    if is_macos_version_at_least(min_version) && lock.transparent_titlebar {
+    if is_macos_version_at_least(15, 3, 0) && lock.transparent_titlebar {
         unsafe {
             lock.native_window.setTitlebarAppearsTransparent_(YES);
         }
     }
 }
 
-fn is_macos_version_at_least(version: NSOperatingSystemVersion) -> bool {
-    unsafe { NSProcessInfo::processInfo(nil).isOperatingSystemAtLeastVersion(version) }
+#[repr(C)]
+struct NSOperatingSystemVersion {
+    major_version: NSInteger,
+    minor_version: NSInteger,
+    patch_version: NSInteger,
+}
+
+fn is_macos_version_at_least(major: NSInteger, minor: NSInteger, patch: NSInteger) -> bool {
+    unsafe {
+        let process_info: id = msg_send![class!(NSProcessInfo), processInfo];
+        let os_version: NSOperatingSystemVersion = msg_send![process_info, operatingSystemVersion];
+        (os_version.major_version > major)
+            || (os_version.major_version == major && os_version.minor_version > minor)
+            || (os_version.major_version == major
+                && os_version.minor_version == minor
+                && os_version.patch_version >= patch)
+    }
 }
 
 extern "C" fn window_did_move(this: &Object, _: Sel, _: id) {
