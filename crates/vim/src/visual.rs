@@ -85,7 +85,6 @@ pub fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
 
     Vim::action(editor, cx, |vim, _: &SelectLargerSyntaxNode, window, cx| {
         let count = Vim::take_count(cx).unwrap_or(1);
-        Vim::take_forced_motion(cx);
         for _ in 0..count {
             vim.update_editor(window, cx, |_, editor, window, cx| {
                 editor.select_larger_syntax_node(&Default::default(), window, cx);
@@ -98,7 +97,6 @@ pub fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
         cx,
         |vim, _: &SelectSmallerSyntaxNode, window, cx| {
             let count = Vim::take_count(cx).unwrap_or(1);
-            Vim::take_forced_motion(cx);
             for _ in 0..count {
                 vim.update_editor(window, cx, |_, editor, window, cx| {
                     editor.select_smaller_syntax_node(&Default::default(), window, cx);
@@ -684,7 +682,6 @@ impl Vim {
     }
 
     pub fn select_next(&mut self, _: &SelectNext, window: &mut Window, cx: &mut Context<Self>) {
-        Vim::take_forced_motion(cx);
         let count =
             Vim::take_count(cx).unwrap_or_else(|| if self.mode.is_visual() { 1 } else { 2 });
         self.update_editor(window, cx, |_, editor, window, cx| {
@@ -707,7 +704,6 @@ impl Vim {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        Vim::take_forced_motion(cx);
         let count =
             Vim::take_count(cx).unwrap_or_else(|| if self.mode.is_visual() { 1 } else { 2 });
         self.update_editor(window, cx, |_, editor, window, cx| {
@@ -729,7 +725,6 @@ impl Vim {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        Vim::take_forced_motion(cx);
         let count = Vim::take_count(cx).unwrap_or(1);
         let Some(pane) = self.pane(window, cx) else {
             return;
@@ -1160,7 +1155,8 @@ mod test {
                     fox ˇjumps over
                     the lazy dog"})
             .await;
-        cx.simulate_shared_keystrokes("shift-v $ shift-y").await;
+        cx.simulate_shared_keystrokes("shift-v shift-4 shift-y")
+            .await;
         cx.shared_state().await.assert_eq(indoc! {"
                     The quick brown
                     ˇfox jumps over

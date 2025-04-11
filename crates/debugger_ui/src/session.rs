@@ -1,7 +1,5 @@
 pub mod running;
 
-use std::sync::OnceLock;
-
 use dap::client::SessionId;
 use gpui::{App, Entity, EventEmitter, FocusHandle, Focusable, Subscription, Task, WeakEntity};
 use project::Project;
@@ -32,7 +30,6 @@ impl DebugSessionState {
 pub struct DebugSession {
     remote_id: Option<workspace::ViewId>,
     mode: DebugSessionState,
-    label: OnceLock<String>,
     dap_store: WeakEntity<DapStore>,
     _debug_panel: WeakEntity<DebugPanel>,
     _worktree_store: WeakEntity<WorktreeStore>,
@@ -71,7 +68,6 @@ impl DebugSession {
             })],
             remote_id: None,
             mode: DebugSessionState::Running(mode),
-            label: OnceLock::new(),
             dap_store: project.read(cx).dap_store().downgrade(),
             _debug_panel,
             _worktree_store: project.read(cx).worktree_store().downgrade(),
@@ -96,45 +92,36 @@ impl DebugSession {
     }
 
     pub(crate) fn label(&self, cx: &App) -> String {
-        if let Some(label) = self.label.get() {
-            return label.to_owned();
-        }
-
         let session_id = match &self.mode {
             DebugSessionState::Running(running_state) => running_state.read(cx).session_id(),
         };
-
         let Ok(Some(session)) = self
             .dap_store
             .read_with(cx, |store, _| store.session_by_id(session_id))
         else {
             return "".to_owned();
         };
-
-        self.label
-            .get_or_init(|| {
-                session
-                    .read(cx)
-                    .as_local()
-                    .expect("Remote Debug Sessions are not implemented yet")
-                    .label()
-            })
-            .to_owned()
+        session
+            .read(cx)
+            .as_local()
+            .expect("Remote Debug Sessions are not implemented yet")
+            .label()
     }
 
     pub(crate) fn label_element(&self, cx: &App) -> AnyElement {
         let label = self.label(cx);
 
-        let icon = match &self.mode {
+        let (icon, color) = match &self.mode {
             DebugSessionState::Running(state) => {
                 if state.read(cx).session().read(cx).is_terminated() {
-                    Some(Indicator::dot().color(Color::Error))
+                    (Some(Indicator::dot().color(Color::Error)), Color::Error)
                 } else {
                     match state.read(cx).thread_status(cx).unwrap_or_default() {
-                        project::debugger::session::ThreadStatus::Stopped => {
-                            Some(Indicator::dot().color(Color::Conflict))
-                        }
-                        _ => Some(Indicator::dot().color(Color::Success)),
+                        project::debugger::session::ThreadStatus::Stopped => (
+                            Some(Indicator::dot().color(Color::Conflict)),
+                            Color::Conflict,
+                        ),
+                        _ => (Some(Indicator::dot().color(Color::Success)), Color::Success),
                     }
                 }
             }
@@ -144,7 +131,7 @@ impl DebugSession {
             .gap_2()
             .when_some(icon, |this, indicator| this.child(indicator))
             .justify_between()
-            .child(Label::new(label))
+            .child(Label::new(label).color(color))
             .into_any_element()
     }
 }

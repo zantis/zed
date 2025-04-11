@@ -1,4 +1,4 @@
-use super::{BoolExt, MacDisplay, NSRange, NSStringExt, ns_string, renderer};
+use super::{MacDisplay, NSRange, NSStringExt, ns_string, renderer};
 use crate::{
     AnyWindowHandle, Bounds, DisplayLink, ExternalPaths, FileDropEvent, ForegroundExecutor,
     KeyDownEvent, Keystroke, Modifiers, ModifiersChangedEvent, MouseButton, MouseDownEvent,
@@ -1021,8 +1021,11 @@ impl PlatformWindow for MacWindow {
         } else {
             0
         };
-        let opaque = (background_appearance == WindowBackgroundAppearance::Opaque).to_objc();
-
+        let opaque = if background_appearance == WindowBackgroundAppearance::Opaque {
+            YES
+        } else {
+            NO
+        };
         unsafe {
             this.native_window.setOpaque_(opaque);
             // Shadows for transparent windows cause artifacts and performance issues
@@ -1978,11 +1981,14 @@ extern "C" fn dragging_exited(this: &Object, _: Sel, _: id) {
 extern "C" fn perform_drag_operation(this: &Object, _: Sel, dragging_info: id) -> BOOL {
     let window_state = unsafe { get_window_state(this) };
     let position = drag_event_position(&window_state, dragging_info);
-    send_new_event(
+    if send_new_event(
         &window_state,
         PlatformInput::FileDrop(FileDropEvent::Submit { position }),
-    )
-    .to_objc()
+    ) {
+        YES
+    } else {
+        NO
+    }
 }
 
 fn external_paths_from_event(dragging_info: *mut Object) -> Option<ExternalPaths> {

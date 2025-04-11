@@ -1,4 +1,3 @@
-mod breakpoint_list;
 mod console;
 mod loaded_source_list;
 mod module_list;
@@ -8,7 +7,6 @@ pub mod variable_list;
 use std::{any::Any, ops::ControlFlow, sync::Arc};
 
 use super::DebugPanelItemEvent;
-use breakpoint_list::BreakpointList;
 use collections::HashMap;
 use console::Console;
 use dap::{Capabilities, Thread, client::SessionId, debugger_settings::DebuggerSettings};
@@ -26,15 +24,13 @@ use rpc::proto::ViewId;
 use settings::Settings;
 use stack_frame_list::StackFrameList;
 use ui::{
-    ActiveTheme, AnyElement, App, Context, ContextMenu, DropdownMenu, FluentBuilder,
-    InteractiveElement, IntoElement, Label, LabelCommon as _, ParentElement, Render, SharedString,
-    StatefulInteractiveElement, Styled, Tab, Window, div, h_flex, v_flex,
+    App, Context, ContextMenu, DropdownMenu, InteractiveElement, IntoElement, ParentElement,
+    Render, SharedString, Styled, Window, div, h_flex, v_flex,
 };
 use util::ResultExt;
 use variable_list::VariableList;
 use workspace::{
-    ActivePaneDecorator, DraggedTab, Item, Pane, PaneGroup, Workspace, item::TabContentParams,
-    move_item, pane::Event,
+    ActivePaneDecorator, DraggedTab, Item, Pane, PaneGroup, Workspace, move_item, pane::Event,
 };
 
 pub struct RunningState {
@@ -88,7 +84,6 @@ struct SubView {
     inner: AnyView,
     pane_focus_handle: FocusHandle,
     tab_name: SharedString,
-    show_indicator: Box<dyn Fn(&App) -> bool>,
 }
 
 impl SubView {
@@ -96,14 +91,12 @@ impl SubView {
         pane_focus_handle: FocusHandle,
         view: AnyView,
         tab_name: SharedString,
-        show_indicator: Option<Box<dyn Fn(&App) -> bool>>,
         cx: &mut App,
     ) -> Entity<Self> {
         cx.new(|_| Self {
             tab_name,
             inner: view,
             pane_focus_handle,
-            show_indicator: show_indicator.unwrap_or(Box::new(|_| false)),
         })
     }
 }
@@ -115,28 +108,8 @@ impl Focusable for SubView {
 impl EventEmitter<()> for SubView {}
 impl Item for SubView {
     type Event = ();
-
-    fn tab_content(
-        &self,
-        params: workspace::item::TabContentParams,
-        _: &Window,
-        cx: &App,
-    ) -> AnyElement {
-        let label = Label::new(self.tab_name.clone())
-            .size(ui::LabelSize::Small)
-            .color(params.text_color())
-            .line_height_style(ui::LineHeightStyle::UiLabel);
-
-        if !params.selected && self.show_indicator.as_ref()(cx) {
-            return h_flex()
-                .justify_between()
-                .child(ui::Indicator::dot())
-                .gap_2()
-                .child(label)
-                .into_any_element();
-        }
-
-        label.into_any_element()
+    fn tab_content_text(&self, _window: &Window, _cx: &App) -> Option<SharedString> {
+        Some(self.tab_name.clone())
     }
 }
 
@@ -269,79 +242,7 @@ fn new_debugger_pane(
         })));
         pane.display_nav_history_buttons(None);
         pane.set_custom_drop_handle(cx, custom_drop_handle);
-        pane.set_should_display_tab_bar(|_, _| true);
         pane.set_render_tab_bar_buttons(cx, |_, _, _| (None, None));
-        pane.set_render_tab_bar(cx, |pane, window, cx| {
-            let active_pane_item = pane.active_item();
-            h_flex()
-                .w_full()
-                .h(Tab::container_height(cx))
-                .drag_over::<DraggedTab>(|bar, _, _, cx| {
-                    bar.bg(cx.theme().colors().drop_target_background)
-                })
-                .on_drop(
-                    cx.listener(move |this, dragged_tab: &DraggedTab, window, cx| {
-                        this.drag_split_direction = None;
-                        this.handle_tab_drop(dragged_tab, this.items_len(), window, cx)
-                    }),
-                )
-                .bg(cx.theme().colors().tab_bar_background)
-                .border_b_1()
-                .border_color(cx.theme().colors().border)
-                .children(pane.items().enumerate().map(|(ix, item)| {
-                    let selected = active_pane_item
-                        .as_ref()
-                        .map_or(false, |active| active.item_id() == item.item_id());
-                    let item_ = item.boxed_clone();
-                    div()
-                        .id(SharedString::from(format!(
-                            "debugger_tab_{}",
-                            item.item_id().as_u64()
-                        )))
-                        .p_1()
-                        .rounded_md()
-                        .cursor_pointer()
-                        .map(|this| {
-                            if selected {
-                                this.bg(cx.theme().colors().tab_active_background)
-                            } else {
-                                let hover_color = cx.theme().colors().element_hover;
-                                this.hover(|style| style.bg(hover_color))
-                            }
-                        })
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            let index = this.index_for_item(&*item_);
-                            if let Some(index) = index {
-                                this.activate_item(index, true, true, window, cx);
-                            }
-                        }))
-                        .child(item.tab_content(
-                            TabContentParams {
-                                selected,
-                                ..Default::default()
-                            },
-                            window,
-                            cx,
-                        ))
-                        .on_drop(
-                            cx.listener(move |this, dragged_tab: &DraggedTab, window, cx| {
-                                this.drag_split_direction = None;
-                                this.handle_tab_drop(dragged_tab, ix, window, cx)
-                            }),
-                        )
-                        .on_drag(
-                            DraggedTab {
-                                item: item.boxed_clone(),
-                                pane: cx.entity().clone(),
-                                detail: 0,
-                                is_active: selected,
-                                ix,
-                            },
-                            |tab, _, _, cx| cx.new(|_| tab.clone()),
-                        )
-                }))
-                .into_any_element()
-        });
         pane
     });
 
@@ -412,7 +313,6 @@ impl RunningState {
                     this.focus_handle(cx),
                     stack_frame_list.clone().into(),
                     SharedString::new_static("Frames"),
-                    None,
                     cx,
                 )),
                 true,
@@ -421,22 +321,6 @@ impl RunningState {
                 window,
                 cx,
             );
-            let breakpoints = BreakpointList::new(session.clone(), workspace.clone(), &project, cx);
-            this.add_item(
-                Box::new(SubView::new(
-                    breakpoints.focus_handle(cx),
-                    breakpoints.into(),
-                    SharedString::new_static("Breakpoints"),
-                    None,
-                    cx,
-                )),
-                true,
-                false,
-                None,
-                window,
-                cx,
-            );
-            this.activate_item(0, false, false, window, cx);
         });
         let center_pane = new_debugger_pane(workspace.clone(), project.clone(), window, cx);
         center_pane.update(cx, |this, cx| {
@@ -445,7 +329,6 @@ impl RunningState {
                     variable_list.focus_handle(cx),
                     variable_list.clone().into(),
                     SharedString::new_static("Variables"),
-                    None,
                     cx,
                 )),
                 true,
@@ -459,7 +342,6 @@ impl RunningState {
                     this.focus_handle(cx),
                     module_list.clone().into(),
                     SharedString::new_static("Modules"),
-                    None,
                     cx,
                 )),
                 false,
@@ -472,17 +354,11 @@ impl RunningState {
         });
         let rightmost_pane = new_debugger_pane(workspace.clone(), project.clone(), window, cx);
         rightmost_pane.update(cx, |this, cx| {
-            let weak_console = console.downgrade();
             this.add_item(
                 Box::new(SubView::new(
                     this.focus_handle(cx),
                     console.clone().into(),
                     SharedString::new_static("Console"),
-                    Some(Box::new(move |cx| {
-                        weak_console
-                            .read_with(cx, |console, cx| console.show_indicator(cx))
-                            .unwrap_or_default()
-                    })),
                     cx,
                 )),
                 true,
@@ -556,10 +432,6 @@ impl RunningState {
         self.session_id
     }
 
-    pub(crate) fn selected_stack_frame_id(&self, cx: &App) -> Option<dap::StackFrameId> {
-        self.stack_frame_list.read(cx).selected_stack_frame_id()
-    }
-
     #[cfg(test)]
     pub fn stack_frame_list(&self) -> &Entity<StackFrameList> {
         &self.stack_frame_list
@@ -620,6 +492,7 @@ impl RunningState {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn selected_thread_id(&self) -> Option<ThreadId> {
         self.thread_id
     }

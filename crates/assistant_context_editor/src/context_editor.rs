@@ -10,7 +10,7 @@ use collections::{BTreeSet, HashMap, HashSet, hash_map};
 use editor::{
     Anchor, Editor, EditorEvent, MenuInlineCompletionsPolicy, ProposedChangeLocation,
     ProposedChangesEditor, RowExt, ToOffset as _, ToPoint,
-    actions::{MoveToEndOfLine, Newline, ShowCompletions},
+    actions::{FoldAt, MoveToEndOfLine, Newline, ShowCompletions, UnfoldAt},
     display_map::{
         BlockContext, BlockId, BlockPlacement, BlockProperties, BlockStyle, Crease, CreaseMetadata,
         CustomBlockId, FoldId, RenderBlock, ToDisplayPoint,
@@ -1053,7 +1053,7 @@ impl ContextEditor {
             let creases = editor.insert_creases(creases, cx);
 
             for buffer_row in buffer_rows_to_fold.into_iter().rev() {
-                editor.fold_at(buffer_row, window, cx);
+                editor.fold_at(&FoldAt { buffer_row }, window, cx);
             }
 
             creases
@@ -1109,7 +1109,7 @@ impl ContextEditor {
                 buffer_rows_to_fold.clear();
             }
             for buffer_row in buffer_rows_to_fold.into_iter().rev() {
-                editor.fold_at(buffer_row, window, cx);
+                editor.fold_at(&FoldAt { buffer_row }, window, cx);
             }
         });
     }
@@ -1844,7 +1844,13 @@ impl ContextEditor {
                     |_, _, _, _| Empty.into_any(),
                 );
                 editor.insert_creases(vec![crease], cx);
-                editor.fold_at(start_row, window, cx);
+                editor.fold_at(
+                    &FoldAt {
+                        buffer_row: start_row,
+                    },
+                    window,
+                    cx,
+                );
             }
         })
     }
@@ -2036,7 +2042,7 @@ impl ContextEditor {
                         cx,
                     );
                     for buffer_row in buffer_rows_to_fold.into_iter().rev() {
-                        editor.fold_at(buffer_row, window, cx);
+                        editor.fold_at(&FoldAt { buffer_row }, window, cx);
                     }
                 }
             });
@@ -2814,7 +2820,7 @@ fn render_thought_process_fold_icon_button(
                             .start
                             .to_point(&editor.buffer().read(cx).read(cx));
                         let buffer_row = MultiBufferRow(buffer_start.row);
-                        editor.unfold_at(buffer_row, window, cx);
+                        editor.unfold_at(&UnfoldAt { buffer_row }, window, cx);
                     })
                     .ok();
             })
@@ -2841,7 +2847,7 @@ fn render_fold_icon_button(
                             .start
                             .to_point(&editor.buffer().read(cx).read(cx));
                         let buffer_row = MultiBufferRow(buffer_start.row);
-                        editor.unfold_at(buffer_row, window, cx);
+                        editor.unfold_at(&UnfoldAt { buffer_row }, window, cx);
                     })
                     .ok();
             })
@@ -2901,7 +2907,7 @@ fn quote_selection_fold_placeholder(title: String, editor: WeakEntity<Editor>) -
                                     .start
                                     .to_point(&editor.buffer().read(cx).read(cx));
                                 let buffer_row = MultiBufferRow(buffer_start.row);
-                                editor.unfold_at(buffer_row, window, cx);
+                                editor.unfold_at(&UnfoldAt { buffer_row }, window, cx);
                             })
                             .ok();
                     })
