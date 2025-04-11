@@ -85,8 +85,9 @@ async fn test_basic_show_debug_panel(executor: BackgroundExecutor, cx: &mut Test
     workspace
         .update(cx, |workspace, _window, cx| {
             let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
-            let active_session =
-                debug_panel.update(cx, |debug_panel, _| debug_panel.active_session().unwrap());
+            let active_session = debug_panel.update(cx, |debug_panel, cx| {
+                debug_panel.active_session(cx).unwrap()
+            });
 
             let running_state = active_session.update(cx, |active_session, _| {
                 active_session
@@ -97,7 +98,9 @@ async fn test_basic_show_debug_panel(executor: BackgroundExecutor, cx: &mut Test
             });
 
             debug_panel.update(cx, |this, cx| {
-                assert!(this.active_session().is_some());
+                assert!(this.active_session(cx).is_some());
+                // we have one active session and one inert item
+                assert_eq!(2, this.pane().unwrap().read(cx).items_len());
                 assert!(running_state.read(cx).selected_thread_id().is_none());
             });
         })
@@ -121,7 +124,7 @@ async fn test_basic_show_debug_panel(executor: BackgroundExecutor, cx: &mut Test
         .update(cx, |workspace, _window, cx| {
             let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
             let active_session = debug_panel
-                .update(cx, |this, _| this.active_session())
+                .update(cx, |this, cx| this.active_session(cx))
                 .unwrap();
 
             let running_state = active_session.update(cx, |active_session, _| {
@@ -132,6 +135,11 @@ async fn test_basic_show_debug_panel(executor: BackgroundExecutor, cx: &mut Test
                     .clone()
             });
 
+            // we have one active session and one inert item
+            assert_eq!(
+                2,
+                debug_panel.update(cx, |this, cx| this.pane().unwrap().read(cx).items_len())
+            );
             assert_eq!(client.id(), running_state.read(cx).session_id());
             assert_eq!(
                 ThreadId(1),
@@ -154,7 +162,7 @@ async fn test_basic_show_debug_panel(executor: BackgroundExecutor, cx: &mut Test
             let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
 
             let active_session = debug_panel
-                .update(cx, |this, _| this.active_session())
+                .update(cx, |this, cx| this.active_session(cx))
                 .unwrap();
 
             let running_state = active_session.update(cx, |active_session, _| {
@@ -166,7 +174,8 @@ async fn test_basic_show_debug_panel(executor: BackgroundExecutor, cx: &mut Test
             });
 
             debug_panel.update(cx, |this, cx| {
-                assert!(this.active_session().is_some());
+                assert!(this.active_session(cx).is_some());
+                assert_eq!(2, this.pane().unwrap().read(cx).items_len());
                 assert_eq!(
                     ThreadId(1),
                     running_state.read(cx).selected_thread_id().unwrap()
@@ -234,8 +243,10 @@ async fn test_we_can_only_have_one_panel_per_debug_session(
         .update(cx, |workspace, _window, cx| {
             let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
 
-            debug_panel.update(cx, |this, _| {
-                assert!(this.active_session().is_some());
+            debug_panel.update(cx, |this, cx| {
+                assert!(this.active_session(cx).is_some());
+                // we have one active session and one inert item
+                assert_eq!(2, this.pane().unwrap().read(cx).items_len());
             });
         })
         .unwrap();
@@ -259,7 +270,7 @@ async fn test_we_can_only_have_one_panel_per_debug_session(
         .update(cx, |workspace, _window, cx| {
             let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
             let active_session = debug_panel
-                .update(cx, |this, _| this.active_session())
+                .update(cx, |this, cx| this.active_session(cx))
                 .unwrap();
 
             let running_state = active_session.update(cx, |active_session, _| {
@@ -270,7 +281,12 @@ async fn test_we_can_only_have_one_panel_per_debug_session(
                     .clone()
             });
 
-            assert_eq!(client.id(), active_session.read(cx).session_id(cx));
+            // we have one active session and one inert item
+            assert_eq!(
+                2,
+                debug_panel.update(cx, |this, cx| this.pane().unwrap().read(cx).items_len())
+            );
+            assert_eq!(client.id(), active_session.read(cx).session_id(cx).unwrap());
             assert_eq!(
                 ThreadId(1),
                 running_state.read(cx).selected_thread_id().unwrap()
@@ -296,7 +312,7 @@ async fn test_we_can_only_have_one_panel_per_debug_session(
         .update(cx, |workspace, _window, cx| {
             let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
             let active_session = debug_panel
-                .update(cx, |this, _| this.active_session())
+                .update(cx, |this, cx| this.active_session(cx))
                 .unwrap();
 
             let running_state = active_session.update(cx, |active_session, _| {
@@ -307,7 +323,12 @@ async fn test_we_can_only_have_one_panel_per_debug_session(
                     .clone()
             });
 
-            assert_eq!(client.id(), active_session.read(cx).session_id(cx));
+            // we have one active session and one inert item
+            assert_eq!(
+                2,
+                debug_panel.update(cx, |this, cx| this.pane().unwrap().read(cx).items_len())
+            );
+            assert_eq!(client.id(), active_session.read(cx).session_id(cx).unwrap());
             assert_eq!(
                 ThreadId(1),
                 running_state.read(cx).selected_thread_id().unwrap()
@@ -328,7 +349,7 @@ async fn test_we_can_only_have_one_panel_per_debug_session(
         .update(cx, |workspace, _window, cx| {
             let debug_panel = workspace.panel::<DebugPanel>(cx).unwrap();
             let active_session = debug_panel
-                .update(cx, |this, _| this.active_session())
+                .update(cx, |this, cx| this.active_session(cx))
                 .unwrap();
 
             let running_state = active_session.update(cx, |active_session, _| {
@@ -340,7 +361,8 @@ async fn test_we_can_only_have_one_panel_per_debug_session(
             });
 
             debug_panel.update(cx, |this, cx| {
-                assert!(this.active_session().is_some());
+                assert!(this.active_session(cx).is_some());
+                assert_eq!(2, this.pane().unwrap().read(cx).items_len());
                 assert_eq!(
                     ThreadId(1),
                     running_state.read(cx).selected_thread_id().unwrap()
@@ -1172,7 +1194,7 @@ async fn test_send_breakpoints_when_editor_has_been_saved(
 
     let (editor, cx) = cx.add_window_view(|window, cx| {
         Editor::new(
-            EditorMode::full(),
+            EditorMode::Full,
             MultiBuffer::build_from_buffer(buffer, cx),
             Some(project.clone()),
             window,
@@ -1347,7 +1369,7 @@ async fn test_unsetting_breakpoints_on_clear_breakpoint_action(
 
     let (first_editor, cx) = cx.add_window_view(|window, cx| {
         Editor::new(
-            EditorMode::full(),
+            EditorMode::Full,
             MultiBuffer::build_from_buffer(first, cx),
             Some(project.clone()),
             window,
@@ -1357,7 +1379,7 @@ async fn test_unsetting_breakpoints_on_clear_breakpoint_action(
 
     let (second_editor, cx) = cx.add_window_view(|window, cx| {
         Editor::new(
-            EditorMode::full(),
+            EditorMode::Full,
             MultiBuffer::build_from_buffer(second, cx),
             Some(project.clone()),
             window,
@@ -1425,7 +1447,7 @@ async fn test_unsetting_breakpoints_on_clear_breakpoint_action(
         })
         .await;
 
-    cx.dispatch_action(crate::ClearAllBreakpoints);
+    cx.dispatch_action(workspace::ClearAllBreakpoints);
     cx.run_until_parked();
 
     let shutdown_session = project.update(cx, |project, cx| {

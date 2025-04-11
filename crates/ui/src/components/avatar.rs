@@ -1,6 +1,5 @@
 use crate::prelude::*;
 
-use documented::Documented;
 use gpui::{AnyElement, Hsla, ImageSource, Img, IntoElement, Styled, img};
 
 /// An element that renders a user avatar with customizable appearance options.
@@ -15,7 +14,7 @@ use gpui::{AnyElement, Hsla, ImageSource, Img, IntoElement, Styled, img};
 ///     .grayscale(true)
 ///     .border_color(gpui::red());
 /// ```
-#[derive(IntoElement, Documented, RegisterComponent)]
+#[derive(IntoElement, IntoComponent)]
 pub struct Avatar {
     image: Img,
     size: Option<AbsoluteLength>,
@@ -220,23 +219,30 @@ impl RenderOnce for AvatarAvailabilityIndicator {
 }
 
 // View this component preview using `workspace: open component-preview`
-impl Component for Avatar {
-    fn scope() -> ComponentScope {
-        ComponentScope::Collaboration
-    }
-
-    fn description() -> Option<&'static str> {
-        Some(Avatar::DOCS)
-    }
-
-    fn preview(_window: &mut Window, cx: &mut App) -> Option<AnyElement> {
+impl ComponentPreview for Avatar {
+    fn preview(_window: &mut Window, cx: &mut App) -> AnyElement {
         let example_avatar = "https://avatars.githubusercontent.com/u/1714999?v=4";
 
-        Some(
-            v_flex()
-                .gap_6()
-                .children(vec![
-                    example_group(vec![
+        v_flex()
+            .gap_6()
+            .children(vec![
+                example_group_with_title(
+                    "Sizes",
+                    vec![
+                        single_example("Default", Avatar::new(example_avatar).into_any_element()),
+                        single_example(
+                            "Small",
+                            Avatar::new(example_avatar).size(px(24.)).into_any_element(),
+                        ),
+                        single_example(
+                            "Large",
+                            Avatar::new(example_avatar).size(px(48.)).into_any_element(),
+                        ),
+                    ],
+                ),
+                example_group_with_title(
+                    "Styles",
+                    vec![
                         single_example("Default", Avatar::new(example_avatar).into_any_element()),
                         single_example(
                             "Grayscale",
@@ -245,49 +251,52 @@ impl Component for Avatar {
                                 .into_any_element(),
                         ),
                         single_example(
-                            "Border",
+                            "With Border",
                             Avatar::new(example_avatar)
                                 .border_color(cx.theme().colors().border)
                                 .into_any_element(),
-                        ).description("Can be used to create visual space by setting the border color to match the background, which creates the appearance of a gap around the avatar."),
-                    ]),
-                    example_group_with_title(
-                        "Indicator Styles",
-                        vec![
-                            single_example(
-                                "Muted",
-                                Avatar::new(example_avatar)
-                                    .indicator(AvatarAudioStatusIndicator::new(AudioStatus::Muted))
-                                    .into_any_element(),
-                            ).description("Indicates the collaborator's mic is muted."),
-                            single_example(
-                                "Deafened",
-                                Avatar::new(example_avatar)
-                                    .indicator(AvatarAudioStatusIndicator::new(
-                                        AudioStatus::Deafened,
-                                    ))
-                                    .into_any_element(),
-                            ).description("Indicates that both the collaborator's mic and audio are muted."),
-                            single_example(
-                                "Availability: Free",
-                                Avatar::new(example_avatar)
-                                    .indicator(AvatarAvailabilityIndicator::new(
-                                        CollaboratorAvailability::Free,
-                                    ))
-                                    .into_any_element(),
-                            ).description("Indicates that the person is free, usually meaning they are not in a call."),
-                            single_example(
-                                "Availability: Busy",
-                                Avatar::new(example_avatar)
-                                    .indicator(AvatarAvailabilityIndicator::new(
-                                        CollaboratorAvailability::Busy,
-                                    ))
-                                    .into_any_element(),
-                            ).description("Indicates that the person is busy, usually meaning they are in a channel or direct call."),
-                        ],
-                    ),
-                ])
-                .into_any_element(),
-        )
+                        ),
+                    ],
+                ),
+                example_group_with_title(
+                    "Audio Status",
+                    vec![
+                        single_example(
+                            "Muted",
+                            Avatar::new(example_avatar)
+                                .indicator(AvatarAudioStatusIndicator::new(AudioStatus::Muted))
+                                .into_any_element(),
+                        ),
+                        single_example(
+                            "Deafened",
+                            Avatar::new(example_avatar)
+                                .indicator(AvatarAudioStatusIndicator::new(AudioStatus::Deafened))
+                                .into_any_element(),
+                        ),
+                    ],
+                ),
+                example_group_with_title(
+                    "Availability",
+                    vec![
+                        single_example(
+                            "Free",
+                            Avatar::new(example_avatar)
+                                .indicator(AvatarAvailabilityIndicator::new(
+                                    CollaboratorAvailability::Free,
+                                ))
+                                .into_any_element(),
+                        ),
+                        single_example(
+                            "Busy",
+                            Avatar::new(example_avatar)
+                                .indicator(AvatarAvailabilityIndicator::new(
+                                    CollaboratorAvailability::Busy,
+                                ))
+                                .into_any_element(),
+                        ),
+                    ],
+                ),
+            ])
+            .into_any_element()
     }
 }

@@ -155,7 +155,7 @@ There are rules that apply to these root directories:
 {{#each worktrees}}
 {{#if rules_file}}
 
-`{{root_name}}/{{rules_file.path_in_worktree}}`:
+`{{root_name}}/{{rules_file.rel_path}}`:
 
 ``````
 {{{rules_file.text}}}
@@ -163,8 +163,3 @@ There are rules that apply to these root directories:
 {{/if}}
 {{/each}}
 {{/if}}
-
-<user_environment>
-Operating System: {{os}} ({{arch}})
-Shell: {{shell}}
-</user_environment>

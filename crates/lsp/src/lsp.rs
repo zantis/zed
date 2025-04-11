@@ -704,15 +704,8 @@ impl LanguageServer {
                             }),
                             insert_replace_support: Some(true),
                             label_details_support: Some(true),
-                            insert_text_mode_support: Some(InsertTextModeSupport {
-                                value_set: vec![
-                                    InsertTextMode::AS_IS,
-                                    InsertTextMode::ADJUST_INDENTATION,
-                                ],
-                            }),
                             ..Default::default()
                         }),
-                        insert_text_mode: Some(InsertTextMode::ADJUST_INDENTATION),
                         completion_list: Some(CompletionListCapability {
                             item_defaults: Some(vec![
                                 "commitCharacters".to_owned(),

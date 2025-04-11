@@ -572,11 +572,7 @@ pub trait LspAdapter: 'static + Send + Sync {
     }
 
     /// Support custom initialize params.
-    fn prepare_initialize_params(
-        &self,
-        original: InitializeParams,
-        _: &App,
-    ) -> Result<InitializeParams> {
+    fn prepare_initialize_params(&self, original: InitializeParams) -> Result<InitializeParams> {
         Ok(original)
     }
 

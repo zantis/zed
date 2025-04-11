@@ -8,9 +8,9 @@ pub use gpui::{
 };
 
 pub use component::{
-    Component, ComponentScope, example_group, example_group_with_title, single_example,
+    ComponentPreview, ComponentScope, example_group, example_group_with_title, single_example,
 };
-pub use ui_macros::RegisterComponent;
+pub use ui_macros::IntoComponent;
 
 pub use crate::DynamicSpacing;
 pub use crate::animation::{AnimationDirection, AnimationDuration, DefaultAnimations};

@@ -5,7 +5,7 @@
 //! It can't be located in the `ui` crate because it depends on `editor`.
 //!
 
-use component::{example_group, single_example};
+use component::{ComponentPreview, example_group, single_example};
 use editor::{Editor, EditorElement, EditorStyle};
 use gpui::{App, Entity, FocusHandle, Focusable, FontStyle, Hsla, TextStyle};
 use settings::Settings;
@@ -21,7 +21,8 @@ pub struct SingleLineInputStyle {
 /// A Text Field that can be used to create text fields like search inputs, form fields, etc.
 ///
 /// It wraps a single line [`Editor`] and allows for common field properties like labels, placeholders, icons, etc.
-#[derive(RegisterComponent)]
+#[derive(IntoComponent)]
+#[component(scope = "Input")]
 pub struct SingleLineInput {
     /// An optional label for the text field.
     ///
@@ -167,23 +168,17 @@ impl Render for SingleLineInput {
     }
 }
 
-impl Component for SingleLineInput {
-    fn scope() -> ComponentScope {
-        ComponentScope::Input
-    }
-
-    fn preview(window: &mut Window, cx: &mut App) -> Option<AnyElement> {
+impl ComponentPreview for SingleLineInput {
+    fn preview(window: &mut Window, cx: &mut App) -> AnyElement {
         let input_1 =
             cx.new(|cx| SingleLineInput::new(window, cx, "placeholder").label("Some Label"));
 
-        Some(
-            v_flex()
-                .gap_6()
-                .children(vec![example_group(vec![single_example(
-                    "Default",
-                    div().child(input_1.clone()).into_any_element(),
-                )])])
-                .into_any_element(),
-        )
+        v_flex()
+            .gap_6()
+            .children(vec![example_group(vec![single_example(
+                "Default",
+                div().child(input_1.clone()).into_any_element(),
+            )])])
+            .into_any_element()
     }
 }

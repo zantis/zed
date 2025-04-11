@@ -168,7 +168,7 @@ pub struct BreadcrumbText {
     pub font: Option<Font>,
 }
 
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct TabContentParams {
     pub detail: Option<usize>,
     pub selected: bool,

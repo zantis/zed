@@ -2,15 +2,10 @@ use gpui::{ClickEvent, Corner, CursorStyle, Entity, MouseButton};
 
 use crate::{ContextMenu, PopoverMenu, prelude::*};
 
-enum LabelKind {
-    Text(SharedString),
-    Element(AnyElement),
-}
-
-#[derive(IntoElement, RegisterComponent)]
+#[derive(IntoElement)]
 pub struct DropdownMenu {
     id: ElementId,
-    label: LabelKind,
+    label: SharedString,
     menu: Entity<ContextMenu>,
     full_width: bool,
     disabled: bool,
@@ -24,21 +19,7 @@ impl DropdownMenu {
     ) -> Self {
         Self {
             id: id.into(),
-            label: LabelKind::Text(label.into()),
-            menu,
-            full_width: false,
-            disabled: false,
-        }
-    }
-
-    pub fn new_with_element(
-        id: impl Into<ElementId>,
-        label: AnyElement,
-        menu: Entity<ContextMenu>,
-    ) -> Self {
-        Self {
-            id: id.into(),
-            label: LabelKind::Element(label),
+            label: label.into(),
             menu,
             full_width: false,
             disabled: false,
@@ -72,72 +53,9 @@ impl RenderOnce for DropdownMenu {
     }
 }
 
-impl Component for DropdownMenu {
-    fn scope() -> ComponentScope {
-        ComponentScope::Input
-    }
-
-    fn name() -> &'static str {
-        "DropdownMenu"
-    }
-
-    fn description() -> Option<&'static str> {
-        Some(
-            "A dropdown menu displays a list of actions or options. A dropdown menu is always activated by clicking a trigger (or via a keybinding).",
-        )
-    }
-
-    fn preview(window: &mut Window, cx: &mut App) -> Option<AnyElement> {
-        let menu = ContextMenu::build(window, cx, |this, _, _| {
-            this.entry("Option 1", None, |_, _| {})
-                .entry("Option 2", None, |_, _| {})
-                .entry("Option 3", None, |_, _| {})
-                .separator()
-                .entry("Option 4", None, |_, _| {})
-        });
-
-        Some(
-            v_flex()
-                .gap_6()
-                .children(vec![
-                    example_group_with_title(
-                        "Basic Usage",
-                        vec![
-                            single_example(
-                                "Default",
-                                DropdownMenu::new("default", "Select an option", menu.clone())
-                                    .into_any_element(),
-                            ),
-                            single_example(
-                                "Full Width",
-                                DropdownMenu::new(
-                                    "full-width",
-                                    "Full Width Dropdown",
-                                    menu.clone(),
-                                )
-                                .full_width(true)
-                                .into_any_element(),
-                            ),
-                        ],
-                    ),
-                    example_group_with_title(
-                        "States",
-                        vec![single_example(
-                            "Disabled",
-                            DropdownMenu::new("disabled", "Disabled Dropdown", menu.clone())
-                                .disabled(true)
-                                .into_any_element(),
-                        )],
-                    ),
-                ])
-                .into_any_element(),
-        )
-    }
-}
-
 #[derive(IntoElement)]
 struct DropdownMenuTrigger {
-    label: LabelKind,
+    label: SharedString,
     full_width: bool,
     selected: bool,
     disabled: bool,
@@ -146,9 +64,9 @@ struct DropdownMenuTrigger {
 }
 
 impl DropdownMenuTrigger {
-    pub fn new(label: LabelKind) -> Self {
+    pub fn new(label: impl Into<SharedString>) -> Self {
         Self {
-            label,
+            label: label.into(),
             full_width: false,
             selected: false,
             disabled: false,
@@ -217,16 +135,11 @@ impl RenderOnce for DropdownMenuTrigger {
                     el.cursor_pointer()
                 }
             })
-            .child(match self.label {
-                LabelKind::Text(text) => Label::new(text)
-                    .color(if disabled {
-                        Color::Disabled
-                    } else {
-                        Color::Default
-                    })
-                    .into_any_element(),
-                LabelKind::Element(element) => element,
-            })
+            .child(Label::new(self.label).color(if disabled {
+                Color::Disabled
+            } else {
+                Color::Default
+            }))
             .child(
                 Icon::new(IconName::ChevronUpDown)
                     .size(IconSize::XSmall)

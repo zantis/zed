@@ -33,6 +33,10 @@ impl ScrollableHandle for UniformListScrollHandle {
     fn viewport(&self) -> Bounds<Pixels> {
         self.0.borrow().base_handle.bounds()
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 impl ScrollableHandle for ListState {
@@ -61,6 +65,10 @@ impl ScrollableHandle for ListState {
 
     fn viewport(&self) -> Bounds<Pixels> {
         self.viewport_bounds()
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
@@ -99,6 +107,10 @@ impl ScrollableHandle for ScrollHandle {
     fn viewport(&self) -> Bounds<Pixels> {
         self.bounds()
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 #[derive(Debug)]
@@ -107,11 +119,12 @@ pub struct ContentSize {
     pub scroll_adjustment: Option<Point<Pixels>>,
 }
 
-pub trait ScrollableHandle: Any + Debug {
+pub trait ScrollableHandle: Debug + 'static {
     fn content_size(&self) -> Option<ContentSize>;
     fn set_offset(&self, point: Point<Pixels>);
     fn offset(&self) -> Point<Pixels>;
     fn viewport(&self) -> Bounds<Pixels>;
+    fn as_any(&self) -> &dyn Any;
     fn drag_started(&self) {}
     fn drag_ended(&self) {}
 }

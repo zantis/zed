@@ -55,8 +55,6 @@ extend-ignore-re = [
     "protols",
     # x11rb SelectionNotifyEvent struct field
     "requestor",
-    # macOS version
-    "Big Sur",
     # Not an actual typo but an intentionally invalid color, in `color_extractor`
     "#fof"
 ]

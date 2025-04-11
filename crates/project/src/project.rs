@@ -68,8 +68,8 @@ use language::{
     language_settings::InlayHintKind, proto::split_operations,
 };
 use lsp::{
-    CodeActionKind, CompletionContext, CompletionItemKind, DocumentHighlightKind, InsertTextMode,
-    LanguageServerId, LanguageServerName, MessageActionItem,
+    CodeActionKind, CompletionContext, CompletionItemKind, DocumentHighlightKind, LanguageServerId,
+    LanguageServerName, MessageActionItem,
 };
 use lsp_command::*;
 use lsp_store::{CompletionDocumentation, LspFormatTarget, OpenLspBufferHandle};
@@ -334,10 +334,6 @@ impl ProjectPath {
             path: Path::new("").into(),
         }
     }
-
-    pub fn starts_with(&self, other: &ProjectPath) -> bool {
-        self.worktree_id == other.worktree_id && self.path.starts_with(&other.path)
-    }
 }
 
 #[derive(Debug, Default)]
@@ -363,14 +359,8 @@ pub struct InlayHint {
 #[derive(PartialEq, Eq, Hash, Debug, Clone, Copy)]
 pub enum CompletionIntent {
     /// The user intends to 'commit' this result, if possible
-    /// completion confirmations should run side effects.
-    ///
-    /// For LSP completions, will respect the setting `completions.lsp_insert_mode`.
+    /// completion confirmations should run side effects
     Complete,
-    /// Similar to [Self::Complete], but behaves like `lsp_insert_mode` is set to `insert`.
-    CompleteWithInsert,
-    /// Similar to [Self::Complete], but behaves like `lsp_insert_mode` is set to `replace`.
-    CompleteWithReplace,
     /// The user intends to continue 'composing' this completion
     /// completion confirmations should not run side effects and
     /// let the user continue composing their action
@@ -387,11 +377,11 @@ impl CompletionIntent {
     }
 }
 
-/// Similar to `CoreCompletion`, but with extra metadata attached.
+/// A completion provided by a language server
 #[derive(Clone)]
 pub struct Completion {
-    /// The range of text that will be replaced by this completion.
-    pub replace_range: Range<Anchor>,
+    /// The range of the buffer that will be replaced.
+    pub old_range: Range<Anchor>,
     /// The new text that will be inserted.
     pub new_text: String,
     /// A label for this completion that is shown in the menu.
@@ -402,8 +392,6 @@ pub struct Completion {
     pub source: CompletionSource,
     /// A path to an icon for this completion that is shown in the menu.
     pub icon_path: Option<SharedString>,
-    /// Whether to adjust indentation (the default) or not.
-    pub insert_text_mode: Option<InsertTextMode>,
     /// An optional callback to invoke when this completion is confirmed.
     /// Returns, whether new completions should be retriggered after the current one.
     /// If `true` is returned, the editor will show a new completion menu after this completion is confirmed.
@@ -414,8 +402,6 @@ pub struct Completion {
 #[derive(Debug, Clone)]
 pub enum CompletionSource {
     Lsp {
-        /// The alternate `insert` range, if provided by the LSP server.
-        insert_range: Option<Range<Anchor>>,
         /// The id of the language server that produced this completion.
         server_id: LanguageServerId,
         /// The raw completion provided by the language server.
@@ -520,7 +506,7 @@ impl CompletionSource {
 impl std::fmt::Debug for Completion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Completion")
-            .field("replace_range", &self.replace_range)
+            .field("old_range", &self.old_range)
             .field("new_text", &self.new_text)
             .field("label", &self.label)
             .field("documentation", &self.documentation)
@@ -529,10 +515,10 @@ impl std::fmt::Debug for Completion {
     }
 }
 
-/// A generic completion that can come from different sources.
+/// A completion provided by a language server
 #[derive(Clone, Debug)]
 pub(crate) struct CoreCompletion {
-    replace_range: Range<Anchor>,
+    old_range: Range<Anchor>,
     new_text: String,
     source: CompletionSource,
 }
@@ -845,7 +831,7 @@ impl Project {
             cx.subscribe(&worktree_store, Self::on_worktree_store_event)
                 .detach();
 
-            let environment = cx.new(|_| ProjectEnvironment::new(env));
+            let environment = ProjectEnvironment::new(&worktree_store, env, cx);
             let toolchain_store = cx.new(|cx| {
                 ToolchainStore::local(
                     languages.clone(),
@@ -1047,7 +1033,7 @@ impl Project {
             cx.subscribe(&settings_observer, Self::on_settings_observer_event)
                 .detach();
 
-            let environment = cx.new(|_| ProjectEnvironment::new(None));
+            let environment = ProjectEnvironment::new(&worktree_store, None, cx);
 
             let lsp_store = cx.new(|cx| {
                 LspStore::new_remote(
@@ -1246,7 +1232,7 @@ impl Project {
             ImageStore::remote(worktree_store.clone(), client.clone().into(), remote_id, cx)
         })?;
 
-        let environment = cx.new(|_| ProjectEnvironment::new(None))?;
+        let environment = cx.update(|cx| ProjectEnvironment::new(&worktree_store, None, cx))?;
 
         let breakpoint_store =
             cx.new(|_| BreakpointStore::remote(remote_id, client.clone().into()))?;
@@ -1503,7 +1489,7 @@ impl Project {
             initialize_args: None,
             tcp_connection: None,
             locator: None,
-            stop_on_entry: None,
+            args: Default::default(),
         };
         let caps = caps.unwrap_or(Capabilities {
             supports_step_back: Some(false),
@@ -3029,16 +3015,6 @@ impl Project {
         })
     }
 
-    pub fn stop_language_servers_for_buffers(
-        &mut self,
-        buffers: Vec<Entity<Buffer>>,
-        cx: &mut Context<Self>,
-    ) {
-        self.lsp_store.update(cx, |lsp_store, cx| {
-            lsp_store.stop_language_servers_for_buffers(buffers, cx)
-        })
-    }
-
     pub fn cancel_language_server_work_for_buffers(
         &mut self,
         buffers: impl IntoIterator<Item = Entity<Buffer>>,
@@ -4147,22 +4123,20 @@ impl Project {
         &self,
         buffer: &Entity<Buffer>,
         version: Option<clock::Global>,
-        cx: &mut App,
+        cx: &App,
     ) -> Task<Result<Option<Blame>>> {
-        self.git_store.update(cx, |git_store, cx| {
-            git_store.blame_buffer(buffer, version, cx)
-        })
+        self.git_store.read(cx).blame_buffer(buffer, version, cx)
     }
 
     pub fn get_permalink_to_line(
         &self,
         buffer: &Entity<Buffer>,
         selection: Range<u32>,
-        cx: &mut App,
+        cx: &App,
     ) -> Task<Result<url::Url>> {
-        self.git_store.update(cx, |git_store, cx| {
-            git_store.get_permalink_to_line(buffer, selection, cx)
-        })
+        self.git_store
+            .read(cx)
+            .get_permalink_to_line(buffer, selection, cx)
     }
 
     // RPC message handlers

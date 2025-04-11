@@ -2,7 +2,6 @@
 #![deny(missing_docs)]
 
 mod debug_format;
-mod serde_helpers;
 pub mod static_source;
 mod task_template;
 mod vscode_format;
@@ -135,7 +134,6 @@ impl ResolvedTask {
                             DebugRequestType::Launch(LaunchConfig {
                                 program: resolved.command.clone(),
                                 cwd: resolved.cwd.clone(),
-                                args,
                             })
                         }
                         crate::task_template::DebugArgsRequest::Attach(attach_config) => {
@@ -144,8 +142,8 @@ impl ResolvedTask {
                     }),
                     initialize_args: debug_args.initialize_args,
                     tcp_connection: debug_args.tcp_connection,
+                    args,
                     locator: debug_args.locator.clone(),
-                    stop_on_entry: debug_args.stop_on_entry,
                 })
             }
             _ => None,
@@ -467,7 +465,7 @@ impl ShellBuilder {
 
     // `alacritty_terminal` uses this as default on Windows. See:
     // https://github.com/alacritty/alacritty/blob/0d4ab7bca43213d96ddfe40048fc0f922543c6f8/alacritty_terminal/src/tty/windows/mod.rs#L130
-    // We could use `util::get_windows_system_shell()` here, but we are running tasks here, so leave it to `powershell.exe`
+    // We could use `util::retrieve_system_shell()` here, but we are running tasks here, so leave it to `powershell.exe`
     // should be okay.
     fn system_shell() -> String {
         "powershell.exe".to_string()

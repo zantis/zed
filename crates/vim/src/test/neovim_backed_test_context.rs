@@ -13,7 +13,7 @@ use super::{VimTestContext, neovim_connection::NeovimConnection};
 use crate::state::{Mode, VimGlobals};
 
 pub struct NeovimBackedTestContext {
-    pub(crate) cx: VimTestContext,
+    cx: VimTestContext,
     pub(crate) neovim: NeovimConnection,
 
     last_set_state: Option<String>,
@@ -147,7 +147,7 @@ impl NeovimBackedTestContext {
             .name()
             .expect("thread is not named")
             .split(':')
-            .next_back()
+            .last()
             .unwrap()
             .to_string();
         Self {
@@ -171,7 +171,7 @@ impl NeovimBackedTestContext {
             .name()
             .expect("thread is not named")
             .split(':')
-            .next_back()
+            .last()
             .unwrap()
             .to_string();
         Self {

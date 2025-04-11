@@ -1005,7 +1005,8 @@ impl Render for ProjectDiffToolbar {
     }
 }
 
-#[derive(IntoElement, RegisterComponent)]
+#[derive(IntoElement, IntoComponent)]
+#[component(scope = "Version Control")]
 pub struct ProjectDiffEmptyState {
     pub no_repo: bool,
     pub can_push_and_pull: bool,
@@ -1177,12 +1178,8 @@ mod preview {
     use super::ProjectDiffEmptyState;
 
     // View this component preview using `workspace: open component-preview`
-    impl Component for ProjectDiffEmptyState {
-        fn scope() -> ComponentScope {
-            ComponentScope::VersionControl
-        }
-
-        fn preview(_window: &mut Window, _cx: &mut App) -> Option<AnyElement> {
+    impl ComponentPreview for ProjectDiffEmptyState {
+        fn preview(_window: &mut Window, _cx: &mut App) -> AnyElement {
             let unknown_upstream: Option<UpstreamTracking> = None;
             let ahead_of_upstream: Option<UpstreamTracking> = Some(
                 UpstreamTrackingStatus {
@@ -1247,48 +1244,46 @@ mod preview {
 
             let (width, height) = (px(480.), px(320.));
 
-            Some(
-                v_flex()
-                    .gap_6()
-                    .children(vec![
-                        example_group(vec![
-                            single_example(
-                                "No Repo",
-                                div()
-                                    .w(width)
-                                    .h(height)
-                                    .child(no_repo_state)
-                                    .into_any_element(),
-                            ),
-                            single_example(
-                                "No Changes",
-                                div()
-                                    .w(width)
-                                    .h(height)
-                                    .child(no_changes_state)
-                                    .into_any_element(),
-                            ),
-                            single_example(
-                                "Unknown Upstream",
-                                div()
-                                    .w(width)
-                                    .h(height)
-                                    .child(unknown_upstream_state)
-                                    .into_any_element(),
-                            ),
-                            single_example(
-                                "Ahead of Remote",
-                                div()
-                                    .w(width)
-                                    .h(height)
-                                    .child(ahead_of_upstream_state)
-                                    .into_any_element(),
-                            ),
-                        ])
-                        .vertical(),
+            v_flex()
+                .gap_6()
+                .children(vec![
+                    example_group(vec![
+                        single_example(
+                            "No Repo",
+                            div()
+                                .w(width)
+                                .h(height)
+                                .child(no_repo_state)
+                                .into_any_element(),
+                        ),
+                        single_example(
+                            "No Changes",
+                            div()
+                                .w(width)
+                                .h(height)
+                                .child(no_changes_state)
+                                .into_any_element(),
+                        ),
+                        single_example(
+                            "Unknown Upstream",
+                            div()
+                                .w(width)
+                                .h(height)
+                                .child(unknown_upstream_state)
+                                .into_any_element(),
+                        ),
+                        single_example(
+                            "Ahead of Remote",
+                            div()
+                                .w(width)
+                                .h(height)
+                                .child(ahead_of_upstream_state)
+                                .into_any_element(),
+                        ),
                     ])
-                    .into_any_element(),
-            )
+                    .vertical(),
+                ])
+                .into_any_element()
         }
     }
 }
@@ -1501,6 +1496,7 @@ mod tests {
             .unindent(),
         );
 
+        eprintln!(">>>>>>>> git restore");
         let prev_buffer_hunks =
             cx.update_window_entity(&buffer_editor, |buffer_editor, window, cx| {
                 let snapshot = buffer_editor.snapshot(window, cx);
@@ -1524,6 +1520,7 @@ mod tests {
             });
         assert_eq!(new_buffer_hunks.as_slice(), &[]);
 
+        eprintln!(">>>>>>>> modify");
         cx.update_window_entity(&buffer_editor, |buffer_editor, window, cx| {
             buffer_editor.set_text("different\n", window, cx);
             buffer_editor.save(false, project.clone(), window, cx)
@@ -1552,8 +1549,8 @@ mod tests {
             cx,
             &"
                 - original
-                + different
-                  ˇ"
+                + ˇdifferent
+            "
             .unindent(),
         );
     }
