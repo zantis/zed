@@ -441,8 +441,8 @@ mod remote_button {
     }
 }
 
-/// A visual representation of a file's Git status.
-#[derive(IntoElement, RegisterComponent)]
+#[derive(IntoElement, IntoComponent)]
+#[component(scope = "Version Control")]
 pub struct GitStatusIcon {
     status: FileStatus,
 }
@@ -484,12 +484,8 @@ impl RenderOnce for GitStatusIcon {
 }
 
 // View this component preview using `workspace: open component-preview`
-impl Component for GitStatusIcon {
-    fn scope() -> ComponentScope {
-        ComponentScope::VersionControl
-    }
-
-    fn preview(_window: &mut Window, _cx: &mut App) -> Option<AnyElement> {
+impl ComponentPreview for GitStatusIcon {
+    fn preview(_window: &mut Window, _cx: &mut App) -> AnyElement {
         fn tracked_file_status(code: StatusCode) -> FileStatus {
             FileStatus::Tracked(git::status::TrackedStatus {
                 index_status: code,
@@ -506,19 +502,17 @@ impl Component for GitStatusIcon {
         }
         .into();
 
-        Some(
-            v_flex()
-                .gap_6()
-                .children(vec![example_group(vec![
-                    single_example("Modified", GitStatusIcon::new(modified).into_any_element()),
-                    single_example("Added", GitStatusIcon::new(added).into_any_element()),
-                    single_example("Deleted", GitStatusIcon::new(deleted).into_any_element()),
-                    single_example(
-                        "Conflicted",
-                        GitStatusIcon::new(conflict).into_any_element(),
-                    ),
-                ])])
-                .into_any_element(),
-        )
+        v_flex()
+            .gap_6()
+            .children(vec![example_group(vec![
+                single_example("Modified", GitStatusIcon::new(modified).into_any_element()),
+                single_example("Added", GitStatusIcon::new(added).into_any_element()),
+                single_example("Deleted", GitStatusIcon::new(deleted).into_any_element()),
+                single_example(
+                    "Conflicted",
+                    GitStatusIcon::new(conflict).into_any_element(),
+                ),
+            ])])
+            .into_any_element()
     }
 }

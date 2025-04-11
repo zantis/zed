@@ -292,27 +292,14 @@ To run tests in your Ruby project, you can set up custom tasks in your local `.z
 [
   {
     "label": "test $ZED_RELATIVE_FILE:$ZED_ROW",
-    "command": "bin/rails",
+    "command": "bundle exec rails",
     "args": ["test", "\"$ZED_RELATIVE_FILE:$ZED_ROW\""],
     "tags": ["ruby-test"]
   }
 ]
 ```
 
-### Minitest
-
-Plain minitest does not support running tests by line number, only by name, so we need to use `$ZED_SYMBOL` instead:
-
-```json
-[
-  {
-    "label": "-Itest $ZED_RELATIVE_FILE -n /$ZED_SYMBOL/",
-    "command": "bundle exec ruby",
-    "args": ["-Itest", "$ZED_RELATIVE_FILE", "-n /$ZED_SYMBOL/"],
-    "tags": ["ruby-test"]
-  }
-]
-```
+Note: Plain minitest does not support running tests by line number.
 
 ### RSpec
 

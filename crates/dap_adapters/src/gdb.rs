@@ -3,7 +3,7 @@ use std::ffi::OsStr;
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use gpui::AsyncApp;
-use task::{DebugAdapterConfig, DebugRequestType, DebugTaskDefinition};
+use task::{DebugAdapterConfig, DebugTaskDefinition};
 
 use crate::*;
 
@@ -74,37 +74,13 @@ impl DebugAdapter for GdbDebugAdapter {
     }
 
     fn request_args(&self, config: &DebugTaskDefinition) -> Value {
-        let mut args = json!({
-            "request": match config.request {
-                DebugRequestType::Launch(_) => "launch",
-                DebugRequestType::Attach(_) => "attach",
-            },
-        });
-
-        let map = args.as_object_mut().unwrap();
         match &config.request {
-            DebugRequestType::Attach(attach) => {
-                map.insert("pid".into(), attach.process_id.into());
+            dap::DebugRequestType::Attach(attach_config) => {
+                json!({"pid": attach_config.process_id})
             }
-
-            DebugRequestType::Launch(launch) => {
-                map.insert("program".into(), launch.program.clone().into());
-
-                if !launch.args.is_empty() {
-                    map.insert("args".into(), launch.args.clone().into());
-                }
-
-                if let Some(stop_on_entry) = config.stop_on_entry {
-                    map.insert(
-                        "stopAtBeginningOfMainSubprogram".into(),
-                        stop_on_entry.into(),
-                    );
-                }
-                if let Some(cwd) = launch.cwd.as_ref() {
-                    map.insert("cwd".into(), cwd.to_string_lossy().into_owned().into());
-                }
+            dap::DebugRequestType::Launch(launch_config) => {
+                json!({"program": launch_config.program, "cwd": launch_config.cwd})
             }
         }
-        args
     }
 }

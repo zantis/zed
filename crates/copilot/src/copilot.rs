@@ -1280,6 +1280,10 @@ mod tests {
             unimplemented!()
         }
 
+        fn as_any(&self) -> &dyn std::any::Any {
+            unimplemented!()
+        }
+
         fn to_proto(&self, _: &App) -> rpc::proto::File {
             unimplemented!()
         }

@@ -26,10 +26,6 @@ pub struct RegexSearchToolInput {
     /// When not provided, starts from the beginning.
     #[serde(default)]
     pub offset: u32,
-
-    /// Whether the regex is case-sensitive. Defaults to false (case-insensitive).
-    #[serde(default)]
-    pub case_sensitive: bool,
 }
 
 impl RegexSearchToolInput {
@@ -48,7 +44,7 @@ impl Tool for RegexSearchTool {
         "regex_search".into()
     }
 
-    fn needs_confirmation(&self, _: &serde_json::Value, _: &App) -> bool {
+    fn needs_confirmation(&self) -> bool {
         false
     }
 
@@ -68,17 +64,12 @@ impl Tool for RegexSearchTool {
         match serde_json::from_value::<RegexSearchToolInput>(input.clone()) {
             Ok(input) => {
                 let page = input.page();
-                let regex_str = MarkdownString::inline_code(&input.regex);
-                let case_info = if input.case_sensitive {
-                    " (case-sensitive)"
-                } else {
-                    ""
-                };
+                let regex = MarkdownString::inline_code(&input.regex);
 
                 if page > 1 {
-                    format!("Get page {page} of search results for regex {regex_str}{case_info}")
+                    format!("Get page {page} of search results for regex “{regex}”")
                 } else {
-                    format!("Search files for regex {regex_str}{case_info}")
+                    format!("Search files for regex “{regex}”")
                 }
             }
             Err(_) => "Search with regex".to_string(),
@@ -95,16 +86,14 @@ impl Tool for RegexSearchTool {
     ) -> Task<Result<String>> {
         const CONTEXT_LINES: u32 = 2;
 
-        let (offset, regex, case_sensitive) =
-            match serde_json::from_value::<RegexSearchToolInput>(input) {
-                Ok(input) => (input.offset, input.regex, input.case_sensitive),
-                Err(err) => return Task::ready(Err(anyhow!(err))),
-            };
+        let (offset, regex) = match serde_json::from_value::<RegexSearchToolInput>(input) {
+            Ok(input) => (input.offset, input.regex),
+            Err(err) => return Task::ready(Err(anyhow!(err))),
+        };
 
         let query = match SearchQuery::regex(
             &regex,
             false,
-            case_sensitive,
             false,
             false,
             PathMatcher::default(),

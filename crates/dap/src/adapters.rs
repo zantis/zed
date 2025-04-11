@@ -93,7 +93,7 @@ pub struct TcpArguments {
     pub port: u16,
     pub timeout: Option<u64>,
 }
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct DebugAdapterBinary {
     pub command: String,
     pub arguments: Option<Vec<OsString>>,
@@ -102,7 +102,6 @@ pub struct DebugAdapterBinary {
     pub connection: Option<TcpArguments>,
 }
 
-#[derive(Debug)]
 pub struct AdapterVersion {
     pub tag_name: String,
     pub url: String,

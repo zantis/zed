@@ -24,7 +24,7 @@ impl Tool for ThinkingTool {
         "thinking".to_string()
     }
 
-    fn needs_confirmation(&self, _: &serde_json::Value, _: &App) -> bool {
+    fn needs_confirmation(&self) -> bool {
         false
     }
 
@@ -33,7 +33,7 @@ impl Tool for ThinkingTool {
     }
 
     fn icon(&self) -> IconName {
-        IconName::LightBulb
+        IconName::Brain
     }
 
     fn input_schema(&self, format: LanguageModelToolSchemaFormat) -> serde_json::Value {

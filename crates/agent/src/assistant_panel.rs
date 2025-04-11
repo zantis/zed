@@ -44,7 +44,7 @@ use crate::thread::{Thread, ThreadError, ThreadId, TokenUsageRatio};
 use crate::thread_history::{PastContext, PastThread, ThreadHistory};
 use crate::thread_store::ThreadStore;
 use crate::{
-    AgentDiff, InlineAssistant, NewTextThread, NewThread, OpenActiveThreadAsMarkdown,
+    AgentDiff, InlineAssistant, NewPromptEditor, NewThread, OpenActiveThreadAsMarkdown,
     OpenAgentDiff, OpenHistory, ThreadEvent, ToggleContextPicker,
 };
 
@@ -70,7 +70,7 @@ pub fn init(cx: &mut App) {
                         panel.update(cx, |panel, cx| panel.open_configuration(window, cx));
                     }
                 })
-                .register_action(|workspace, _: &NewTextThread, window, cx| {
+                .register_action(|workspace, _: &NewPromptEditor, window, cx| {
                     if let Some(panel) = workspace.panel::<AssistantPanel>(cx) {
                         workspace.focus_panel::<AssistantPanel>(window, cx);
                         panel.update(cx, |panel, cx| panel.new_prompt_editor(window, cx));
@@ -194,12 +194,10 @@ impl AssistantPanel {
     ) -> Task<Result<Entity<Self>>> {
         cx.spawn(async move |cx| {
             let tools = Arc::new(ToolWorkingSet::default());
-            let thread_store = workspace
-                .update(cx, |workspace, cx| {
-                    let project = workspace.project().clone();
-                    ThreadStore::load(project, tools.clone(), prompt_builder.clone(), cx)
-                })?
-                .await;
+            let thread_store = workspace.update(cx, |workspace, cx| {
+                let project = workspace.project().clone();
+                ThreadStore::new(project, tools.clone(), prompt_builder.clone(), cx)
+            })??;
 
             let slash_commands = Arc::new(SlashCommandWorkingSet::default());
             let context_store = workspace
@@ -229,14 +227,14 @@ impl AssistantPanel {
     ) -> Self {
         let thread = thread_store.update(cx, |this, cx| this.create_thread(cx));
         let fs = workspace.app_state().fs.clone();
-        let project = workspace.project();
+        let project = workspace.project().clone();
         let language_registry = project.read(cx).languages().clone();
         let workspace = workspace.weak_handle();
         let weak_self = cx.entity().downgrade();
 
         let message_editor_context_store = cx.new(|_cx| {
             crate::context_store::ContextStore::new(
-                project.downgrade(),
+                workspace.clone(),
                 Some(thread_store.downgrade()),
             )
         });
@@ -346,7 +344,7 @@ impl AssistantPanel {
 
         let message_editor_context_store = cx.new(|_cx| {
             crate::context_store::ContextStore::new(
-                self.project.downgrade(),
+                self.workspace.clone(),
                 Some(self.thread_store.downgrade()),
             )
         });
@@ -523,7 +521,7 @@ impl AssistantPanel {
                 this.set_active_view(thread_view, window, cx);
                 let message_editor_context_store = cx.new(|_cx| {
                     crate::context_store::ContextStore::new(
-                        this.project.downgrade(),
+                        this.workspace.clone(),
                         Some(this.thread_store.downgrade()),
                     )
                 });
@@ -857,19 +855,13 @@ impl AssistantPanel {
                 if is_empty {
                     Label::new(Thread::DEFAULT_SUMMARY.clone())
                         .truncate()
-                        .ml_2()
                         .into_any_element()
                 } else if summary.is_none() {
                     Label::new(LOADING_SUMMARY_PLACEHOLDER)
-                        .ml_2()
                         .truncate()
                         .into_any_element()
                 } else {
-                    div()
-                        .ml_2()
-                        .w_full()
-                        .child(change_title_editor.clone())
-                        .into_any_element()
+                    change_title_editor.clone().into_any_element()
                 }
             }
             ActiveView::PromptEditor => {
@@ -881,7 +873,7 @@ impl AssistantPanel {
                     })
                     .unwrap_or_else(|| SharedString::from(LOADING_SUMMARY_PLACEHOLDER));
 
-                Label::new(title).ml_2().truncate().into_any_element()
+                Label::new(title).truncate().into_any_element()
             }
             ActiveView::History => Label::new("History").truncate().into_any_element(),
             ActiveView::Configuration => Label::new("Settings").truncate().into_any_element(),
@@ -918,25 +910,23 @@ impl AssistantPanel {
 
         let go_back_button = match &self.active_view {
             ActiveView::History | ActiveView::Configuration => Some(
-                div().pl_1().child(
-                    IconButton::new("go-back", IconName::ArrowLeft)
-                        .icon_size(IconSize::Small)
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.go_back(&workspace::GoBack, window, cx);
-                        }))
-                        .tooltip({
-                            let focus_handle = focus_handle.clone();
-                            move |window, cx| {
-                                Tooltip::for_action_in(
-                                    "Go Back",
-                                    &workspace::GoBack,
-                                    &focus_handle,
-                                    window,
-                                    cx,
-                                )
-                            }
-                        }),
-                ),
+                IconButton::new("go-back", IconName::ArrowLeft)
+                    .icon_size(IconSize::Small)
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.go_back(&workspace::GoBack, window, cx);
+                    }))
+                    .tooltip({
+                        let focus_handle = focus_handle.clone();
+                        move |window, cx| {
+                            Tooltip::for_action_in(
+                                "Go Back",
+                                &workspace::GoBack,
+                                &focus_handle,
+                                window,
+                                cx,
+                            )
+                        }
+                    }),
             ),
             _ => None,
         };
@@ -954,7 +944,8 @@ impl AssistantPanel {
             .child(
                 h_flex()
                     .w_full()
-                    .gap_1()
+                    .pl_2()
+                    .gap_2()
                     .children(go_back_button)
                     .child(self.render_title_view(window, cx)),
             )
@@ -1089,8 +1080,8 @@ impl AssistantPanel {
                                             cx,
                                             |menu, _window, _cx| {
                                                 menu.action(
-                                                    "New Text Thread",
-                                                    NewTextThread.boxed_clone(),
+                                                    "New Prompt Editor",
+                                                    NewPromptEditor.boxed_clone(),
                                                 )
                                                 .when(!is_empty, |menu| {
                                                     menu.action(
@@ -1298,7 +1289,6 @@ impl AssistantPanel {
                 let configuration_error_ref = &configuration_error;
 
                 parent
-                    .overflow_hidden()
                     .p_1p5()
                     .justify_end()
                     .gap_1()
@@ -1631,21 +1621,7 @@ impl prompt_library::InlineAssistDelegate for PromptLibraryInlineAssist {
         cx: &mut Context<PromptLibrary>,
     ) {
         InlineAssistant::update_global(cx, |assistant, cx| {
-            let Some(project) = self
-                .workspace
-                .upgrade()
-                .map(|workspace| workspace.read(cx).project().downgrade())
-            else {
-                return;
-            };
-            assistant.assist(
-                &prompt_editor,
-                self.workspace.clone(),
-                project,
-                None,
-                window,
-                cx,
-            )
+            assistant.assist(&prompt_editor, self.workspace.clone(), None, window, cx)
         })
     }
 

@@ -28,11 +28,10 @@ use language_model::{LanguageModelRegistry, report_assistant_event};
 use multi_buffer::MultiBufferRow;
 use parking_lot::Mutex;
 use project::LspAction;
-use project::Project;
 use project::{CodeAction, ProjectTransaction};
 use prompt_store::PromptBuilder;
 use settings::{Settings, SettingsStore};
-use telemetry_events::{AssistantEventData, AssistantKind, AssistantPhase};
+use telemetry_events::{AssistantEvent, AssistantKind, AssistantPhase};
 use terminal_view::{TerminalView, terminal_panel::TerminalPanel};
 use text::{OffsetRangeExt, ToPoint as _};
 use ui::prelude::*;
@@ -255,7 +254,6 @@ impl InlineAssistant {
                         assistant.assist(
                             &active_editor,
                             cx.entity().downgrade(),
-                            workspace.project().downgrade(),
                             thread_store,
                             window,
                             cx,
@@ -267,7 +265,6 @@ impl InlineAssistant {
                         assistant.assist(
                             &active_terminal,
                             cx.entity().downgrade(),
-                            workspace.project().downgrade(),
                             thread_store,
                             window,
                             cx,
@@ -321,7 +318,6 @@ impl InlineAssistant {
         &mut self,
         editor: &Entity<Editor>,
         workspace: WeakEntity<Workspace>,
-        project: WeakEntity<Project>,
         thread_store: Option<WeakEntity<ThreadStore>>,
         window: &mut Window,
         cx: &mut App,
@@ -406,7 +402,7 @@ impl InlineAssistant {
             codegen_ranges.push(anchor_range);
 
             if let Some(model) = LanguageModelRegistry::read_global(cx).inline_assistant_model() {
-                self.telemetry.report_assistant_event(AssistantEventData {
+                self.telemetry.report_assistant_event(AssistantEvent {
                     conversation_id: None,
                     kind: AssistantKind::Inline,
                     phase: AssistantPhase::Invoked,
@@ -429,7 +425,7 @@ impl InlineAssistant {
         for range in codegen_ranges {
             let assist_id = self.next_assist_id.post_inc();
             let context_store =
-                cx.new(|_cx| ContextStore::new(project.clone(), thread_store.clone()));
+                cx.new(|_cx| ContextStore::new(workspace.clone(), thread_store.clone()));
             let codegen = cx.new(|cx| {
                 BufferCodegen::new(
                     editor.read(cx).buffer().clone(),
@@ -523,7 +519,7 @@ impl InlineAssistant {
         initial_prompt: String,
         initial_transaction_id: Option<TransactionId>,
         focus: bool,
-        workspace: Entity<Workspace>,
+        workspace: WeakEntity<Workspace>,
         thread_store: Option<WeakEntity<ThreadStore>>,
         window: &mut Window,
         cx: &mut App,
@@ -541,8 +537,8 @@ impl InlineAssistant {
             range.end = range.end.bias_right(&snapshot);
         }
 
-        let project = workspace.read(cx).project().downgrade();
-        let context_store = cx.new(|_cx| ContextStore::new(project, thread_store.clone()));
+        let context_store =
+            cx.new(|_cx| ContextStore::new(workspace.clone(), thread_store.clone()));
 
         let codegen = cx.new(|cx| {
             BufferCodegen::new(
@@ -566,7 +562,7 @@ impl InlineAssistant {
                 codegen.clone(),
                 self.fs.clone(),
                 context_store,
-                workspace.downgrade(),
+                workspace.clone(),
                 thread_store,
                 window,
                 cx,
@@ -593,7 +589,7 @@ impl InlineAssistant {
                 end_block_id,
                 range,
                 codegen.clone(),
-                workspace.downgrade(),
+                workspace.clone(),
                 window,
                 cx,
             ),
@@ -991,7 +987,7 @@ impl InlineAssistant {
                         .map(|language| language.name())
                 });
                 report_assistant_event(
-                    AssistantEventData {
+                    AssistantEvent {
                         conversation_id: None,
                         kind: AssistantKind::Inline,
                         message_id,
@@ -1783,7 +1779,6 @@ impl CodeActionProvider for AssistantCodeActionProvider {
         let workspace = self.workspace.clone();
         let thread_store = self.thread_store.clone();
         window.spawn(cx, async move |cx| {
-            let workspace = workspace.upgrade().context("workspace was released")?;
             let editor = editor.upgrade().context("editor was released")?;
             let range = editor
                 .update(cx, |editor, cx| {

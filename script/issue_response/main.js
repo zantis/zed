@@ -54,8 +54,6 @@ async function main() {
   const q = [
     `repo:${owner}/${repo}`,
     "is:issue",
-    "-type:feature",
-    "-type:meta",
     "state:open",
     `created:${dateRangeFilter}`,
     "sort:created-asc",

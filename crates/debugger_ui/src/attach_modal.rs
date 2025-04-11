@@ -54,7 +54,6 @@ impl AttachModal {
     pub fn new(
         project: Entity<project::Project>,
         debug_config: task::DebugTaskDefinition,
-        modal: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -75,14 +74,13 @@ impl AttachModal {
             })
             .collect();
         processes.sort_by_key(|k| k.name.clone());
-        Self::with_processes(project, debug_config, processes, modal, window, cx)
+        Self::with_processes(project, debug_config, processes, window, cx)
     }
 
     pub(super) fn with_processes(
         project: Entity<project::Project>,
         debug_config: task::DebugTaskDefinition,
         processes: Vec<Candidate>,
-        modal: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -105,7 +103,6 @@ impl AttachModal {
                 window,
                 cx,
             )
-            .modal(modal)
         });
         Self {
             _subscription: cx.subscribe(&picker, |_, _, _, cx| {

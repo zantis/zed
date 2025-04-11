@@ -29,7 +29,7 @@ use gpui::StyleRefinement;
 ///
 /// let my_label = Label::new("Deleted").strikethrough(true);
 /// ```
-#[derive(IntoElement, RegisterComponent)]
+#[derive(IntoElement, IntoComponent)]
 pub struct Label {
     base: LabelLike,
     label: SharedString,
@@ -57,6 +57,9 @@ impl Label {
         self.label = text.into();
     }
 }
+
+// nate: If we are going to do this, we might as well just
+// impl Styled for Label and not constrain styles
 
 // Style methods.
 impl Label {
@@ -197,17 +200,12 @@ impl RenderOnce for Label {
     }
 }
 
-impl Component for Label {
-    fn scope() -> ComponentScope {
-        ComponentScope::Typography
-    }
+mod label_preview {
+    use crate::prelude::*;
 
-    fn description() -> Option<&'static str> {
-        Some("A text label component that supports various styles, sizes, and formatting options.")
-    }
-
-    fn preview(_window: &mut Window, _cx: &mut App) -> Option<AnyElement> {
-        Some(
+    // View this component preview using `workspace: open component-preview`
+    impl ComponentPreview for Label {
+        fn preview(_window: &mut Window, _cx: &mut App) -> AnyElement {
             v_flex()
                 .gap_6()
                 .children(vec![
@@ -253,6 +251,6 @@ impl Component for Label {
                     ),
                 ])
                 .into_any_element()
-        )
+        }
     }
 }

@@ -921,16 +921,15 @@ mod tests {
             })
             .unwrap();
 
-        let thread_store = cx
-            .update(|cx| {
-                ThreadStore::load(
-                    project.clone(),
-                    Arc::default(),
-                    Arc::new(PromptBuilder::new(None).unwrap()),
-                    cx,
-                )
-            })
-            .await;
+        let thread_store = cx.update(|cx| {
+            ThreadStore::new(
+                project.clone(),
+                Arc::default(),
+                Arc::new(PromptBuilder::new(None).unwrap()),
+                cx,
+            )
+            .unwrap()
+        });
         let thread = thread_store.update(cx, |store, cx| store.create_thread(cx));
         let action_log = thread.read_with(cx, |thread, _| thread.action_log().clone());
 

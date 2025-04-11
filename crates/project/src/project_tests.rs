@@ -5,8 +5,7 @@ use crate::{
     *,
 };
 use buffer_diff::{
-    BufferDiffEvent, CALCULATE_DIFF_TASK, DiffHunkSecondaryStatus, DiffHunkStatus,
-    DiffHunkStatusKind, assert_hunks,
+    BufferDiffEvent, DiffHunkSecondaryStatus, DiffHunkStatus, DiffHunkStatusKind, assert_hunks,
 };
 use fs::FakeFs;
 use futures::{StreamExt, future};
@@ -28,14 +27,13 @@ use lsp::{
     WillRenameFiles, notification::DidRenameFiles,
 };
 use parking_lot::Mutex;
-use paths::{config_dir, tasks_file};
+use paths::tasks_file;
 use postage::stream::Stream as _;
 use pretty_assertions::{assert_eq, assert_matches};
-use rand::{Rng as _, rngs::StdRng};
 use serde_json::json;
 #[cfg(not(windows))]
 use std::os;
-use std::{env, mem, num::NonZeroU32, ops::Range, str::FromStr, sync::OnceLock, task::Poll};
+use std::{mem, num::NonZeroU32, ops::Range, str::FromStr, sync::OnceLock, task::Poll};
 use task::{ResolvedTask, TaskContext};
 use unindent::Unindent as _;
 use util::{
@@ -461,8 +459,6 @@ async fn test_fallback_to_single_worktree_tasks(cx: &mut gpui::TestAppContext) {
                 active_item_context: Some((Some(worktree_id), None, TaskContext::default())),
                 active_worktree_context: None,
                 other_worktree_contexts: Vec::new(),
-                lsp_task_sources: HashMap::default(),
-                latest_selection: None,
             },
             cx,
         )
@@ -485,8 +481,6 @@ async fn test_fallback_to_single_worktree_tasks(cx: &mut gpui::TestAppContext) {
                     worktree_context
                 })),
                 other_worktree_contexts: Vec::new(),
-                lsp_task_sources: HashMap::default(),
-                latest_selection: None,
             },
             cx,
         )
@@ -803,7 +797,7 @@ async fn test_managing_language_servers(cx: &mut gpui::TestAppContext) {
             .receive_notification::<lsp::notification::DidCloseTextDocument>()
             .await
             .text_document,
-        lsp::TextDocumentIdentifier::new(lsp::Url::from_file_path(path!("/dir/test3.rs")).unwrap()),
+        lsp::TextDocumentIdentifier::new(lsp::Url::from_file_path(path!("/dir/test3.rs")).unwrap(),),
     );
     assert_eq!(
         fake_json_server
@@ -925,7 +919,6 @@ async fn test_reporting_fs_changes_to_language_servers(cx: &mut gpui::TestAppCon
         path!("/the-root"),
         json!({
             ".gitignore": "target\n",
-            "Cargo.lock": "",
             "src": {
                 "a.rs": "",
                 "b.rs": "",
@@ -950,37 +943,9 @@ async fn test_reporting_fs_changes_to_language_servers(cx: &mut gpui::TestAppCon
         }),
     )
     .await;
-    fs.insert_tree(
-        path!("/the-registry"),
-        json!({
-            "dep1": {
-                "src": {
-                    "dep1.rs": "",
-                }
-            },
-            "dep2": {
-                "src": {
-                    "dep2.rs": "",
-                }
-            },
-        }),
-    )
-    .await;
-    fs.insert_tree(
-        path!("/the/stdlib"),
-        json!({
-            "LICENSE": "",
-            "src": {
-                "string.rs": "",
-            }
-        }),
-    )
-    .await;
 
     let project = Project::test(fs.clone(), [path!("/the-root").as_ref()], cx).await;
-    let (language_registry, lsp_store) = project.read_with(cx, |project, _| {
-        (project.languages().clone(), project.lsp_store())
-    });
+    let language_registry = project.read_with(cx, |project, _| project.languages().clone());
     language_registry.add(rust_lang());
     let mut fake_servers = language_registry.register_fake_lsp(
         "Rust",
@@ -1013,7 +978,6 @@ async fn test_reporting_fs_changes_to_language_servers(cx: &mut gpui::TestAppCon
             &[
                 (Path::new(""), false),
                 (Path::new(".gitignore"), false),
-                (Path::new("Cargo.lock"), false),
                 (Path::new("src"), false),
                 (Path::new("src/a.rs"), false),
                 (Path::new("src/b.rs"), false),
@@ -1024,26 +988,8 @@ async fn test_reporting_fs_changes_to_language_servers(cx: &mut gpui::TestAppCon
 
     let prev_read_dir_count = fs.read_dir_call_count();
 
-    let fake_server = fake_servers.next().await.unwrap();
-    let (server_id, server_name) = lsp_store.read_with(cx, |lsp_store, _| {
-        let (id, status) = lsp_store.language_server_statuses().next().unwrap();
-        (id, LanguageServerName::from(status.name.as_str()))
-    });
-
-    // Simulate jumping to a definition in a dependency outside of the worktree.
-    let _out_of_worktree_buffer = project
-        .update(cx, |project, cx| {
-            project.open_local_buffer_via_lsp(
-                lsp::Url::from_file_path(path!("/the-registry/dep1/src/dep1.rs")).unwrap(),
-                server_id,
-                server_name.clone(),
-                cx,
-            )
-        })
-        .await
-        .unwrap();
-
     // Keep track of the FS events reported to the language server.
+    let fake_server = fake_servers.next().await.unwrap();
     let file_changes = Arc::new(Mutex::new(Vec::new()));
     fake_server
         .request::<lsp::request::RegisterCapability>(lsp::RegistrationParams {
@@ -1071,18 +1017,6 @@ async fn test_reporting_fs_changes_to_language_servers(cx: &mut gpui::TestAppCon
                                 ),
                                 kind: None,
                             },
-                            lsp::FileSystemWatcher {
-                                glob_pattern: lsp::GlobPattern::String(
-                                    path!("/the/stdlib/src/**/*.rs").to_string(),
-                                ),
-                                kind: None,
-                            },
-                            lsp::FileSystemWatcher {
-                                glob_pattern: lsp::GlobPattern::String(
-                                    path!("**/Cargo.lock").to_string(),
-                                ),
-                                kind: None,
-                            },
                         ],
                     },
                 )
@@ -1102,23 +1036,12 @@ async fn test_reporting_fs_changes_to_language_servers(cx: &mut gpui::TestAppCon
 
     cx.executor().run_until_parked();
     assert_eq!(mem::take(&mut *file_changes.lock()), &[]);
-    assert_eq!(fs.read_dir_call_count() - prev_read_dir_count, 5);
-
-    let mut new_watched_paths = fs.watched_paths();
-    new_watched_paths.retain(|path| !path.starts_with(config_dir()));
-    assert_eq!(
-        &new_watched_paths,
-        &[
-            Path::new(path!("/the-root")),
-            Path::new(path!("/the-registry/dep1/src/dep1.rs")),
-            Path::new(path!("/the/stdlib/src"))
-        ]
-    );
+    assert_eq!(fs.read_dir_call_count() - prev_read_dir_count, 4);
 
     // Now the language server has asked us to watch an ignored directory path,
     // so we recursively load it.
     project.update(cx, |project, cx| {
-        let worktree = project.visible_worktrees(cx).next().unwrap();
+        let worktree = project.worktrees(cx).next().unwrap();
         assert_eq!(
             worktree
                 .read(cx)
@@ -1129,7 +1052,6 @@ async fn test_reporting_fs_changes_to_language_servers(cx: &mut gpui::TestAppCon
             &[
                 (Path::new(""), false),
                 (Path::new(".gitignore"), false),
-                (Path::new("Cargo.lock"), false),
                 (Path::new("src"), false),
                 (Path::new("src/a.rs"), false),
                 (Path::new("src/b.rs"), false),
@@ -1166,37 +1088,12 @@ async fn test_reporting_fs_changes_to_language_servers(cx: &mut gpui::TestAppCon
     )
     .await
     .unwrap();
-    fs.save(
-        path!("/the-root/Cargo.lock").as_ref(),
-        &"".into(),
-        Default::default(),
-    )
-    .await
-    .unwrap();
-    fs.save(
-        path!("/the-stdlib/LICENSE").as_ref(),
-        &"".into(),
-        Default::default(),
-    )
-    .await
-    .unwrap();
-    fs.save(
-        path!("/the/stdlib/src/string.rs").as_ref(),
-        &"".into(),
-        Default::default(),
-    )
-    .await
-    .unwrap();
 
     // The language server receives events for the FS mutations that match its watch patterns.
     cx.executor().run_until_parked();
     assert_eq!(
         &*file_changes.lock(),
         &[
-            lsp::FileEvent {
-                uri: lsp::Url::from_file_path(path!("/the-root/Cargo.lock")).unwrap(),
-                typ: lsp::FileChangeType::CHANGED,
-            },
             lsp::FileEvent {
                 uri: lsp::Url::from_file_path(path!("/the-root/src/b.rs")).unwrap(),
                 typ: lsp::FileChangeType::DELETED,
@@ -1208,10 +1105,6 @@ async fn test_reporting_fs_changes_to_language_servers(cx: &mut gpui::TestAppCon
             lsp::FileEvent {
                 uri: lsp::Url::from_file_path(path!("/the-root/target/y/out/y2.rs")).unwrap(),
                 typ: lsp::FileChangeType::CREATED,
-            },
-            lsp::FileEvent {
-                uri: lsp::Url::from_file_path(path!("/the/stdlib/src/string.rs")).unwrap(),
-                typ: lsp::FileChangeType::CHANGED,
             },
         ]
     );
@@ -3020,7 +2913,7 @@ async fn test_completions_with_text_edit(cx: &mut gpui::TestAppContext) {
     assert_eq!(completions.len(), 1);
     assert_eq!(completions[0].new_text, "textEditText");
     assert_eq!(
-        completions[0].replace_range.to_offset(&snapshot),
+        completions[0].old_range.to_offset(&snapshot),
         text.len() - 3..text.len()
     );
 }
@@ -3103,7 +2996,7 @@ async fn test_completions_with_edit_ranges(cx: &mut gpui::TestAppContext) {
         assert_eq!(completions.len(), 1);
         assert_eq!(completions[0].new_text, "insertText");
         assert_eq!(
-            completions[0].replace_range.to_offset(&snapshot),
+            completions[0].old_range.to_offset(&snapshot),
             text.len() - 3..text.len()
         );
     }
@@ -3145,7 +3038,7 @@ async fn test_completions_with_edit_ranges(cx: &mut gpui::TestAppContext) {
         assert_eq!(completions.len(), 1);
         assert_eq!(completions[0].new_text, "labelText");
         assert_eq!(
-            completions[0].replace_range.to_offset(&snapshot),
+            completions[0].old_range.to_offset(&snapshot),
             text.len() - 3..text.len()
         );
     }
@@ -3215,7 +3108,7 @@ async fn test_completions_without_edit_ranges(cx: &mut gpui::TestAppContext) {
     assert_eq!(completions.len(), 1);
     assert_eq!(completions[0].new_text, "fullyQualifiedName");
     assert_eq!(
-        completions[0].replace_range.to_offset(&snapshot),
+        completions[0].old_range.to_offset(&snapshot),
         text.len() - 3..text.len()
     );
 
@@ -3242,7 +3135,7 @@ async fn test_completions_without_edit_ranges(cx: &mut gpui::TestAppContext) {
     assert_eq!(completions.len(), 1);
     assert_eq!(completions[0].new_text, "component");
     assert_eq!(
-        completions[0].replace_range.to_offset(&snapshot),
+        completions[0].old_range.to_offset(&snapshot),
         text.len() - 4..text.len() - 1
     );
 }
@@ -6607,7 +6500,7 @@ async fn test_staging_hunks(cx: &mut gpui::TestAppContext) {
     } = event
     {
         let changed_range = changed_range.to_point(&snapshot);
-        assert_eq!(changed_range, Point::new(0, 0)..Point::new(4, 0));
+        assert_eq!(changed_range, Point::new(0, 0)..Point::new(5, 0));
     } else {
         panic!("Unexpected event {event:?}");
     }
@@ -6967,56 +6860,50 @@ async fn test_staging_hunks_with_delayed_fs_event(cx: &mut gpui::TestAppContext)
     });
 }
 
-#[gpui::test(iterations = 25)]
-async fn test_staging_random_hunks(
-    mut rng: StdRng,
-    executor: BackgroundExecutor,
-    cx: &mut gpui::TestAppContext,
-) {
-    let operations = env::var("OPERATIONS")
-        .map(|i| i.parse().expect("invalid `OPERATIONS` variable"))
-        .unwrap_or(20);
-
-    // Try to induce races between diff recalculation and index writes.
-    if rng.gen_bool(0.5) {
-        executor.deprioritize(*CALCULATE_DIFF_TASK);
-    }
-
+#[gpui::test]
+async fn test_staging_lots_of_hunks_fast(cx: &mut gpui::TestAppContext) {
     use DiffHunkSecondaryStatus::*;
     init_test(cx);
 
-    let committed_text = (0..30).map(|i| format!("line {i}\n")).collect::<String>();
-    let index_text = committed_text.clone();
-    let buffer_text = (0..30)
-        .map(|i| match i % 5 {
-            0 => format!("line {i} (modified)\n"),
-            _ => format!("line {i}\n"),
+    let different_lines = (0..500)
+        .step_by(5)
+        .map(|i| format!("diff {}\n", i))
+        .collect::<Vec<String>>();
+    let committed_contents = (0..500).map(|i| format!("{}\n", i)).collect::<String>();
+    let file_contents = (0..500)
+        .map(|i| {
+            if i % 5 == 0 {
+                different_lines[i / 5].clone()
+            } else {
+                format!("{}\n", i)
+            }
         })
         .collect::<String>();
 
     let fs = FakeFs::new(cx.background_executor.clone());
     fs.insert_tree(
-        path!("/dir"),
+        "/dir",
         json!({
             ".git": {},
-            "file.txt": buffer_text.clone()
+            "file.txt": file_contents.clone()
         }),
     )
     .await;
+
     fs.set_head_for_repo(
-        path!("/dir/.git").as_ref(),
-        &[("file.txt".into(), committed_text.clone())],
+        "/dir/.git".as_ref(),
+        &[("file.txt".into(), committed_contents.clone())],
     );
     fs.set_index_for_repo(
-        path!("/dir/.git").as_ref(),
-        &[("file.txt".into(), index_text.clone())],
+        "/dir/.git".as_ref(),
+        &[("file.txt".into(), committed_contents.clone())],
     );
-    let repo = fs.open_repo(path!("/dir/.git").as_ref()).unwrap();
 
-    let project = Project::test(fs.clone(), [path!("/dir").as_ref()], cx).await;
+    let project = Project::test(fs.clone(), ["/dir".as_ref()], cx).await;
+
     let buffer = project
         .update(cx, |project, cx| {
-            project.open_local_buffer(path!("/dir/file.txt"), cx)
+            project.open_local_buffer("/dir/file.txt", cx)
         })
         .await
         .unwrap();
@@ -7028,60 +6915,94 @@ async fn test_staging_random_hunks(
         .await
         .unwrap();
 
-    let mut hunks =
-        uncommitted_diff.update(cx, |diff, cx| diff.hunks(&snapshot, cx).collect::<Vec<_>>());
-    assert_eq!(hunks.len(), 6);
+    let mut expected_hunks: Vec<(Range<u32>, String, String, DiffHunkStatus)> = (0..500)
+        .step_by(5)
+        .map(|i| {
+            (
+                i as u32..i as u32 + 1,
+                format!("{}\n", i),
+                different_lines[i / 5].clone(),
+                DiffHunkStatus::modified(HasSecondaryHunk),
+            )
+        })
+        .collect();
 
-    for _i in 0..operations {
-        let hunk_ix = rng.gen_range(0..hunks.len());
-        let hunk = &mut hunks[hunk_ix];
-        let row = hunk.range.start.row;
+    // The hunks are initially unstaged
+    uncommitted_diff.read_with(cx, |diff, cx| {
+        assert_hunks(
+            diff.hunks(&snapshot, cx),
+            &snapshot,
+            &diff.base_text_string().unwrap(),
+            &expected_hunks,
+        );
+    });
 
-        if hunk.status().has_secondary_hunk() {
-            log::info!("staging hunk at {row}");
-            uncommitted_diff.update(cx, |diff, cx| {
-                diff.stage_or_unstage_hunks(true, &[hunk.clone()], &snapshot, true, cx);
-            });
-            hunk.secondary_status = SecondaryHunkRemovalPending;
-        } else {
-            log::info!("unstaging hunk at {row}");
-            uncommitted_diff.update(cx, |diff, cx| {
-                diff.stage_or_unstage_hunks(false, &[hunk.clone()], &snapshot, true, cx);
-            });
-            hunk.secondary_status = SecondaryHunkAdditionPending;
-        }
-
-        for _ in 0..rng.gen_range(0..10) {
-            log::info!("yielding");
-            cx.executor().simulate_random_delay().await;
-        }
+    for (_, _, _, status) in expected_hunks.iter_mut() {
+        *status = DiffHunkStatus::modified(SecondaryHunkRemovalPending);
     }
 
-    cx.executor().run_until_parked();
-
-    for hunk in &mut hunks {
-        if hunk.secondary_status == SecondaryHunkRemovalPending {
-            hunk.secondary_status = NoSecondaryHunk;
-        } else if hunk.secondary_status == SecondaryHunkAdditionPending {
-            hunk.secondary_status = HasSecondaryHunk;
+    // Stage every hunk with a different call
+    uncommitted_diff.update(cx, |diff, cx| {
+        let hunks = diff.hunks(&snapshot, cx).collect::<Vec<_>>();
+        for hunk in hunks {
+            diff.stage_or_unstage_hunks(true, &[hunk], &snapshot, true, cx);
         }
-    }
 
-    log::info!(
-        "index text:\n{}",
-        repo.load_index_text("file.txt".into()).await.unwrap()
-    );
+        assert_hunks(
+            diff.hunks(&snapshot, cx),
+            &snapshot,
+            &diff.base_text_string().unwrap(),
+            &expected_hunks,
+        );
+    });
+
+    // If we wait, we'll have no pending hunks
+    cx.run_until_parked();
+    for (_, _, _, status) in expected_hunks.iter_mut() {
+        *status = DiffHunkStatus::modified(NoSecondaryHunk);
+    }
 
     uncommitted_diff.update(cx, |diff, cx| {
-        let expected_hunks = hunks
-            .iter()
-            .map(|hunk| (hunk.range.start.row, hunk.secondary_status))
-            .collect::<Vec<_>>();
-        let actual_hunks = diff
-            .hunks(&snapshot, cx)
-            .map(|hunk| (hunk.range.start.row, hunk.secondary_status))
-            .collect::<Vec<_>>();
-        assert_eq!(actual_hunks, expected_hunks);
+        assert_hunks(
+            diff.hunks(&snapshot, cx),
+            &snapshot,
+            &diff.base_text_string().unwrap(),
+            &expected_hunks,
+        );
+    });
+
+    for (_, _, _, status) in expected_hunks.iter_mut() {
+        *status = DiffHunkStatus::modified(SecondaryHunkAdditionPending);
+    }
+
+    // Unstage every hunk with a different call
+    uncommitted_diff.update(cx, |diff, cx| {
+        let hunks = diff.hunks(&snapshot, cx).collect::<Vec<_>>();
+        for hunk in hunks {
+            diff.stage_or_unstage_hunks(false, &[hunk], &snapshot, true, cx);
+        }
+
+        assert_hunks(
+            diff.hunks(&snapshot, cx),
+            &snapshot,
+            &diff.base_text_string().unwrap(),
+            &expected_hunks,
+        );
+    });
+
+    // If we wait, we'll have no pending hunks, again
+    cx.run_until_parked();
+    for (_, _, _, status) in expected_hunks.iter_mut() {
+        *status = DiffHunkStatus::modified(HasSecondaryHunk);
+    }
+
+    uncommitted_diff.update(cx, |diff, cx| {
+        assert_hunks(
+            diff.hunks(&snapshot, cx),
+            &snapshot,
+            &diff.base_text_string().unwrap(),
+            &expected_hunks,
+        );
     });
 }
 

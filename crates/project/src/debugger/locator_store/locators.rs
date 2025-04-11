@@ -3,6 +3,6 @@ use async_trait::async_trait;
 use dap::DebugAdapterConfig;
 
 #[async_trait]
-pub(super) trait DapLocator: Send + Sync {
+pub(super) trait DapLocator {
     async fn run_locator(&self, debug_config: &mut DebugAdapterConfig) -> Result<()>;
 }

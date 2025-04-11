@@ -606,7 +606,7 @@ impl GitRepository for RealGitRepository {
                     };
 
                     let content = repo.find_blob(oid)?.content().to_owned();
-                    Ok(String::from_utf8(content).ok())
+                    Ok(Some(String::from_utf8(content)?))
                 }
 
                 match logic(&repo.lock(), &path) {
@@ -629,7 +629,8 @@ impl GitRepository for RealGitRepository {
                     return None;
                 }
                 let content = repo.find_blob(entry.id()).log_err()?.content().to_owned();
-                String::from_utf8(content).ok()
+                let content = String::from_utf8(content).log_err()?;
+                Some(content)
             })
             .boxed()
     }

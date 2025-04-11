@@ -40,7 +40,7 @@ pub enum TerminalKind {
         command: Option<String>,
         args: Vec<String>,
         envs: HashMap<String, String>,
-        cwd: Option<Arc<Path>>,
+        cwd: PathBuf,
         title: Option<String>,
     },
 }
@@ -101,7 +101,7 @@ impl Project {
                     self.active_project_directory(cx)
                 }
             }
-            TerminalKind::Debug { cwd, .. } => cwd.clone(),
+            TerminalKind::Debug { cwd, .. } => Some(Arc::from(cwd.as_path())),
         };
 
         let mut settings_location = None;
@@ -205,7 +205,7 @@ impl Project {
                     this.active_project_directory(cx)
                 }
             }
-            TerminalKind::Debug { cwd, .. } => cwd.clone(),
+            TerminalKind::Debug { cwd, .. } => Some(Arc::from(cwd.as_path())),
         };
         let ssh_details = this.ssh_details(cx);
 

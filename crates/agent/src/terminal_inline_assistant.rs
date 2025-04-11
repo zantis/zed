@@ -16,10 +16,9 @@ use language_model::{
     ConfiguredModel, LanguageModelRegistry, LanguageModelRequest, LanguageModelRequestMessage,
     Role, report_assistant_event,
 };
-use project::Project;
 use prompt_store::PromptBuilder;
 use std::sync::Arc;
-use telemetry_events::{AssistantEventData, AssistantKind, AssistantPhase};
+use telemetry_events::{AssistantEvent, AssistantKind, AssistantPhase};
 use terminal_view::TerminalView;
 use ui::prelude::*;
 use util::ResultExt;
@@ -68,7 +67,6 @@ impl TerminalInlineAssistant {
         &mut self,
         terminal_view: &Entity<TerminalView>,
         workspace: WeakEntity<Workspace>,
-        project: WeakEntity<Project>,
         thread_store: Option<WeakEntity<ThreadStore>>,
         window: &mut Window,
         cx: &mut App,
@@ -77,7 +75,8 @@ impl TerminalInlineAssistant {
         let assist_id = self.next_assist_id.post_inc();
         let prompt_buffer =
             cx.new(|cx| MultiBuffer::singleton(cx.new(|cx| Buffer::local(String::new(), cx)), cx));
-        let context_store = cx.new(|_cx| ContextStore::new(project, thread_store.clone()));
+        let context_store =
+            cx.new(|_cx| ContextStore::new(workspace.clone(), thread_store.clone()));
         let codegen = cx.new(|_| TerminalCodegen::new(terminal, self.telemetry.clone()));
 
         let prompt_editor = cx.new(|cx| {
@@ -293,7 +292,7 @@ impl TerminalInlineAssistant {
                 let codegen = assist.codegen.read(cx);
                 let executor = cx.background_executor().clone();
                 report_assistant_event(
-                    AssistantEventData {
+                    AssistantEvent {
                         conversation_id: None,
                         kind: AssistantKind::InlineTerminal,
                         message_id: codegen.message_id.clone(),

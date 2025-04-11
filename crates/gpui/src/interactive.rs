@@ -311,13 +311,13 @@ impl ScrollDelta {
     pub fn coalesce(self, other: ScrollDelta) -> ScrollDelta {
         match (self, other) {
             (ScrollDelta::Pixels(a), ScrollDelta::Pixels(b)) => {
-                let x = if a.x.signum() == b.x.signum() {
+                let x = if a.x.signum() * b.x.signum() >= 0. {
                     a.x + b.x
                 } else {
                     b.x
                 };
 
-                let y = if a.y.signum() == b.y.signum() {
+                let y = if a.y.signum() * b.y.signum() >= 0. {
                     a.y + b.y
                 } else {
                     b.y
@@ -327,13 +327,13 @@ impl ScrollDelta {
             }
 
             (ScrollDelta::Lines(a), ScrollDelta::Lines(b)) => {
-                let x = if a.x.signum() == b.x.signum() {
+                let x = if a.x.signum() * b.x.signum() >= 0. {
                     a.x + b.x
                 } else {
                     b.x
                 };
 
-                let y = if a.y.signum() == b.y.signum() {
+                let y = if a.y.signum() * b.y.signum() >= 0. {
                     a.y + b.y
                 } else {
                     b.y

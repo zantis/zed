@@ -43,6 +43,23 @@ impl RemoteAudioTrack {
             false
         }
     }
+
+    pub fn set_enabled(&self, enabled: bool) {
+        let Some(room) = self.room.upgrade() else {
+            return;
+        };
+        if enabled {
+            room.0
+                .lock()
+                .paused_audio_tracks
+                .remove(&self.server_track.sid);
+        } else {
+            room.0
+                .lock()
+                .paused_audio_tracks
+                .insert(self.server_track.sid.clone());
+        }
+    }
 }
 
 impl RemoteVideoTrack {
@@ -53,4 +70,6 @@ impl RemoteVideoTrack {
     pub fn publisher_id(&self) -> ParticipantIdentity {
         self.server_track.publisher_id.clone()
     }
+
+    pub(crate) fn set_enabled(&self, _enabled: bool) {}
 }

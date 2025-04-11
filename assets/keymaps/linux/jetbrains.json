@@ -58,8 +58,7 @@
       "ctrl-shift-home": "editor::SelectToBeginning",
       "ctrl-shift-end": "editor::SelectToEnd",
       "ctrl-f8": "editor::ToggleBreakpoint",
-      "ctrl-shift-f8": "editor::EditLogBreakpoint",
-      "ctrl-shift-u": "editor::ToggleCase"
+      "ctrl-shift-f8": "editor::EditLogBreakpoint"
     }
   },
   {
