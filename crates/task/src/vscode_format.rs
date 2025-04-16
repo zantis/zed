@@ -154,8 +154,8 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::{
-        TaskTemplate, TaskTemplates, VsCodeTaskFile,
         vscode_format::{Command, VsCodeTaskDefinition},
+        TaskTemplate, TaskTemplates, VsCodeTaskFile,
     };
 
     use super::EnvVariableReplacer;
@@ -200,7 +200,7 @@ mod tests {
 
     #[test]
     fn can_deserialize_ts_tasks() {
-        const TYPESCRIPT_TASKS: &str = include_str!("../test_data/typescript.json");
+        static TYPESCRIPT_TASKS: &str = include_str!("../test_data/typescript.json");
         let vscode_definitions: VsCodeTaskFile =
             serde_json_lenient::from_str(TYPESCRIPT_TASKS).unwrap();
 
@@ -290,7 +290,7 @@ mod tests {
 
     #[test]
     fn can_deserialize_rust_analyzer_tasks() {
-        const RUST_ANALYZER_TASKS: &str = include_str!("../test_data/rust-analyzer.json");
+        static RUST_ANALYZER_TASKS: &str = include_str!("../test_data/rust-analyzer.json");
         let vscode_definitions: VsCodeTaskFile =
             serde_json_lenient::from_str(RUST_ANALYZER_TASKS).unwrap();
         let expected = vec![

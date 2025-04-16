@@ -1,24 +1,17 @@
 [
   {
     "bindings": {
-      "cmd-{": "pane::ActivatePreviousItem",
-      "cmd-}": "pane::ActivateNextItem",
-      "ctrl-f2": "debugger::Stop",
-      "f6": "debugger::Pause",
-      "f7": "debugger::StepInto",
-      "f8": "debugger::StepOver",
-      "shift-f8": "debugger::StepOut",
-      "f9": "debugger::Continue",
-      "alt-shift-f9": "debugger::Start"
+      "cmd-shift-[": "pane::ActivatePrevItem",
+      "cmd-shift-]": "pane::ActivateNextItem"
     }
   },
   {
     "context": "Editor",
     "bindings": {
-      "ctrl->": ["zed::IncreaseBufferFontSize", { "persist": true }],
-      "ctrl-<": ["zed::DecreaseBufferFontSize", { "persist": true }],
+      "ctrl->": "zed::IncreaseBufferFontSize",
+      "ctrl-<": "zed::DecreaseBufferFontSize",
       "ctrl-shift-j": "editor::JoinLines",
-      "cmd-d": "editor::DuplicateSelection",
+      "cmd-d": "editor::DuplicateLineDown",
       "cmd-backspace": "editor::DeleteLine",
       "cmd-pagedown": "editor::MovePageDown",
       "cmd-pageup": "editor::MovePageUp",
@@ -36,27 +29,23 @@
       "shift-alt-up": "editor::MoveLineUp",
       "shift-alt-down": "editor::MoveLineDown",
       "cmd-alt-l": "editor::Format",
-      "ctrl-alt-o": "editor::OrganizeImports",
       "shift-f6": "editor::Rename",
       "cmd-[": "pane::GoBack",
       "cmd-]": "pane::GoForward",
       "alt-f7": "editor::FindAllReferences",
       "cmd-alt-f7": "editor::FindAllReferences",
-      "cmd-b": "editor::GoToDefinition", // Conflicts with workspace::ToggleLeftDock
+      "cmd-b": "editor::GoToDefinition",
       "cmd-alt-b": "editor::GoToDefinitionSplit",
       "cmd-shift-b": "editor::GoToTypeDefinition",
       "cmd-alt-shift-b": "editor::GoToTypeDefinitionSplit",
       "f2": "editor::GoToDiagnostic",
-      "shift-f2": "editor::GoToPreviousDiagnostic",
+      "shift-f2": "editor::GoToPrevDiagnostic",
       "ctrl-alt-shift-down": "editor::GoToHunk",
-      "ctrl-alt-shift-up": "editor::GoToPreviousHunk",
+      "ctrl-alt-shift-up": "editor::GoToPrevHunk",
       "cmd-home": "editor::MoveToBeginning",
       "cmd-end": "editor::MoveToEnd",
       "cmd-shift-home": "editor::SelectToBeginning",
-      "cmd-shift-end": "editor::SelectToEnd",
-      "ctrl-f8": "editor::ToggleBreakpoint",
-      "ctrl-shift-f8": "editor::EditLogBreakpoint",
-      "cmd-shift-u": "editor::ToggleCase"
+      "cmd-shift-end": "editor::SelectToEnd"
     }
   },
   {
@@ -70,19 +59,12 @@
     }
   },
   {
-    "context": "BufferSearchBar > Editor",
-    "bindings": {
-      "shift-enter": "search::SelectPreviousMatch"
-    }
-  },
-  {
     "context": "Workspace",
     "bindings": {
       "cmd-shift-o": "file_finder::Toggle",
       "cmd-shift-a": "command_palette::Toggle",
       "shift shift": "command_palette::Toggle",
-      "cmd-alt-o": "project_symbols::Toggle", // JetBrains: Go to Symbol
-      "cmd-o": "project_symbols::Toggle", // JetBrains: Go to Class
+      "cmd-alt-o": "project_symbols::Toggle",
       "cmd-1": "workspace::ToggleLeftDock",
       "cmd-6": "diagnostics::Deploy"
     }

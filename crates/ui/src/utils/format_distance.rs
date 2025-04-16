@@ -1,5 +1,3 @@
-// This won't be documented further as it is intended to be removed, or merged with the `time_format` crate.
-
 use chrono::{DateTime, Local, NaiveDateTime};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

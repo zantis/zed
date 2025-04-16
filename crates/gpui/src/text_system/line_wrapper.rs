@@ -1,4 +1,4 @@
-use crate::{FontId, FontRun, Pixels, PlatformTextSystem, SharedString, TextRun, px};
+use crate::{px, FontId, FontRun, Pixels, PlatformTextSystem, SharedString};
 use collections::HashMap;
 use std::{iter, sync::Arc};
 
@@ -32,7 +32,7 @@ impl LineWrapper {
     /// Wrap a line of text to the given width with this wrapper's font and font size.
     pub fn wrap_line<'a>(
         &'a mut self,
-        fragments: &'a [LineFragment],
+        line: &'a str,
         wrap_width: Pixels,
     ) -> impl Iterator<Item = Boundary> + 'a {
         let mut width = px(0.);
@@ -42,61 +42,32 @@ impl LineWrapper {
         let mut last_candidate_width = px(0.);
         let mut last_wrap_ix = 0;
         let mut prev_c = '\0';
-        let mut index = 0;
-        let mut candidates = fragments
-            .into_iter()
-            .flat_map(move |fragment| fragment.wrap_boundary_candidates())
-            .peekable();
+        let mut char_indices = line.char_indices();
         iter::from_fn(move || {
-            for candidate in candidates.by_ref() {
-                let ix = index;
-                index += candidate.len_utf8();
-                let mut new_prev_c = prev_c;
-                let item_width = match candidate {
-                    WrapBoundaryCandidate::Char { character: c } => {
-                        if c == '\n' {
-                            continue;
-                        }
+            for (ix, c) in char_indices.by_ref() {
+                if c == '\n' {
+                    continue;
+                }
 
-                        if Self::is_word_char(c) {
-                            if prev_c == ' ' && c != ' ' && first_non_whitespace_ix.is_some() {
-                                last_candidate_ix = ix;
-                                last_candidate_width = width;
-                            }
-                        } else {
-                            // CJK may not be space separated, e.g.: `Hello world你好世界`
-                            if c != ' ' && first_non_whitespace_ix.is_some() {
-                                last_candidate_ix = ix;
-                                last_candidate_width = width;
-                            }
-                        }
-
-                        if c != ' ' && first_non_whitespace_ix.is_none() {
-                            first_non_whitespace_ix = Some(ix);
-                        }
-
-                        new_prev_c = c;
-
-                        self.width_for_char(c)
+                if Self::is_word_char(c) {
+                    if prev_c == ' ' && c != ' ' && first_non_whitespace_ix.is_some() {
+                        last_candidate_ix = ix;
+                        last_candidate_width = width;
                     }
-                    WrapBoundaryCandidate::Element {
-                        width: element_width,
-                        ..
-                    } => {
-                        if prev_c == ' ' && first_non_whitespace_ix.is_some() {
-                            last_candidate_ix = ix;
-                            last_candidate_width = width;
-                        }
-
-                        if first_non_whitespace_ix.is_none() {
-                            first_non_whitespace_ix = Some(ix);
-                        }
-
-                        element_width
+                } else {
+                    // CJK may not be space separated, e.g.: `Hello world你好世界`
+                    if c != ' ' && first_non_whitespace_ix.is_some() {
+                        last_candidate_ix = ix;
+                        last_candidate_width = width;
                     }
-                };
+                }
 
-                width += item_width;
+                if c != ' ' && first_non_whitespace_ix.is_none() {
+                    first_non_whitespace_ix = Some(ix);
+                }
+
+                let char_width = self.width_for_char(c);
+                width += char_width;
                 if width > wrap_width && ix > last_wrap_ix {
                     if let (None, Some(first_non_whitespace_ix)) = (indent, first_non_whitespace_ix)
                     {
@@ -111,7 +82,7 @@ impl LineWrapper {
                         last_candidate_ix = 0;
                     } else {
                         last_wrap_ix = ix;
-                        width = item_width;
+                        width = char_width;
                     }
 
                     if let Some(indent) = indent {
@@ -120,8 +91,7 @@ impl LineWrapper {
 
                     return Some(Boundary::new(last_wrap_ix, indent.unwrap_or(0)));
                 }
-
-                prev_c = new_prev_c;
+                prev_c = c;
             }
 
             None
@@ -134,7 +104,6 @@ impl LineWrapper {
         line: SharedString,
         truncate_width: Pixels,
         ellipsis: Option<&str>,
-        runs: &mut Vec<TextRun>,
     ) -> SharedString {
         let mut width = px(0.);
         let mut ellipsis_width = px(0.);
@@ -147,7 +116,7 @@ impl LineWrapper {
         let mut char_indices = line.char_indices();
         let mut truncate_ix = 0;
         for (ix, c) in char_indices {
-            if width + ellipsis_width < truncate_width {
+            if width + ellipsis_width <= truncate_width {
                 truncate_ix = ix;
             }
 
@@ -155,15 +124,15 @@ impl LineWrapper {
             width += char_width;
 
             if width.floor() > truncate_width {
-                let ellipsis = ellipsis.unwrap_or("");
-                let result = SharedString::from(format!("{}{}", &line[..truncate_ix], ellipsis));
-                update_runs_after_truncation(&result, ellipsis, runs);
-
-                return result;
+                return SharedString::from(format!(
+                    "{}{}",
+                    &line[..truncate_ix],
+                    ellipsis.unwrap_or("")
+                ));
             }
         }
 
-        line
+        line.clone()
     }
 
     pub(crate) fn is_word_char(c: char) -> bool {
@@ -226,82 +195,6 @@ impl LineWrapper {
     }
 }
 
-fn update_runs_after_truncation(result: &str, ellipsis: &str, runs: &mut Vec<TextRun>) {
-    let mut truncate_at = result.len() - ellipsis.len();
-    let mut run_end = None;
-    for (run_index, run) in runs.iter_mut().enumerate() {
-        if run.len <= truncate_at {
-            truncate_at -= run.len;
-        } else {
-            run.len = truncate_at + ellipsis.len();
-            run_end = Some(run_index + 1);
-            break;
-        }
-    }
-    if let Some(run_end) = run_end {
-        runs.truncate(run_end);
-    }
-}
-
-/// A fragment of a line that can be wrapped.
-pub enum LineFragment<'a> {
-    /// A text fragment consisting of characters.
-    Text {
-        /// The text content of the fragment.
-        text: &'a str,
-    },
-    /// A non-text element with a fixed width.
-    Element {
-        /// The width of the element in pixels.
-        width: Pixels,
-        /// The UTF-8 encoded length of the element.
-        len_utf8: usize,
-    },
-}
-
-impl<'a> LineFragment<'a> {
-    /// Creates a new text fragment from the given text.
-    pub fn text(text: &'a str) -> Self {
-        LineFragment::Text { text }
-    }
-
-    /// Creates a new non-text element with the given width and UTF-8 encoded length.
-    pub fn element(width: Pixels, len_utf8: usize) -> Self {
-        LineFragment::Element { width, len_utf8 }
-    }
-
-    fn wrap_boundary_candidates(&self) -> impl Iterator<Item = WrapBoundaryCandidate> {
-        let text = match self {
-            LineFragment::Text { text } => text,
-            LineFragment::Element { .. } => "\0",
-        };
-        text.chars().map(move |character| {
-            if let LineFragment::Element { width, len_utf8 } = self {
-                WrapBoundaryCandidate::Element {
-                    width: *width,
-                    len_utf8: *len_utf8,
-                }
-            } else {
-                WrapBoundaryCandidate::Char { character }
-            }
-        })
-    }
-}
-
-enum WrapBoundaryCandidate {
-    Char { character: char },
-    Element { width: Pixels, len_utf8: usize },
-}
-
-impl WrapBoundaryCandidate {
-    pub fn len_utf8(&self) -> usize {
-        match self {
-            WrapBoundaryCandidate::Char { character } => character.len_utf8(),
-            WrapBoundaryCandidate::Element { len_utf8: len, .. } => *len,
-        }
-    }
-}
-
 /// A boundary between two lines of text.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Boundary {
@@ -320,9 +213,7 @@ impl Boundary {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        Font, FontFeatures, FontStyle, FontWeight, Hsla, TestAppContext, TestDispatcher, font,
-    };
+    use crate::{font, TestAppContext, TestDispatcher};
     #[cfg(target_os = "macos")]
     use crate::{TextRun, WindowTextSystem, WrapBoundary};
     use rand::prelude::*;
@@ -330,28 +221,15 @@ mod tests {
     fn build_wrapper() -> LineWrapper {
         let dispatcher = TestDispatcher::new(StdRng::seed_from_u64(0));
         let cx = TestAppContext::new(dispatcher, None);
+        cx.text_system()
+            .add_fonts(vec![std::fs::read(
+                "../../assets/fonts/plex-mono/ZedPlexMono-Regular.ttf",
+            )
+            .unwrap()
+            .into()])
+            .unwrap();
         let id = cx.text_system().font_id(&font("Zed Plex Mono")).unwrap();
         LineWrapper::new(id, px(16.), cx.text_system().platform_text_system.clone())
-    }
-
-    fn generate_test_runs(input_run_len: &[usize]) -> Vec<TextRun> {
-        input_run_len
-            .iter()
-            .map(|run_len| TextRun {
-                len: *run_len,
-                font: Font {
-                    family: "Dummy".into(),
-                    features: FontFeatures::default(),
-                    fallbacks: None,
-                    weight: FontWeight::default(),
-                    style: FontStyle::Normal,
-                },
-                color: Hsla::default(),
-                background_color: None,
-                underline: None,
-                strikethrough: None,
-            })
-            .collect()
     }
 
     #[test]
@@ -360,7 +238,7 @@ mod tests {
 
         assert_eq!(
             wrapper
-                .wrap_line(&[LineFragment::text("aa bbb cccc ddddd eeee")], px(72.))
+                .wrap_line("aa bbb cccc ddddd eeee", px(72.))
                 .collect::<Vec<_>>(),
             &[
                 Boundary::new(7, 0),
@@ -370,7 +248,7 @@ mod tests {
         );
         assert_eq!(
             wrapper
-                .wrap_line(&[LineFragment::text("aaa aaaaaaaaaaaaaaaaaa")], px(72.0))
+                .wrap_line("aaa aaaaaaaaaaaaaaaaaa", px(72.0))
                 .collect::<Vec<_>>(),
             &[
                 Boundary::new(4, 0),
@@ -380,7 +258,7 @@ mod tests {
         );
         assert_eq!(
             wrapper
-                .wrap_line(&[LineFragment::text("     aaaaaaa")], px(72.))
+                .wrap_line("     aaaaaaa", px(72.))
                 .collect::<Vec<_>>(),
             &[
                 Boundary::new(7, 5),
@@ -390,10 +268,7 @@ mod tests {
         );
         assert_eq!(
             wrapper
-                .wrap_line(
-                    &[LineFragment::text("                            ")],
-                    px(72.)
-                )
+                .wrap_line("                            ", px(72.))
                 .collect::<Vec<_>>(),
             &[
                 Boundary::new(7, 0),
@@ -403,7 +278,7 @@ mod tests {
         );
         assert_eq!(
             wrapper
-                .wrap_line(&[LineFragment::text("          aaaaaaaaaaaaaa")], px(72.))
+                .wrap_line("          aaaaaaaaaaaaaa", px(72.))
                 .collect::<Vec<_>>(),
             &[
                 Boundary::new(7, 0),
@@ -412,217 +287,32 @@ mod tests {
                 Boundary::new(22, 3),
             ]
         );
-
-        // Test wrapping multiple text fragments
-        assert_eq!(
-            wrapper
-                .wrap_line(
-                    &[
-                        LineFragment::text("aa bbb "),
-                        LineFragment::text("cccc ddddd eeee")
-                    ],
-                    px(72.)
-                )
-                .collect::<Vec<_>>(),
-            &[
-                Boundary::new(7, 0),
-                Boundary::new(12, 0),
-                Boundary::new(18, 0)
-            ],
-        );
-
-        // Test wrapping with a mix of text and element fragments
-        assert_eq!(
-            wrapper
-                .wrap_line(
-                    &[
-                        LineFragment::text("aa "),
-                        LineFragment::element(px(20.), 1),
-                        LineFragment::text(" bbb "),
-                        LineFragment::element(px(30.), 1),
-                        LineFragment::text(" cccc")
-                    ],
-                    px(72.)
-                )
-                .collect::<Vec<_>>(),
-            &[
-                Boundary::new(5, 0),
-                Boundary::new(9, 0),
-                Boundary::new(11, 0)
-            ],
-        );
-
-        // Test with element at the beginning and text afterward
-        assert_eq!(
-            wrapper
-                .wrap_line(
-                    &[
-                        LineFragment::element(px(50.), 1),
-                        LineFragment::text(" aaaa bbbb cccc dddd")
-                    ],
-                    px(72.)
-                )
-                .collect::<Vec<_>>(),
-            &[
-                Boundary::new(2, 0),
-                Boundary::new(7, 0),
-                Boundary::new(12, 0),
-                Boundary::new(17, 0)
-            ],
-        );
-
-        // Test with a large element that forces wrapping by itself
-        assert_eq!(
-            wrapper
-                .wrap_line(
-                    &[
-                        LineFragment::text("short text "),
-                        LineFragment::element(px(100.), 1),
-                        LineFragment::text(" more text")
-                    ],
-                    px(72.)
-                )
-                .collect::<Vec<_>>(),
-            &[
-                Boundary::new(6, 0),
-                Boundary::new(11, 0),
-                Boundary::new(12, 0),
-                Boundary::new(18, 0)
-            ],
-        );
     }
 
     #[test]
     fn test_truncate_line() {
         let mut wrapper = build_wrapper();
 
-        fn perform_test(
-            wrapper: &mut LineWrapper,
-            text: &'static str,
-            result: &'static str,
-            ellipsis: Option<&str>,
-        ) {
-            let dummy_run_lens = vec![text.len()];
-            let mut dummy_runs = generate_test_runs(&dummy_run_lens);
-            assert_eq!(
-                wrapper.truncate_line(text.into(), px(220.), ellipsis, &mut dummy_runs),
-                result
-            );
-            assert_eq!(dummy_runs.first().unwrap().len, result.len());
-        }
-
-        perform_test(
-            &mut wrapper,
-            "aa bbb cccc ddddd eeee ffff gggg",
-            "aa bbb cccc ddddd eeee",
-            None,
+        assert_eq!(
+            wrapper.truncate_line("aa bbb cccc ddddd eeee ffff gggg".into(), px(220.), None),
+            "aa bbb cccc ddddd eeee"
         );
-        perform_test(
-            &mut wrapper,
-            "aa bbb cccc ddddd eeee ffff gggg",
-            "aa bbb cccc ddddd eee…",
-            Some("…"),
+        assert_eq!(
+            wrapper.truncate_line(
+                "aa bbb cccc ddddd eeee ffff gggg".into(),
+                px(220.),
+                Some("…")
+            ),
+            "aa bbb cccc ddddd eee…"
         );
-        perform_test(
-            &mut wrapper,
-            "aa bbb cccc ddddd eeee ffff gggg",
-            "aa bbb cccc dddd......",
-            Some("......"),
+        assert_eq!(
+            wrapper.truncate_line(
+                "aa bbb cccc ddddd eeee ffff gggg".into(),
+                px(220.),
+                Some("......")
+            ),
+            "aa bbb cccc dddd......"
         );
-    }
-
-    #[test]
-    fn test_truncate_multiple_runs() {
-        let mut wrapper = build_wrapper();
-
-        fn perform_test(
-            wrapper: &mut LineWrapper,
-            text: &'static str,
-            result: &str,
-            run_lens: &[usize],
-            result_run_len: &[usize],
-            line_width: Pixels,
-        ) {
-            let mut dummy_runs = generate_test_runs(run_lens);
-            assert_eq!(
-                wrapper.truncate_line(text.into(), line_width, Some("…"), &mut dummy_runs),
-                result
-            );
-            for (run, result_len) in dummy_runs.iter().zip(result_run_len) {
-                assert_eq!(run.len, *result_len);
-            }
-        }
-        // Case 0: Normal
-        // Text: abcdefghijkl
-        // Runs: Run0 { len: 12, ... }
-        //
-        // Truncate res: abcd… (truncate_at = 4)
-        // Run res: Run0 { string: abcd…, len: 7, ... }
-        perform_test(&mut wrapper, "abcdefghijkl", "abcd…", &[12], &[7], px(50.));
-        // Case 1: Drop some runs
-        // Text: abcdefghijkl
-        // Runs: Run0 { len: 4, ... }, Run1 { len: 4, ... }, Run2 { len: 4, ... }
-        //
-        // Truncate res: abcdef… (truncate_at = 6)
-        // Runs res: Run0 { string: abcd, len: 4, ... }, Run1 { string: ef…, len:
-        // 5, ... }
-        perform_test(
-            &mut wrapper,
-            "abcdefghijkl",
-            "abcdef…",
-            &[4, 4, 4],
-            &[4, 5],
-            px(70.),
-        );
-        // Case 2: Truncate at start of some run
-        // Text: abcdefghijkl
-        // Runs: Run0 { len: 4, ... }, Run1 { len: 4, ... }, Run2 { len: 4, ... }
-        //
-        // Truncate res: abcdefgh… (truncate_at = 8)
-        // Runs res: Run0 { string: abcd, len: 4, ... }, Run1 { string: efgh, len:
-        // 4, ... }, Run2 { string: …, len: 3, ... }
-        perform_test(
-            &mut wrapper,
-            "abcdefghijkl",
-            "abcdefgh…",
-            &[4, 4, 4],
-            &[4, 4, 3],
-            px(90.),
-        );
-    }
-
-    #[test]
-    fn test_update_run_after_truncation() {
-        fn perform_test(result: &str, run_lens: &[usize], result_run_lens: &[usize]) {
-            let mut dummy_runs = generate_test_runs(run_lens);
-            update_runs_after_truncation(result, "…", &mut dummy_runs);
-            for (run, result_len) in dummy_runs.iter().zip(result_run_lens) {
-                assert_eq!(run.len, *result_len);
-            }
-        }
-        // Case 0: Normal
-        // Text: abcdefghijkl
-        // Runs: Run0 { len: 12, ... }
-        //
-        // Truncate res: abcd… (truncate_at = 4)
-        // Run res: Run0 { string: abcd…, len: 7, ... }
-        perform_test("abcd…", &[12], &[7]);
-        // Case 1: Drop some runs
-        // Text: abcdefghijkl
-        // Runs: Run0 { len: 4, ... }, Run1 { len: 4, ... }, Run2 { len: 4, ... }
-        //
-        // Truncate res: abcdef… (truncate_at = 6)
-        // Runs res: Run0 { string: abcd, len: 4, ... }, Run1 { string: ef…, len:
-        // 5, ... }
-        perform_test("abcdef…", &[4, 4, 4], &[4, 5]);
-        // Case 2: Truncate at start of some run
-        // Text: abcdefghijkl
-        // Runs: Run0 { len: 4, ... }, Run1 { len: 4, ... }, Run2 { len: 4, ... }
-        //
-        // Truncate res: abcdefgh… (truncate_at = 8)
-        // Runs res: Run0 { string: abcd, len: 4, ... }, Run1 { string: efgh, len:
-        // 4, ... }, Run2 { string: …, len: 3, ... }
-        perform_test("abcdefgh…", &[4, 4, 4], &[4, 4, 3]);
     }
 
     #[test]
@@ -706,6 +396,14 @@ mod tests {
                 background_color: None,
             };
 
+            impl TextRun {
+                fn with_len(&self, len: usize) -> Self {
+                    let mut this = self.clone();
+                    this.len = len;
+                    this
+                }
+            }
+
             let text = "aa bbb cccc ddddd eeee".into();
             let lines = text_system
                 .shape_text(
@@ -719,7 +417,6 @@ mod tests {
                         normal.with_len(7),
                     ],
                     Some(px(72.)),
-                    None,
                 )
                 .unwrap();
 
@@ -727,16 +424,16 @@ mod tests {
                 lines[0].layout.wrap_boundaries(),
                 &[
                     WrapBoundary {
-                        run_ix: 0,
-                        glyph_ix: 7
+                        run_ix: 1,
+                        glyph_ix: 3
                     },
                     WrapBoundary {
-                        run_ix: 0,
-                        glyph_ix: 12
+                        run_ix: 2,
+                        glyph_ix: 3
                     },
                     WrapBoundary {
-                        run_ix: 0,
-                        glyph_ix: 18
+                        run_ix: 4,
+                        glyph_ix: 2
                     }
                 ],
             );

@@ -25,9 +25,6 @@
   name: (identifier) @function)
 (method_definition
   name: (property_identifier) @function.method)
-(method_definition
-    name: (property_identifier) @constructor
-    (#eq? @constructor "constructor"))
 
 (pair
   key: (property_identifier) @function.method
@@ -47,6 +44,9 @@
   right: [(function_expression) (arrow_function)])
 
 ; Special identifiers
+
+((identifier) @constructor
+ (#match? @constructor "^[A-Z]"))
 
 ((identifier) @type
  (#match? @type "^[A-Z]"))
@@ -86,7 +86,6 @@
 (escape_sequence) @string.escape
 
 (regex) @string.regex
-(regex_flags) @keyword.regex
 (number) @number
 
 ; Tokens
@@ -156,13 +155,6 @@
   "}"
 ]  @punctuation.bracket
 
-(ternary_expression
-  [
-    "?"
-    ":"
-  ] @operator
-)
-
 [
   "as"
   "async"
@@ -189,7 +181,6 @@
   "import"
   "in"
   "instanceof"
-  "is"
   "let"
   "new"
   "of"
@@ -222,8 +213,6 @@
   "<" @punctuation.bracket
   ">" @punctuation.bracket)
 
-(decorator "@" @punctuation.special)
-
 ; Keywords
 
 [ "abstract"
@@ -243,13 +232,11 @@
 ] @keyword
 
 ; JSX elements
-(jsx_opening_element (identifier) @tag.jsx (#match? @tag.jsx "^[a-z][^.]*$"))
-(jsx_closing_element (identifier) @tag.jsx (#match? @tag.jsx "^[a-z][^.]*$"))
-(jsx_self_closing_element (identifier) @tag.jsx (#match? @tag.jsx "^[a-z][^.]*$"))
+(jsx_opening_element (identifier) @tag (#match? @tag "^[a-z][^.]*$"))
+(jsx_closing_element (identifier) @tag (#match? @tag "^[a-z][^.]*$"))
+(jsx_self_closing_element (identifier) @tag (#match? @tag "^[a-z][^.]*$"))
 
-(jsx_attribute (property_identifier) @attribute.jsx)
-(jsx_opening_element (["<" ">"]) @punctuation.bracket.jsx)
-(jsx_closing_element (["</" ">"]) @punctuation.bracket.jsx)
-(jsx_self_closing_element (["<" "/>"]) @punctuation.bracket.jsx)
-(jsx_attribute "=" @punctuation.delimiter.jsx)
-(jsx_text) @text.jsx
+(jsx_attribute (property_identifier) @attribute)
+(jsx_opening_element (["<" ">"]) @punctuation.bracket)
+(jsx_closing_element (["</" ">"]) @punctuation.bracket)
+(jsx_self_closing_element (["<" "/>"]) @punctuation.bracket)

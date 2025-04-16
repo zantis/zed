@@ -1,4 +1,4 @@
-use gpui::{AnyElement, SharedUri, img, prelude::*};
+use gpui::{img, prelude::*, AnyElement, SharedUri};
 use smallvec::SmallVec;
 use ui::prelude::*;
 
@@ -32,7 +32,7 @@ impl ParentElement for CollabNotification {
 }
 
 impl RenderOnce for CollabNotification {
-    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, cx: &mut WindowContext) -> impl IntoElement {
         h_flex()
             .text_ui(cx)
             .justify_between()

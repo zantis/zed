@@ -1,16 +1,16 @@
 use crate::{
     db::{self, UserId},
     rpc::RECONNECT_TIMEOUT,
-    tests::{RoomParticipants, TestServer, room_participants},
+    tests::{room_participants, RoomParticipants, TestServer},
 };
 use call::ActiveCall;
 use channel::{ChannelMembership, ChannelStore};
 use client::{ChannelId, User};
 use futures::future::try_join_all;
-use gpui::{BackgroundExecutor, Entity, SharedString, TestAppContext};
+use gpui::{BackgroundExecutor, Model, SharedString, TestAppContext};
 use rpc::{
-    RECEIVE_TIMEOUT,
     proto::{self, ChannelRole},
+    RECEIVE_TIMEOUT,
 };
 use std::sync::Arc;
 
@@ -348,12 +348,10 @@ async fn test_joining_channel_ancestor_member(
 
     let active_call_b = cx_b.read(ActiveCall::global);
 
-    assert!(
-        active_call_b
-            .update(cx_b, |active_call, cx| active_call.join_channel(sub_id, cx))
-            .await
-            .is_ok()
-    );
+    assert!(active_call_b
+        .update(cx_b, |active_call, cx| active_call.join_channel(sub_id, cx))
+        .await
+        .is_ok());
 }
 
 #[gpui::test]
@@ -389,7 +387,7 @@ async fn test_channel_room(
     executor.run_until_parked();
     let room_a =
         cx_a.read(|cx| active_call_a.read_with(cx, |call, _| call.room().unwrap().clone()));
-    cx_a.read(|cx| room_a.read_with(cx, |room, cx| assert!(room.is_connected(cx))));
+    cx_a.read(|cx| room_a.read_with(cx, |room, _| assert!(room.is_connected())));
 
     cx_a.read(|cx| {
         client_a.channel_store().read_with(cx, |channels, _| {
@@ -463,7 +461,7 @@ async fn test_channel_room(
 
     let room_a =
         cx_a.read(|cx| active_call_a.read_with(cx, |call, _| call.room().unwrap().clone()));
-    cx_a.read(|cx| room_a.read_with(cx, |room, cx| assert!(room.is_connected(cx))));
+    cx_a.read(|cx| room_a.read_with(cx, |room, _| assert!(room.is_connected())));
     assert_eq!(
         room_participants(&room_a, cx_a),
         RoomParticipants {
@@ -474,7 +472,7 @@ async fn test_channel_room(
 
     let room_b =
         cx_b.read(|cx| active_call_b.read_with(cx, |call, _| call.room().unwrap().clone()));
-    cx_b.read(|cx| room_b.read_with(cx, |room, cx| assert!(room.is_connected(cx))));
+    cx_b.read(|cx| room_b.read_with(cx, |room, _| assert!(room.is_connected())));
     assert_eq!(
         room_participants(&room_b, cx_b),
         RoomParticipants {
@@ -558,7 +556,7 @@ async fn test_channel_room(
 
     let room_a =
         cx_a.read(|cx| active_call_a.read_with(cx, |call, _| call.room().unwrap().clone()));
-    cx_a.read(|cx| room_a.read_with(cx, |room, cx| assert!(room.is_connected(cx))));
+    cx_a.read(|cx| room_a.read_with(cx, |room, _| assert!(room.is_connected())));
     assert_eq!(
         room_participants(&room_a, cx_a),
         RoomParticipants {
@@ -569,7 +567,7 @@ async fn test_channel_room(
 
     let room_b =
         cx_b.read(|cx| active_call_b.read_with(cx, |call, _| call.room().unwrap().clone()));
-    cx_b.read(|cx| room_b.read_with(cx, |room, cx| assert!(room.is_connected(cx))));
+    cx_b.read(|cx| room_b.read_with(cx, |room, _| assert!(room.is_connected())));
     assert_eq!(
         room_participants(&room_b, cx_b),
         RoomParticipants {
@@ -1205,12 +1203,10 @@ async fn test_guest_access(
     let active_call_b = cx_b.read(ActiveCall::global);
 
     // Non-members should not be allowed to join
-    assert!(
-        active_call_b
-            .update(cx_b, |call, cx| call.join_channel(channel_a, cx))
-            .await
-            .is_err()
-    );
+    assert!(active_call_b
+        .update(cx_b, |call, cx| call.join_channel(channel_a, cx))
+        .await
+        .is_err());
 
     // Make channels A and B public
     client_a
@@ -1275,12 +1271,10 @@ async fn test_invite_access(
     let active_call_b = cx_b.read(ActiveCall::global);
 
     // should not be allowed to join
-    assert!(
-        active_call_b
-            .update(cx_b, |call, cx| call.join_channel(channel_b_id, cx))
-            .await
-            .is_err()
-    );
+    assert!(active_call_b
+        .update(cx_b, |call, cx| call.join_channel(channel_b_id, cx))
+        .await
+        .is_err());
 
     client_a
         .channel_store()
@@ -1407,7 +1401,7 @@ struct ExpectedChannel {
 
 #[track_caller]
 fn assert_channel_invitations(
-    channel_store: &Entity<ChannelStore>,
+    channel_store: &Model<ChannelStore>,
     cx: &TestAppContext,
     expected_channels: &[ExpectedChannel],
 ) {
@@ -1429,7 +1423,7 @@ fn assert_channel_invitations(
 
 #[track_caller]
 fn assert_channels(
-    channel_store: &Entity<ChannelStore>,
+    channel_store: &Model<ChannelStore>,
     cx: &TestAppContext,
     expected_channels: &[ExpectedChannel],
 ) {
@@ -1450,7 +1444,7 @@ fn assert_channels(
 
 #[track_caller]
 fn assert_channels_list_shape(
-    channel_store: &Entity<ChannelStore>,
+    channel_store: &Model<ChannelStore>,
     cx: &TestAppContext,
     expected_channels: &[(ChannelId, usize)],
 ) {

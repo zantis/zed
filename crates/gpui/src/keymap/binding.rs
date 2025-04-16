@@ -1,15 +1,12 @@
-use std::rc::Rc;
-
-use collections::HashMap;
-
-use crate::{Action, InvalidKeystrokeError, KeyBindingContextPredicate, Keystroke};
+use crate::{Action, KeyBindingContextPredicate, Keystroke};
+use anyhow::Result;
 use smallvec::SmallVec;
 
 /// A keybinding and its associated metadata, from the keymap.
 pub struct KeyBinding {
     pub(crate) action: Box<dyn Action>,
     pub(crate) keystrokes: SmallVec<[Keystroke; 2]>,
-    pub(crate) context_predicate: Option<Rc<KeyBindingContextPredicate>>,
+    pub(crate) context_predicate: Option<KeyBindingContextPredicate>,
 }
 
 impl Clone for KeyBinding {
@@ -23,42 +20,28 @@ impl Clone for KeyBinding {
 }
 
 impl KeyBinding {
-    /// Construct a new keybinding from the given data. Panics on parse error.
-    pub fn new<A: Action>(keystrokes: &str, action: A, context: Option<&str>) -> Self {
-        let context_predicate = if let Some(context) = context {
-            Some(KeyBindingContextPredicate::parse(context).unwrap().into())
-        } else {
-            None
-        };
-        Self::load(keystrokes, Box::new(action), context_predicate, None).unwrap()
+    /// Construct a new keybinding from the given data.
+    pub fn new<A: Action>(keystrokes: &str, action: A, context_predicate: Option<&str>) -> Self {
+        Self::load(keystrokes, Box::new(action), context_predicate).unwrap()
     }
 
     /// Load a keybinding from the given raw data.
-    pub fn load(
-        keystrokes: &str,
-        action: Box<dyn Action>,
-        context_predicate: Option<Rc<KeyBindingContextPredicate>>,
-        key_equivalents: Option<&HashMap<char, char>>,
-    ) -> std::result::Result<Self, InvalidKeystrokeError> {
-        let mut keystrokes: SmallVec<[Keystroke; 2]> = keystrokes
+    pub fn load(keystrokes: &str, action: Box<dyn Action>, context: Option<&str>) -> Result<Self> {
+        let context = if let Some(context) = context {
+            Some(KeyBindingContextPredicate::parse(context)?)
+        } else {
+            None
+        };
+
+        let keystrokes = keystrokes
             .split_whitespace()
             .map(Keystroke::parse)
-            .collect::<std::result::Result<_, _>>()?;
-
-        if let Some(equivalents) = key_equivalents {
-            for keystroke in keystrokes.iter_mut() {
-                if keystroke.key.chars().count() == 1 {
-                    if let Some(key) = equivalents.get(&keystroke.key.chars().next().unwrap()) {
-                        keystroke.key = key.to_string();
-                    }
-                }
-            }
-        }
+            .collect::<Result<_>>()?;
 
         Ok(Self {
             keystrokes,
             action,
-            context_predicate,
+            context_predicate: context,
         })
     }
 
@@ -85,11 +68,6 @@ impl KeyBinding {
     /// Get the action associated with this binding
     pub fn action(&self) -> &dyn Action {
         self.action.as_ref()
-    }
-
-    /// Get the predicate used to match this binding
-    pub fn predicate(&self) -> Option<Rc<KeyBindingContextPredicate>> {
-        self.context_predicate.as_ref().map(|rc| rc.clone())
     }
 }
 

@@ -1,9 +1,11 @@
 mod supported_countries;
 
-use anyhow::{Result, anyhow, bail};
-use futures::{AsyncBufReadExt, AsyncReadExt, StreamExt, io::BufReader, stream::BoxStream};
+use anyhow::{anyhow, Result};
+use futures::{io::BufReader, stream::BoxStream, AsyncBufReadExt, AsyncReadExt, Stream, StreamExt};
 use http_client::{AsyncBody, HttpClient, Method, Request as HttpRequest};
+use isahc::config::Configurable;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 pub use supported_countries::*;
 
@@ -14,31 +16,22 @@ pub async fn stream_generate_content(
     api_url: &str,
     api_key: &str,
     mut request: GenerateContentRequest,
+    low_speed_timeout: Option<Duration>,
 ) -> Result<BoxStream<'static, Result<GenerateContentResponse>>> {
-    if request.contents.is_empty() {
-        bail!("Request must contain at least one content item");
-    }
-
-    if let Some(user_content) = request
-        .contents
-        .iter()
-        .find(|content| content.role == Role::User)
-    {
-        if user_content.parts.is_empty() {
-            bail!("User content must contain at least one part");
-        }
-    }
-
     let uri = format!(
         "{api_url}/v1beta/models/{model}:streamGenerateContent?alt=sse&key={api_key}",
         model = request.model
     );
     request.model.clear();
 
-    let request_builder = HttpRequest::builder()
+    let mut request_builder = HttpRequest::builder()
         .method(Method::POST)
         .uri(uri)
         .header("Content-Type", "application/json");
+
+    if let Some(low_speed_timeout) = low_speed_timeout {
+        request_builder = request_builder.low_speed_timeout(100, low_speed_timeout);
+    };
 
     let request = request_builder.body(AsyncBody::from(serde_json::to_string(&request)?))?;
     let mut response = client.send(request).await?;
@@ -78,6 +71,7 @@ pub async fn count_tokens(
     api_url: &str,
     api_key: &str,
     request: CountTokensRequest,
+    low_speed_timeout: Option<Duration>,
 ) -> Result<CountTokensResponse> {
     let uri = format!(
         "{}/v1beta/models/gemini-pro:countTokens?key={}",
@@ -85,10 +79,14 @@ pub async fn count_tokens(
     );
     let request = serde_json::to_string(&request)?;
 
-    let request_builder = HttpRequest::builder()
+    let mut request_builder = HttpRequest::builder()
         .method(Method::POST)
         .uri(&uri)
         .header("Content-Type", "application/json");
+
+    if let Some(low_speed_timeout) = low_speed_timeout {
+        request_builder = request_builder.low_speed_timeout(100, low_speed_timeout);
+    }
 
     let http_request = request_builder.body(AsyncBody::from(request))?;
     let mut response = client.send(http_request).await?;
@@ -125,13 +123,8 @@ pub struct GenerateContentRequest {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub model: String,
     pub contents: Vec<Content>,
-    pub system_instructions: Option<SystemInstructions>,
     pub generation_config: Option<GenerationConfig>,
     pub safety_settings: Option<Vec<SafetySetting>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tools: Option<Vec<Tool>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_config: Option<ToolConfig>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -139,13 +132,12 @@ pub struct GenerateContentRequest {
 pub struct GenerateContentResponse {
     pub candidates: Option<Vec<GenerateContentCandidate>>,
     pub prompt_feedback: Option<PromptFeedback>,
-    pub usage_metadata: Option<UsageMetadata>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GenerateContentCandidate {
-    pub index: Option<usize>,
+    pub index: usize,
     pub content: Content,
     pub finish_reason: Option<String>,
     pub finish_message: Option<String>,
@@ -160,13 +152,7 @@ pub struct Content {
     pub role: Role,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SystemInstructions {
-    pub parts: Vec<Part>,
-}
-
-#[derive(Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Role {
     User,
@@ -178,8 +164,6 @@ pub enum Role {
 pub enum Part {
     TextPart(TextPart),
     InlineDataPart(InlineDataPart),
-    FunctionCallPart(FunctionCallPart),
-    FunctionResponsePart(FunctionResponsePart),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -203,18 +187,6 @@ pub struct GenerativeContentBlob {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct FunctionCallPart {
-    pub function_call: FunctionCall,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FunctionResponsePart {
-    pub function_response: FunctionResponse,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct CitationSource {
     pub start_index: Option<usize>,
     pub end_index: Option<usize>,
@@ -234,17 +206,6 @@ pub struct PromptFeedback {
     pub block_reason: Option<String>,
     pub safety_ratings: Vec<SafetyRating>,
     pub block_reason_message: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct UsageMetadata {
-    pub prompt_token_count: Option<usize>,
-    pub cached_content_token_count: Option<usize>,
-    pub candidates_token_count: Option<usize>,
-    pub tool_use_prompt_token_count: Option<usize>,
-    pub thoughts_token_count: Option<usize>,
-    pub total_token_count: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -335,73 +296,13 @@ pub struct CountTokensResponse {
     pub total_tokens: usize,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct FunctionCall {
-    pub name: String,
-    pub args: serde_json::Value,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct FunctionResponse {
-    pub name: String,
-    pub response: serde_json::Value,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Tool {
-    pub function_declarations: Vec<FunctionDeclaration>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ToolConfig {
-    pub function_calling_config: FunctionCallingConfig,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FunctionCallingConfig {
-    pub mode: FunctionCallingMode,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub allowed_function_names: Option<Vec<String>>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum FunctionCallingMode {
-    Auto,
-    Any,
-    None,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct FunctionDeclaration {
-    pub name: String,
-    pub description: String,
-    pub parameters: serde_json::Value,
-}
-
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[derive(Clone, Default, Debug, Deserialize, Serialize, PartialEq, Eq, strum::EnumIter)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, strum::EnumIter)]
 pub enum Model {
     #[serde(rename = "gemini-1.5-pro")]
     Gemini15Pro,
     #[serde(rename = "gemini-1.5-flash")]
     Gemini15Flash,
-    #[serde(rename = "gemini-2.0-pro-exp")]
-    Gemini20Pro,
-    #[serde(rename = "gemini-2.0-flash")]
-    #[default]
-    Gemini20Flash,
-    #[serde(rename = "gemini-2.0-flash-thinking-exp")]
-    Gemini20FlashThinking,
-    #[serde(rename = "gemini-2.0-flash-lite-preview")]
-    Gemini20FlashLite,
-    #[serde(rename = "gemini-2.5-pro-exp-03-25")]
-    Gemini25ProExp0325,
-    #[serde(rename = "gemini-2.5-pro-preview-03-25")]
-    Gemini25ProPreview0325,
     #[serde(rename = "custom")]
     Custom {
         name: String,
@@ -416,12 +317,6 @@ impl Model {
         match self {
             Model::Gemini15Pro => "gemini-1.5-pro",
             Model::Gemini15Flash => "gemini-1.5-flash",
-            Model::Gemini20Pro => "gemini-2.0-pro-exp",
-            Model::Gemini20Flash => "gemini-2.0-flash",
-            Model::Gemini20FlashThinking => "gemini-2.0-flash-thinking-exp",
-            Model::Gemini20FlashLite => "gemini-2.0-flash-lite-preview",
-            Model::Gemini25ProExp0325 => "gemini-2.5-pro-exp-03-25",
-            Model::Gemini25ProPreview0325 => "gemini-2.5-pro-preview-03-25",
             Model::Custom { name, .. } => name,
         }
     }
@@ -430,12 +325,6 @@ impl Model {
         match self {
             Model::Gemini15Pro => "Gemini 1.5 Pro",
             Model::Gemini15Flash => "Gemini 1.5 Flash",
-            Model::Gemini20Pro => "Gemini 2.0 Pro",
-            Model::Gemini20Flash => "Gemini 2.0 Flash",
-            Model::Gemini20FlashThinking => "Gemini 2.0 Flash Thinking",
-            Model::Gemini20FlashLite => "Gemini 2.0 Flash Lite",
-            Model::Gemini25ProExp0325 => "Gemini 2.5 Pro Exp",
-            Model::Gemini25ProPreview0325 => "Gemini 2.5 Pro Preview",
             Self::Custom {
                 name, display_name, ..
             } => display_name.as_ref().unwrap_or(name),
@@ -446,12 +335,6 @@ impl Model {
         match self {
             Model::Gemini15Pro => 2_000_000,
             Model::Gemini15Flash => 1_000_000,
-            Model::Gemini20Pro => 2_000_000,
-            Model::Gemini20Flash => 1_000_000,
-            Model::Gemini20FlashThinking => 1_000_000,
-            Model::Gemini20FlashLite => 1_000_000,
-            Model::Gemini25ProExp0325 => 1_000_000,
-            Model::Gemini25ProPreview0325 => 1_000_000,
             Model::Custom { max_tokens, .. } => *max_tokens,
         }
     }
@@ -461,4 +344,25 @@ impl std::fmt::Display for Model {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.id())
     }
+}
+
+pub fn extract_text_from_events(
+    events: impl Stream<Item = Result<GenerateContentResponse>>,
+) -> impl Stream<Item = Result<String>> {
+    events.filter_map(|event| async move {
+        match event {
+            Ok(event) => event.candidates.and_then(|candidates| {
+                candidates.into_iter().next().and_then(|candidate| {
+                    candidate.content.parts.into_iter().next().and_then(|part| {
+                        if let Part::TextPart(TextPart { text }) = part {
+                            Some(Ok(text))
+                        } else {
+                            None
+                        }
+                    })
+                })
+            }),
+            Err(error) => Some(Err(error)),
+        }
+    })
 }

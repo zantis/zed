@@ -3,8 +3,6 @@ use strum::{Display, EnumIter, EnumString};
 
 pub const EXPIRED_LLM_TOKEN_HEADER_NAME: &str = "x-zed-expired-token";
 
-pub const MAX_LLM_MONTHLY_SPEND_REACHED_HEADER_NAME: &str = "x-zed-llm-max-monthly-spend-reached";
-
 #[derive(
     Debug, PartialEq, Eq, Hash, Clone, Copy, Serialize, Deserialize, EnumString, EnumIter, Display,
 )]
@@ -14,6 +12,7 @@ pub enum LanguageModelProvider {
     Anthropic,
     OpenAi,
     Google,
+    Zed,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

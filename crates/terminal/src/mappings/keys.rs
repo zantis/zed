@@ -51,7 +51,6 @@ pub fn to_esc_str(keystroke: &Keystroke, mode: &TermMode, alt_is_meta: bool) -> 
         ("escape", AlacModifiers::None) => Some("\x1b".to_string()),
         ("enter", AlacModifiers::None) => Some("\x0d".to_string()),
         ("enter", AlacModifiers::Shift) => Some("\x0d".to_string()),
-        ("enter", AlacModifiers::Alt) => Some("\x1b\x0d".to_string()),
         ("backspace", AlacModifiers::None) => Some("\x7f".to_string()),
         //Interesting escape codes
         ("tab", AlacModifiers::Shift) => Some("\x1b[Z".to_string()),
@@ -240,18 +239,15 @@ pub fn to_esc_str(keystroke: &Keystroke, mode: &TermMode, alt_is_meta: bool) -> 
         }
     }
 
-    if alt_is_meta {
-        let is_alt_lowercase_ascii = modifiers == AlacModifiers::Alt && keystroke.key.is_ascii();
-        let is_alt_uppercase_ascii =
-            keystroke.modifiers.alt && keystroke.modifiers.shift && keystroke.key.is_ascii();
-        if is_alt_lowercase_ascii || is_alt_uppercase_ascii {
-            let key = if is_alt_uppercase_ascii {
-                &keystroke.key.to_ascii_uppercase()
-            } else {
-                &keystroke.key
-            };
-            return Some(format!("\x1b{}", key));
-        }
+    let alt_meta_binding =
+        if alt_is_meta && modifiers == AlacModifiers::Alt && keystroke.key.is_ascii() {
+            Some(format!("\x1b{}", keystroke.key))
+        } else {
+            None
+        };
+
+    if alt_meta_binding.is_some() {
+        return alt_meta_binding;
     }
 
     None
@@ -346,7 +342,7 @@ mod test {
                 function: false,
             },
             key: "🖖🏻".to_string(), //2 char string
-            key_char: None,
+            ime_key: None,
         };
         assert_eq!(to_esc_str(&ks, &TermMode::NONE, false), None);
     }
@@ -393,12 +389,12 @@ mod test {
         for (lower, upper) in letters_lower.zip(letters_upper) {
             assert_eq!(
                 to_esc_str(
-                    &Keystroke::parse(&format!("ctrl-shift-{}", lower)).unwrap(),
+                    &Keystroke::parse(&format!("ctrl-{}", lower)).unwrap(),
                     &mode,
                     false
                 ),
                 to_esc_str(
-                    &Keystroke::parse(&format!("ctrl-{}", upper)).unwrap(),
+                    &Keystroke::parse(&format!("ctrl-shift-{}", upper)).unwrap(),
                     &mode,
                     false
                 ),
@@ -456,15 +452,15 @@ mod test {
         //    8     | Shift + Alt + Control
         // ---------+---------------------------
         // from: https://invisible-island.net/xterm/ctlseqs/ctlseqs.html#h2-PC-Style-Function-Keys
-        assert_eq!(2, modifier_code(&Keystroke::parse("shift-a").unwrap()));
-        assert_eq!(3, modifier_code(&Keystroke::parse("alt-a").unwrap()));
-        assert_eq!(4, modifier_code(&Keystroke::parse("shift-alt-a").unwrap()));
-        assert_eq!(5, modifier_code(&Keystroke::parse("ctrl-a").unwrap()));
-        assert_eq!(6, modifier_code(&Keystroke::parse("shift-ctrl-a").unwrap()));
-        assert_eq!(7, modifier_code(&Keystroke::parse("alt-ctrl-a").unwrap()));
+        assert_eq!(2, modifier_code(&Keystroke::parse("shift-A").unwrap()));
+        assert_eq!(3, modifier_code(&Keystroke::parse("alt-A").unwrap()));
+        assert_eq!(4, modifier_code(&Keystroke::parse("shift-alt-A").unwrap()));
+        assert_eq!(5, modifier_code(&Keystroke::parse("ctrl-A").unwrap()));
+        assert_eq!(6, modifier_code(&Keystroke::parse("shift-ctrl-A").unwrap()));
+        assert_eq!(7, modifier_code(&Keystroke::parse("alt-ctrl-A").unwrap()));
         assert_eq!(
             8,
-            modifier_code(&Keystroke::parse("shift-ctrl-alt-a").unwrap())
+            modifier_code(&Keystroke::parse("shift-ctrl-alt-A").unwrap())
         );
     }
 }

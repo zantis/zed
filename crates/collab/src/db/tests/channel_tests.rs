@@ -1,13 +1,13 @@
 use crate::{
     db::{
-        Channel, ChannelId, ChannelRole, Database, NewUserParams, RoomId, UserId,
         tests::{channel_tree, new_test_connection, new_test_user},
+        Channel, ChannelId, ChannelRole, Database, NewUserParams, RoomId, UserId,
     },
     test_both_dbs,
 };
 use rpc::{
-    ConnectionId,
     proto::{self},
+    ConnectionId,
 };
 use std::sync::Arc;
 
@@ -142,11 +142,10 @@ async fn test_joining_channels(db: &Arc<Database>) {
     let room_id = RoomId::from_proto(joined_room.room.id);
     drop(joined_room);
     // cannot join a room without membership to its channel
-    assert!(
-        db.join_room(room_id, user_2, ConnectionId { owner_id, id: 1 },)
-            .await
-            .is_err()
-    );
+    assert!(db
+        .join_room(room_id, user_2, ConnectionId { owner_id, id: 1 },)
+        .await
+        .is_err());
 }
 
 test_both_dbs!(
@@ -270,7 +269,6 @@ async fn test_channel_renames(db: &Arc<Database>) {
     let user_1 = db
         .create_user(
             "user1@example.com",
-            None,
             false,
             NewUserParams {
                 github_login: "user1".into(),
@@ -284,7 +282,6 @@ async fn test_channel_renames(db: &Arc<Database>) {
     let user_2 = db
         .create_user(
             "user2@example.com",
-            None,
             false,
             NewUserParams {
                 github_login: "user2".into(),
@@ -321,7 +318,6 @@ async fn test_db_channel_moving(db: &Arc<Database>) {
     let a_id = db
         .create_user(
             "user1@example.com",
-            None,
             false,
             NewUserParams {
                 github_login: "user1".into(),
@@ -376,7 +372,6 @@ async fn test_db_channel_moving_bugs(db: &Arc<Database>) {
     let user_id = db
         .create_user(
             "user1@example.com",
-            None,
             false,
             NewUserParams {
                 github_login: "user1".into(),
@@ -548,8 +543,8 @@ async fn test_user_is_channel_participant(db: &Arc<Database>) {
     db.set_channel_member_role(zed_channel, admin, guest, ChannelRole::Banned)
         .await
         .unwrap();
-    assert!(
-        db.transaction(|tx| async move {
+    assert!(db
+        .transaction(|tx| async move {
             db.check_user_is_channel_participant(
                 &db.get_channel_internal(public_channel_id, &tx)
                     .await
@@ -560,8 +555,7 @@ async fn test_user_is_channel_participant(db: &Arc<Database>) {
             .await
         })
         .await
-        .is_err()
-    );
+        .is_err());
 
     let (mut members, _) = db
         .get_channel_participant_details(public_channel_id, "", 100, admin)
@@ -642,8 +636,8 @@ async fn test_user_is_channel_participant(db: &Arc<Database>) {
     })
     .await
     .unwrap();
-    assert!(
-        db.transaction(|tx| async move {
+    assert!(db
+        .transaction(|tx| async move {
             db.check_user_is_channel_participant(
                 &db.get_channel_internal(internal_channel_id, &tx)
                     .await
@@ -654,8 +648,7 @@ async fn test_user_is_channel_participant(db: &Arc<Database>) {
             .await
         })
         .await
-        .is_err(),
-    );
+        .is_err(),);
 
     db.transaction(|tx| async move {
         db.check_user_is_channel_participant(
@@ -723,21 +716,19 @@ async fn test_guest_access(db: &Arc<Database>) {
         .await
         .unwrap();
 
-    assert!(
-        db.join_channel_chat(zed_channel, guest_connection, guest)
-            .await
-            .is_err()
-    );
+    assert!(db
+        .join_channel_chat(zed_channel, guest_connection, guest)
+        .await
+        .is_err());
 
     db.join_channel(zed_channel, guest, guest_connection)
         .await
         .unwrap();
 
-    assert!(
-        db.join_channel_chat(zed_channel, guest_connection, guest)
-            .await
-            .is_ok()
-    )
+    assert!(db
+        .join_channel_chat(zed_channel, guest_connection, guest)
+        .await
+        .is_ok())
 }
 
 #[track_caller]

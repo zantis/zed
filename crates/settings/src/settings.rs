@@ -1,26 +1,19 @@
 mod editable_setting_control;
 mod json_schema;
-mod key_equivalents;
 mod keymap_file;
 mod settings_file;
 mod settings_store;
 
-use gpui::App;
+use gpui::AppContext;
 use rust_embed::RustEmbed;
 use std::{borrow::Cow, fmt, str};
 use util::asset_str;
 
 pub use editable_setting_control::*;
 pub use json_schema::*;
-pub use key_equivalents::*;
-pub use keymap_file::{
-    KeyBindingValidator, KeyBindingValidatorRegistration, KeymapFile, KeymapFileLoadResult,
-};
+pub use keymap_file::KeymapFile;
 pub use settings_file::*;
-pub use settings_store::{
-    InvalidSettingsError, LocalSettingsKind, Settings, SettingsLocation, SettingsSources,
-    SettingsStore, TaskKind, parse_json_with_comments,
-};
+pub use settings_store::{Settings, SettingsLocation, SettingsSources, SettingsStore};
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
 pub struct WorktreeId(usize);
@@ -62,7 +55,7 @@ impl fmt::Display for WorktreeId {
 #[exclude = "*.DS_Store"]
 pub struct SettingsAssets;
 
-pub fn init(cx: &mut App) {
+pub fn init(cx: &mut AppContext) {
     let mut settings = SettingsStore::new(cx);
     settings
         .set_default_settings(&default_settings(), cx)
@@ -84,21 +77,15 @@ pub fn default_keymap() -> Cow<'static, str> {
     asset_str::<SettingsAssets>(DEFAULT_KEYMAP_PATH)
 }
 
-pub const VIM_KEYMAP_PATH: &str = "keymaps/vim.json";
-
 pub fn vim_keymap() -> Cow<'static, str> {
-    asset_str::<SettingsAssets>(VIM_KEYMAP_PATH)
+    asset_str::<SettingsAssets>("keymaps/vim.json")
 }
 
 pub fn initial_user_settings_content() -> Cow<'static, str> {
     asset_str::<SettingsAssets>("settings/initial_user_settings.json")
 }
 
-pub fn initial_server_settings_content() -> Cow<'static, str> {
-    asset_str::<SettingsAssets>("settings/initial_server_settings.json")
-}
-
-pub fn initial_project_settings_content() -> Cow<'static, str> {
+pub fn initial_local_settings_content() -> Cow<'static, str> {
     asset_str::<SettingsAssets>("settings/initial_local_settings.json")
 }
 
@@ -108,8 +95,4 @@ pub fn initial_keymap_content() -> Cow<'static, str> {
 
 pub fn initial_tasks_content() -> Cow<'static, str> {
     asset_str::<SettingsAssets>("settings/initial_tasks.json")
-}
-
-pub fn initial_debug_tasks_content() -> Cow<'static, str> {
-    asset_str::<SettingsAssets>("settings/initial_debug_tasks.json")
 }

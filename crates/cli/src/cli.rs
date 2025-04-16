@@ -15,8 +15,8 @@ pub enum CliRequest {
         urls: Vec<String>,
         wait: bool,
         open_new_workspace: Option<bool>,
+        dev_server_token: Option<String>,
         env: Option<HashMap<String, String>>,
-        user_data_dir: Option<String>,
     },
 }
 

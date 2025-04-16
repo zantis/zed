@@ -1,6 +1,6 @@
 use gpui::Pixels;
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde_derive::{Deserialize, Serialize};
 use settings::{Settings, SettingsSources};
 use workspace::dock::DockPosition;
 
@@ -11,36 +11,11 @@ pub struct CollaborationPanelSettings {
     pub default_width: Pixels,
 }
 
-#[derive(Clone, Copy, Default, Serialize, Deserialize, JsonSchema, Debug)]
-#[serde(rename_all = "snake_case")]
-pub enum ChatPanelButton {
-    Never,
-    Always,
-    #[default]
-    WhenInCall,
-}
-
 #[derive(Deserialize, Debug)]
 pub struct ChatPanelSettings {
-    pub button: ChatPanelButton,
+    pub button: bool,
     pub dock: DockPosition,
     pub default_width: Pixels,
-}
-
-#[derive(Clone, Default, Serialize, Deserialize, JsonSchema, Debug)]
-pub struct ChatPanelSettingsContent {
-    /// When to show the panel button in the status bar.
-    ///
-    /// Default: only when in a call
-    pub button: Option<ChatPanelButton>,
-    /// Where to dock the panel.
-    ///
-    /// Default: right
-    pub dock: Option<DockPosition>,
-    /// Default width of the panel in pixels.
-    ///
-    /// Default: 240
-    pub default_width: Option<f32>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -82,7 +57,7 @@ impl Settings for CollaborationPanelSettings {
 
     fn load(
         sources: SettingsSources<Self::FileContent>,
-        _: &mut gpui::App,
+        _: &mut gpui::AppContext,
     ) -> anyhow::Result<Self> {
         sources.json_merge()
     }
@@ -91,11 +66,11 @@ impl Settings for CollaborationPanelSettings {
 impl Settings for ChatPanelSettings {
     const KEY: Option<&'static str> = Some("chat_panel");
 
-    type FileContent = ChatPanelSettingsContent;
+    type FileContent = PanelSettingsContent;
 
     fn load(
         sources: SettingsSources<Self::FileContent>,
-        _: &mut gpui::App,
+        _: &mut gpui::AppContext,
     ) -> anyhow::Result<Self> {
         sources.json_merge()
     }
@@ -108,7 +83,7 @@ impl Settings for NotificationPanelSettings {
 
     fn load(
         sources: SettingsSources<Self::FileContent>,
-        _: &mut gpui::App,
+        _: &mut gpui::AppContext,
     ) -> anyhow::Result<Self> {
         sources.json_merge()
     }
@@ -121,7 +96,7 @@ impl Settings for MessageEditorSettings {
 
     fn load(
         sources: SettingsSources<Self::FileContent>,
-        _: &mut gpui::App,
+        _: &mut gpui::AppContext,
     ) -> anyhow::Result<Self> {
         sources.json_merge()
     }

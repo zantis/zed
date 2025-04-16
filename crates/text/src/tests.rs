@@ -262,24 +262,9 @@ fn test_text_summary_for_range() {
         "ab\nefg\nhklm\nnopqrs\ntuvwxyz".into(),
     );
     assert_eq!(
-        buffer.text_summary_for_range::<TextSummary, _>(0..2),
-        TextSummary {
-            len: 2,
-            chars: 2,
-            len_utf16: OffsetUtf16(2),
-            lines: Point::new(0, 2),
-            first_line_chars: 2,
-            last_line_chars: 2,
-            last_line_len_utf16: 2,
-            longest_row: 0,
-            longest_row_chars: 2,
-        }
-    );
-    assert_eq!(
         buffer.text_summary_for_range::<TextSummary, _>(1..3),
         TextSummary {
             len: 2,
-            chars: 2,
             len_utf16: OffsetUtf16(2),
             lines: Point::new(1, 0),
             first_line_chars: 1,
@@ -293,7 +278,6 @@ fn test_text_summary_for_range() {
         buffer.text_summary_for_range::<TextSummary, _>(1..12),
         TextSummary {
             len: 11,
-            chars: 11,
             len_utf16: OffsetUtf16(11),
             lines: Point::new(3, 0),
             first_line_chars: 1,
@@ -307,7 +291,6 @@ fn test_text_summary_for_range() {
         buffer.text_summary_for_range::<TextSummary, _>(0..20),
         TextSummary {
             len: 20,
-            chars: 20,
             len_utf16: OffsetUtf16(20),
             lines: Point::new(4, 1),
             first_line_chars: 2,
@@ -321,7 +304,6 @@ fn test_text_summary_for_range() {
         buffer.text_summary_for_range::<TextSummary, _>(0..22),
         TextSummary {
             len: 22,
-            chars: 22,
             len_utf16: OffsetUtf16(22),
             lines: Point::new(4, 3),
             first_line_chars: 2,
@@ -335,7 +317,6 @@ fn test_text_summary_for_range() {
         buffer.text_summary_for_range::<TextSummary, _>(7..22),
         TextSummary {
             len: 15,
-            chars: 15,
             len_utf16: OffsetUtf16(15),
             lines: Point::new(2, 3),
             first_line_chars: 4,
@@ -534,25 +515,25 @@ fn test_undo_redo() {
     let entries = buffer.history.undo_stack.clone();
     assert_eq!(entries.len(), 3);
 
-    buffer.undo_or_redo(entries[0].transaction.clone());
+    buffer.undo_or_redo(entries[0].transaction.clone()).unwrap();
     assert_eq!(buffer.text(), "1cdef234");
-    buffer.undo_or_redo(entries[0].transaction.clone());
+    buffer.undo_or_redo(entries[0].transaction.clone()).unwrap();
     assert_eq!(buffer.text(), "1abcdef234");
 
-    buffer.undo_or_redo(entries[1].transaction.clone());
+    buffer.undo_or_redo(entries[1].transaction.clone()).unwrap();
     assert_eq!(buffer.text(), "1abcdx234");
-    buffer.undo_or_redo(entries[2].transaction.clone());
+    buffer.undo_or_redo(entries[2].transaction.clone()).unwrap();
     assert_eq!(buffer.text(), "1abx234");
-    buffer.undo_or_redo(entries[1].transaction.clone());
+    buffer.undo_or_redo(entries[1].transaction.clone()).unwrap();
     assert_eq!(buffer.text(), "1abyzef234");
-    buffer.undo_or_redo(entries[2].transaction.clone());
+    buffer.undo_or_redo(entries[2].transaction.clone()).unwrap();
     assert_eq!(buffer.text(), "1abcdef234");
 
-    buffer.undo_or_redo(entries[2].transaction.clone());
+    buffer.undo_or_redo(entries[2].transaction.clone()).unwrap();
     assert_eq!(buffer.text(), "1abyzef234");
-    buffer.undo_or_redo(entries[0].transaction.clone());
+    buffer.undo_or_redo(entries[0].transaction.clone()).unwrap();
     assert_eq!(buffer.text(), "1yzef234");
-    buffer.undo_or_redo(entries[1].transaction.clone());
+    buffer.undo_or_redo(entries[1].transaction.clone()).unwrap();
     assert_eq!(buffer.text(), "1234");
 }
 
@@ -627,7 +608,6 @@ fn test_history() {
 fn test_finalize_last_transaction() {
     let now = Instant::now();
     let mut buffer = Buffer::new(0, BufferId::new(1).unwrap(), "123456".into());
-    buffer.history.group_interval = Duration::from_millis(1);
 
     buffer.start_transaction_at(now);
     buffer.edit([(2..4, "cd")]);
@@ -712,12 +692,12 @@ fn test_concurrent_edits() {
     let buf3_op = buffer3.edit([(5..6, "56")]);
     assert_eq!(buffer3.text(), "abcde56");
 
-    buffer1.apply_op(buf2_op.clone());
-    buffer1.apply_op(buf3_op.clone());
-    buffer2.apply_op(buf1_op.clone());
-    buffer2.apply_op(buf3_op);
-    buffer3.apply_op(buf1_op);
-    buffer3.apply_op(buf2_op);
+    buffer1.apply_op(buf2_op.clone()).unwrap();
+    buffer1.apply_op(buf3_op.clone()).unwrap();
+    buffer2.apply_op(buf1_op.clone()).unwrap();
+    buffer2.apply_op(buf3_op).unwrap();
+    buffer3.apply_op(buf1_op).unwrap();
+    buffer3.apply_op(buf2_op).unwrap();
 
     assert_eq!(buffer1.text(), "a12c34e56");
     assert_eq!(buffer2.text(), "a12c34e56");
@@ -776,7 +756,7 @@ fn test_random_concurrent_edits(mut rng: StdRng) {
                         replica_id,
                         ops.len()
                     );
-                    buffer.apply_ops(ops);
+                    buffer.apply_ops(ops).unwrap();
                 }
             }
             _ => {}

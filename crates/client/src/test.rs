@@ -1,12 +1,12 @@
 use crate::{Client, Connection, Credentials, EstablishConnectionError, UserStore};
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use chrono::Duration;
-use futures::{StreamExt, stream::BoxStream};
-use gpui::{AppContext as _, BackgroundExecutor, Entity, TestAppContext};
+use futures::{stream::BoxStream, StreamExt};
+use gpui::{BackgroundExecutor, Context, Model, TestAppContext};
 use parking_lot::Mutex;
 use rpc::{
-    ConnectionId, Peer, Receipt, TypedEnvelope,
     proto::{self, GetPrivateUserInfo, GetPrivateUserInfoResponse},
+    ConnectionId, Peer, Receipt, TypedEnvelope,
 };
 use std::sync::Arc;
 
@@ -44,12 +44,12 @@ impl FakeServer {
                 let state = Arc::downgrade(&server.state);
                 move |cx| {
                     let state = state.clone();
-                    cx.spawn(async move |_| {
+                    cx.spawn(move |_| async move {
                         let state = state.upgrade().ok_or_else(|| anyhow!("server dropped"))?;
                         let mut state = state.lock();
                         state.auth_count += 1;
                         let access_token = state.access_token.to_string();
-                        Ok(Credentials {
+                        Ok(Credentials::User {
                             user_id: client_user_id,
                             access_token,
                         })
@@ -63,7 +63,7 @@ impl FakeServer {
                     let peer = peer.clone();
                     let state = state.clone();
                     let credentials = credentials.clone();
-                    cx.spawn(async move |cx| {
+                    cx.spawn(move |cx| async move {
                         let state = state.upgrade().ok_or_else(|| anyhow!("server dropped"))?;
                         let peer = peer.upgrade().ok_or_else(|| anyhow!("server dropped"))?;
                         if state.lock().forbid_connections {
@@ -73,7 +73,7 @@ impl FakeServer {
                         }
 
                         if credentials
-                            != (Credentials {
+                            != (Credentials::User {
                                 user_id: client_user_id,
                                 access_token: state.lock().access_token.to_string(),
                             })
@@ -85,7 +85,7 @@ impl FakeServer {
                             Connection::in_memory(cx.background_executor().clone());
                         let (connection_id, io, incoming) =
                             peer.add_test_connection(server_conn, cx.background_executor().clone());
-                        cx.background_spawn(io).detach();
+                        cx.background_executor().spawn(io).detach();
                         {
                             let mut state = state.lock();
                             state.connection_id = Some(connection_id);
@@ -203,8 +203,8 @@ impl FakeServer {
         &self,
         client: Arc<Client>,
         cx: &mut TestAppContext,
-    ) -> Entity<UserStore> {
-        let user_store = cx.new(|cx| UserStore::new(client, cx));
+    ) -> Model<UserStore> {
+        let user_store = cx.new_model(|cx| UserStore::new(client, cx));
         assert_eq!(
             self.receive::<proto::GetUsers>()
                 .await

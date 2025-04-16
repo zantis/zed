@@ -1,39 +1,19 @@
 use gpui::{Hsla, Rgba};
 
-use crate::ColorScale;
 use crate::scale::{ColorScaleSet, ColorScales};
+use crate::ColorScale;
 use crate::{SystemColors, ThemeColors};
 
 pub(crate) fn neutral() -> ColorScaleSet {
     sand()
 }
 
-const ADDED_COLOR: Hsla = Hsla {
-    h: 142. / 360.,
-    s: 0.68,
-    l: 0.45,
-    a: 1.0,
-};
-const MODIFIED_COLOR: Hsla = Hsla {
-    h: 48. / 360.,
-    s: 0.76,
-    l: 0.47,
-    a: 1.0,
-};
-const REMOVED_COLOR: Hsla = Hsla {
-    h: 355. / 360.,
-    s: 0.65,
-    l: 0.65,
-    a: 1.0,
-};
-
-/// The default colors for the theme.
-///
-/// Themes that do not specify all colors are refined off of these defaults.
+// Note: We aren't currently making use of the default colors, as all of the
+// themes have a value set for each color.
+//
+// We'll need to revisit these once we're ready to launch user themes, which may
+// not specify a value for each color (and thus should fall back to the defaults).
 impl ThemeColors {
-    /// Returns the default colors for light themes.
-    ///
-    /// Themes that do not specify all colors are refined off of these defaults.
     pub fn light() -> Self {
         let system = SystemColors::default();
 
@@ -68,7 +48,6 @@ impl ThemeColors {
             icon_disabled: neutral().light().step_9(),
             icon_placeholder: neutral().light().step_10(),
             icon_accent: blue().light().step_11(),
-            debugger_accent: red().light().step_10(),
             status_bar_background: neutral().light().step_2(),
             title_bar_background: neutral().light().step_2(),
             title_bar_inactive_background: neutral().light().step_3(),
@@ -78,10 +57,7 @@ impl ThemeColors {
             tab_active_background: neutral().light().step_1(),
             search_match_background: neutral().light().step_5(),
             panel_background: neutral().light().step_2(),
-            panel_focused_border: blue().light().step_10(),
-            panel_indent_guide: neutral().light_alpha().step_5(),
-            panel_indent_guide_hover: neutral().light_alpha().step_6(),
-            panel_indent_guide_active: neutral().light_alpha().step_6(),
+            panel_focused_border: blue().light().step_5(),
             pane_focused_border: blue().light().step_5(),
             pane_group_border: neutral().light().step_6(),
             scrollbar_thumb_background: neutral().light_alpha().step_3(),
@@ -95,9 +71,7 @@ impl ThemeColors {
             editor_subheader_background: neutral().light().step_2(),
             editor_active_line_background: neutral().light_alpha().step_3(),
             editor_highlighted_line_background: neutral().light_alpha().step_3(),
-            editor_debugger_active_line_background: yellow().dark_alpha().step_3(),
             editor_line_number: neutral().light().step_10(),
-            editor_hover_line_number: neutral().light().step_12(),
             editor_active_line_number: neutral().light().step_11(),
             editor_invisible: neutral().light().step_10(),
             editor_wrap_guide: neutral().light_alpha().step_7(),
@@ -106,12 +80,10 @@ impl ThemeColors {
             editor_indent_guide_active: neutral().light_alpha().step_6(),
             editor_document_highlight_read_background: neutral().light_alpha().step_3(),
             editor_document_highlight_write_background: neutral().light_alpha().step_4(),
-            editor_document_highlight_bracket_background: green().light_alpha().step_5(),
             terminal_background: neutral().light().step_1(),
             terminal_foreground: black().light().step_12(),
             terminal_bright_foreground: black().light().step_11(),
             terminal_dim_foreground: black().light().step_10(),
-            terminal_ansi_background: neutral().light().step_1(),
             terminal_ansi_bright_black: black().light().step_11(),
             terminal_ansi_bright_red: red().light().step_10(),
             terminal_ansi_bright_green: green().light().step_10(),
@@ -137,18 +109,9 @@ impl ThemeColors {
             terminal_ansi_dim_cyan: cyan().light().step_10(),
             terminal_ansi_dim_white: neutral().light().step_11(),
             link_text_hover: orange().light().step_10(),
-            version_control_added: ADDED_COLOR,
-            version_control_deleted: REMOVED_COLOR,
-            version_control_modified: MODIFIED_COLOR,
-            version_control_renamed: MODIFIED_COLOR,
-            version_control_conflict: orange().light().step_12(),
-            version_control_ignored: gray().light().step_12(),
         }
     }
 
-    /// Returns the default colors for dark themes.
-    ///
-    /// Themes that do not specify all colors are refined off of these defaults.
     pub fn dark() -> Self {
         let system = SystemColors::default();
 
@@ -183,7 +146,6 @@ impl ThemeColors {
             icon_disabled: neutral().dark().step_9(),
             icon_placeholder: neutral().dark().step_10(),
             icon_accent: blue().dark().step_11(),
-            debugger_accent: red().light().step_10(),
             status_bar_background: neutral().dark().step_2(),
             title_bar_background: neutral().dark().step_2(),
             title_bar_inactive_background: neutral().dark().step_3(),
@@ -193,10 +155,7 @@ impl ThemeColors {
             tab_active_background: neutral().dark().step_1(),
             search_match_background: neutral().dark().step_5(),
             panel_background: neutral().dark().step_2(),
-            panel_focused_border: blue().dark().step_8(),
-            panel_indent_guide: neutral().dark_alpha().step_4(),
-            panel_indent_guide_hover: neutral().dark_alpha().step_6(),
-            panel_indent_guide_active: neutral().dark_alpha().step_6(),
+            panel_focused_border: blue().dark().step_5(),
             pane_focused_border: blue().dark().step_5(),
             pane_group_border: neutral().dark().step_6(),
             scrollbar_thumb_background: neutral().dark_alpha().step_3(),
@@ -209,11 +168,9 @@ impl ThemeColors {
             editor_gutter_background: neutral().dark().step_1(),
             editor_subheader_background: neutral().dark().step_3(),
             editor_active_line_background: neutral().dark_alpha().step_3(),
-            editor_highlighted_line_background: yellow().dark_alpha().step_4(),
-            editor_debugger_active_line_background: yellow().dark_alpha().step_3(),
+            editor_highlighted_line_background: neutral().dark_alpha().step_4(),
             editor_line_number: neutral().dark_alpha().step_10(),
-            editor_hover_line_number: neutral().dark_alpha().step_12(),
-            editor_active_line_number: neutral().dark_alpha().step_11(),
+            editor_active_line_number: neutral().dark_alpha().step_12(),
             editor_invisible: neutral().dark_alpha().step_4(),
             editor_wrap_guide: neutral().dark_alpha().step_4(),
             editor_active_wrap_guide: neutral().dark_alpha().step_4(),
@@ -221,9 +178,7 @@ impl ThemeColors {
             editor_indent_guide_active: neutral().dark_alpha().step_6(),
             editor_document_highlight_read_background: neutral().dark_alpha().step_4(),
             editor_document_highlight_write_background: neutral().dark_alpha().step_4(),
-            editor_document_highlight_bracket_background: green().dark_alpha().step_6(),
             terminal_background: neutral().dark().step_1(),
-            terminal_ansi_background: neutral().dark().step_1(),
             terminal_foreground: white().dark().step_12(),
             terminal_bright_foreground: white().dark().step_11(),
             terminal_dim_foreground: white().dark().step_10(),
@@ -252,12 +207,6 @@ impl ThemeColors {
             terminal_ansi_bright_white: neutral().dark().step_11(),
             terminal_ansi_dim_white: neutral().dark().step_10(),
             link_text_hover: orange().dark().step_10(),
-            version_control_added: ADDED_COLOR,
-            version_control_deleted: REMOVED_COLOR,
-            version_control_modified: MODIFIED_COLOR,
-            version_control_renamed: MODIFIED_COLOR,
-            version_control_conflict: orange().dark().step_12(),
-            version_control_ignored: gray().dark().step_12(),
         }
     }
 }
@@ -294,7 +243,6 @@ impl TryFrom<StaticColorScaleSet> for ColorScaleSet {
     }
 }
 
-/// Color scales used to build the default themes.
 pub fn default_color_scales() -> ColorScales {
     ColorScales {
         gray: gray(),

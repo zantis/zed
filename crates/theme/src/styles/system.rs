@@ -1,8 +1,6 @@
-#![allow(missing_docs)]
+use gpui::{hsla, Hsla};
 
-use gpui::{Hsla, hsla};
-
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 pub struct SystemColors {
     pub transparent: Hsla,
     pub mac_os_traffic_light_red: Hsla,

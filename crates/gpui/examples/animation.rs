@@ -1,11 +1,6 @@
 use std::time::Duration;
 
-use anyhow::Result;
-use gpui::{
-    Animation, AnimationExt as _, App, Application, AssetSource, Bounds, Context, SharedString,
-    Transformation, Window, WindowBounds, WindowOptions, black, bounce, div, ease_in_out,
-    percentage, prelude::*, px, rgb, size, svg,
-};
+use gpui::*;
 
 struct Assets {}
 
@@ -36,13 +31,13 @@ const ARROW_CIRCLE_SVG: &str = concat!(
 struct AnimationExample {}
 
 impl Render for AnimationExample {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _cx: &mut ViewContext<Self>) -> impl IntoElement {
         div().flex().flex_col().size_full().justify_around().child(
             div().flex().flex_row().w_full().justify_around().child(
                 div()
                     .flex()
                     .bg(rgb(0x2e7d32))
-                    .size(px(300.0))
+                    .size(Length::Definite(Pixels(300.0).into()))
                     .justify_center()
                     .items_center()
                     .shadow_lg()
@@ -72,9 +67,9 @@ impl Render for AnimationExample {
 }
 
 fn main() {
-    Application::new()
+    App::new()
         .with_assets(Assets {})
-        .run(|cx: &mut App| {
+        .run(|cx: &mut AppContext| {
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
                     None,
@@ -83,9 +78,9 @@ fn main() {
                 ))),
                 ..Default::default()
             };
-            cx.open_window(options, |_, cx| {
+            cx.open_window(options, |cx| {
                 cx.activate(false);
-                cx.new(|_| AnimationExample {})
+                cx.new_view(|_cx| AnimationExample {})
             })
             .unwrap();
         });

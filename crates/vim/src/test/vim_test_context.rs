@@ -1,8 +1,8 @@
 use std::ops::{Deref, DerefMut};
 
 use editor::test::editor_lsp_test_context::EditorLspTestContext;
-use gpui::{Context, Entity, SemanticVersion, UpdateGlobal};
-use search::{BufferSearchBar, project_search::ProjectSearchBar};
+use gpui::{Context, SemanticVersion, UpdateGlobal, View, VisualContext};
+use search::{project_search::ProjectSearchBar, BufferSearchBar};
 
 use crate::{state::Operator, *};
 
@@ -20,15 +20,8 @@ impl VimTestContext {
             cx.set_global(settings);
             release_channel::init(SemanticVersion::default(), cx);
             command_palette::init(cx);
-            project_panel::init(cx);
-            git_ui::init(cx);
             crate::init(cx);
             search::init(cx);
-            workspace::init_settings(cx);
-            language::init(cx);
-            editor::init_settings(cx);
-            project::Project::init_settings(cx);
-            theme::init(theme::LoadThemes::JustBase, cx);
         });
     }
 
@@ -61,69 +54,56 @@ impl VimTestContext {
         )
     }
 
-    pub fn init_keybindings(enabled: bool, cx: &mut App) {
-        SettingsStore::update_global(cx, |store, cx| {
-            store.update_user_settings::<VimModeSetting>(cx, |s| *s = Some(enabled));
-        });
-        let default_key_bindings = settings::KeymapFile::load_asset_allow_partial_failure(
-            "keymaps/default-macos.json",
-            cx,
-        )
-        .unwrap();
-        cx.bind_keys(default_key_bindings);
-        if enabled {
-            let vim_key_bindings =
-                settings::KeymapFile::load_asset("keymaps/vim.json", cx).unwrap();
-            cx.bind_keys(vim_key_bindings);
-        }
-    }
-
     pub fn new_with_lsp(mut cx: EditorLspTestContext, enabled: bool) -> VimTestContext {
-        cx.update(|_, cx| {
-            Self::init_keybindings(enabled, cx);
+        cx.update(|cx| {
+            SettingsStore::update_global(cx, |store, cx| {
+                store.update_user_settings::<VimModeSetting>(cx, |s| *s = Some(enabled));
+            });
+            settings::KeymapFile::load_asset("keymaps/default-macos.json", cx).unwrap();
+            if enabled {
+                settings::KeymapFile::load_asset("keymaps/vim.json", cx).unwrap();
+            }
         });
 
         // Setup search toolbars and keypress hook
-        cx.update_workspace(|workspace, window, cx| {
+        cx.update_workspace(|workspace, cx| {
             workspace.active_pane().update(cx, |pane, cx| {
                 pane.toolbar().update(cx, |toolbar, cx| {
-                    let buffer_search_bar = cx.new(|cx| BufferSearchBar::new(None, window, cx));
-                    toolbar.add_item(buffer_search_bar, window, cx);
+                    let buffer_search_bar = cx.new_view(BufferSearchBar::new);
+                    toolbar.add_item(buffer_search_bar, cx);
 
-                    let project_search_bar = cx.new(|_| ProjectSearchBar::new());
-                    toolbar.add_item(project_search_bar, window, cx);
+                    let project_search_bar = cx.new_view(|_| ProjectSearchBar::new());
+                    toolbar.add_item(project_search_bar, cx);
                 })
             });
             workspace.status_bar().update(cx, |status_bar, cx| {
-                let vim_mode_indicator = cx.new(|cx| ModeIndicator::new(window, cx));
-                status_bar.add_right_item(vim_mode_indicator, window, cx);
+                let vim_mode_indicator = cx.new_view(ModeIndicator::new);
+                status_bar.add_right_item(vim_mode_indicator, cx);
             });
         });
 
         Self { cx }
     }
 
-    pub fn update_entity<F, T, R>(&mut self, entity: Entity<T>, update: F) -> R
+    pub fn update_view<F, T, R>(&mut self, view: View<T>, update: F) -> R
     where
         T: 'static,
-        F: FnOnce(&mut T, &mut Window, &mut Context<T>) -> R + 'static,
+        F: FnOnce(&mut T, &mut ViewContext<T>) -> R + 'static,
     {
         let window = self.window;
-        self.update_window(window, move |_, window, cx| {
-            entity.update(cx, |t, cx| update(t, window, cx))
-        })
-        .unwrap()
+        self.update_window(window, move |_, cx| view.update(cx, update))
+            .unwrap()
     }
 
     pub fn workspace<F, T>(&mut self, update: F) -> T
     where
-        F: FnOnce(&mut Workspace, &mut Window, &mut Context<Workspace>) -> T,
+        F: FnOnce(&mut Workspace, &mut ViewContext<Workspace>) -> T,
     {
         self.cx.update_workspace(update)
     }
 
     pub fn enable_vim(&mut self) {
-        self.cx.update(|_, cx| {
+        self.cx.update(|cx| {
             SettingsStore::update_global(cx, |store, cx| {
                 store.update_user_settings::<VimModeSetting>(cx, |s| *s = Some(true));
             });
@@ -131,7 +111,7 @@ impl VimTestContext {
     }
 
     pub fn disable_vim(&mut self) {
-        self.cx.update(|_, cx| {
+        self.cx.update(|cx| {
             SettingsStore::update_global(cx, |store, cx| {
                 store.update_user_settings::<VimModeSetting>(cx, |s| *s = Some(false));
             });
@@ -139,19 +119,15 @@ impl VimTestContext {
     }
 
     pub fn mode(&mut self) -> Mode {
-        self.update_editor(|editor, _, cx| editor.addon::<VimAddon>().unwrap().entity.read(cx).mode)
-    }
-
-    pub fn forced_motion(&mut self) -> bool {
-        self.update_editor(|_, _, cx| cx.global::<VimGlobals>().forced_motion)
+        self.update_editor(|editor, cx| editor.addon::<VimAddon>().unwrap().view.read(cx).mode)
     }
 
     pub fn active_operator(&mut self) -> Option<Operator> {
-        self.update_editor(|editor, _, cx| {
+        self.update_editor(|editor, cx| {
             editor
                 .addon::<VimAddon>()
                 .unwrap()
-                .entity
+                .view
                 .read(cx)
                 .operator_stack
                 .last()
@@ -161,12 +137,11 @@ impl VimTestContext {
 
     pub fn set_state(&mut self, text: &str, mode: Mode) {
         self.cx.set_state(text);
-        let vim =
-            self.update_editor(|editor, _window, _cx| editor.addon::<VimAddon>().cloned().unwrap());
+        let vim = self.update_editor(|editor, _cx| editor.addon::<VimAddon>().cloned().unwrap());
 
-        self.update(|window, cx| {
-            vim.entity.update(cx, |vim, cx| {
-                vim.switch_mode(mode, true, window, cx);
+        self.update(|cx| {
+            vim.view.update(cx, |vim, cx| {
+                vim.switch_mode(mode, true, cx);
             });
         });
         self.cx.cx.cx.run_until_parked();

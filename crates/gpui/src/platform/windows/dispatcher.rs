@@ -1,50 +1,55 @@
 use std::{
-    thread::{ThreadId, current},
+    thread::{current, ThreadId},
     time::Duration,
 };
 
 use async_task::Runnable;
-use flume::Sender;
 use parking::Parker;
 use parking_lot::Mutex;
 use util::ResultExt;
 use windows::{
     Foundation::TimeSpan,
-    System::Threading::{
-        ThreadPool, ThreadPoolTimer, TimerElapsedHandler, WorkItemHandler, WorkItemOptions,
-        WorkItemPriority,
+    System::{
+        DispatcherQueue, DispatcherQueueController, DispatcherQueueHandler,
+        Threading::{
+            ThreadPool, ThreadPoolTimer, TimerElapsedHandler, WorkItemHandler, WorkItemOptions,
+            WorkItemPriority,
+        },
     },
-    Win32::{
-        Foundation::{LPARAM, WPARAM},
-        UI::WindowsAndMessaging::PostThreadMessageW,
+    Win32::System::WinRT::{
+        CreateDispatcherQueueController, DispatcherQueueOptions, DQTAT_COM_NONE,
+        DQTYPE_THREAD_CURRENT,
     },
 };
 
-use crate::{PlatformDispatcher, TaskLabel, WM_GPUI_TASK_DISPATCHED_ON_MAIN_THREAD};
+use crate::{PlatformDispatcher, TaskLabel};
 
 pub(crate) struct WindowsDispatcher {
-    main_sender: Sender<Runnable>,
+    controller: DispatcherQueueController,
+    main_queue: DispatcherQueue,
     parker: Mutex<Parker>,
     main_thread_id: ThreadId,
-    main_thread_id_win32: u32,
-    validation_number: usize,
 }
 
 impl WindowsDispatcher {
-    pub(crate) fn new(
-        main_sender: Sender<Runnable>,
-        main_thread_id_win32: u32,
-        validation_number: usize,
-    ) -> Self {
+    pub(crate) fn new() -> Self {
+        let controller = unsafe {
+            let options = DispatcherQueueOptions {
+                dwSize: std::mem::size_of::<DispatcherQueueOptions>() as u32,
+                threadType: DQTYPE_THREAD_CURRENT,
+                apartmentType: DQTAT_COM_NONE,
+            };
+            CreateDispatcherQueueController(options).unwrap()
+        };
+        let main_queue = controller.DispatcherQueue().unwrap();
         let parker = Mutex::new(Parker::new());
         let main_thread_id = current().id();
 
         WindowsDispatcher {
-            main_sender,
+            controller,
+            main_queue,
             parker,
             main_thread_id,
-            main_thread_id_win32,
-            validation_number,
         }
     }
 
@@ -81,6 +86,12 @@ impl WindowsDispatcher {
     }
 }
 
+impl Drop for WindowsDispatcher {
+    fn drop(&mut self) {
+        self.controller.ShutdownQueueAsync().log_err();
+    }
+}
+
 impl PlatformDispatcher for WindowsDispatcher {
     fn is_main_thread(&self) -> bool {
         current().id() == self.main_thread_id
@@ -94,28 +105,14 @@ impl PlatformDispatcher for WindowsDispatcher {
     }
 
     fn dispatch_on_main_thread(&self, runnable: Runnable) {
-        match self.main_sender.send(runnable) {
-            Ok(_) => unsafe {
-                PostThreadMessageW(
-                    self.main_thread_id_win32,
-                    WM_GPUI_TASK_DISPATCHED_ON_MAIN_THREAD,
-                    WPARAM(self.validation_number),
-                    LPARAM(0),
-                )
-                .log_err();
-            },
-            Err(runnable) => {
-                // NOTE: Runnable may wrap a Future that is !Send.
-                //
-                // This is usually safe because we only poll it on the main thread.
-                // However if the send fails, we know that:
-                // 1. main_receiver has been dropped (which implies the app is shutting down)
-                // 2. we are on a background thread.
-                // It is not safe to drop something !Send on the wrong thread, and
-                // the app will exit soon anyway, so we must forget the runnable.
-                std::mem::forget(runnable);
-            }
-        }
+        let handler = {
+            let mut task_wrapper = Some(runnable);
+            DispatcherQueueHandler::new(move || {
+                task_wrapper.take().unwrap().run();
+                Ok(())
+            })
+        };
+        self.main_queue.TryEnqueue(&handler).log_err();
     }
 
     fn dispatch_after(&self, duration: Duration, runnable: Runnable) {

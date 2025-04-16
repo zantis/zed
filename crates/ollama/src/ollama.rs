@@ -1,9 +1,10 @@
-use anyhow::{Context as _, Result, anyhow};
-use futures::{AsyncBufReadExt, AsyncReadExt, StreamExt, io::BufReader, stream::BoxStream};
-use http_client::{AsyncBody, HttpClient, Method, Request as HttpRequest, http};
+use anyhow::{anyhow, Context, Result};
+use futures::{io::BufReader, stream::BoxStream, AsyncBufReadExt, AsyncReadExt, StreamExt};
+use http_client::{AsyncBody, HttpClient, Method, Request as HttpRequest};
+use isahc::config::Configurable;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, value::RawValue};
+use serde_json::{value::RawValue, Value};
 use std::{convert::TryFrom, sync::Arc, time::Duration};
 
 pub const OLLAMA_API_URL: &str = "http://localhost:11434";
@@ -81,10 +82,8 @@ fn get_max_tokens(name: &str) -> usize {
         "llama2" | "yi" | "vicuna" | "stablelm2" => 4096,
         "llama3" | "gemma2" | "gemma" | "codegemma" | "starcoder" | "aya" => 8192,
         "codellama" | "starcoder2" => 16384,
-        "mistral" | "codestral" | "mixstral" | "llava" | "qwen2" | "qwen2.5-coder"
-        | "dolphin-mixtral" => 32768,
-        "llama3.1" | "llama3.2" | "llama3.3" | "phi3" | "phi3.5" | "phi4" | "command-r"
-        | "deepseek-coder-v2" | "deepseek-r1" | "yi-coder" => 128000,
+        "mistral" | "codestral" | "mixstral" | "llava" | "qwen2" | "dolphin-mixtral" => 32768,
+        "llama3.1" | "phi3" | "phi3.5" | "command-r" | "deepseek-coder-v2" | "yi-coder" => 128000,
         _ => DEFAULT_TOKENS,
     }
     .clamp(1, MAXIMUM_TOKENS)
@@ -263,12 +262,17 @@ pub async fn stream_chat_completion(
     client: &dyn HttpClient,
     api_url: &str,
     request: ChatRequest,
+    low_speed_timeout: Option<Duration>,
 ) -> Result<BoxStream<'static, Result<ChatResponseDelta>>> {
     let uri = format!("{api_url}/api/chat");
-    let request_builder = http::Request::builder()
+    let mut request_builder = HttpRequest::builder()
         .method(Method::POST)
         .uri(uri)
         .header("Content-Type", "application/json");
+
+    if let Some(low_speed_timeout) = low_speed_timeout {
+        request_builder = request_builder.low_speed_timeout(100, low_speed_timeout);
+    };
 
     let request = request_builder.body(AsyncBody::from(serde_json::to_string(&request)?))?;
     let mut response = client.send(request).await?;
@@ -277,7 +281,7 @@ pub async fn stream_chat_completion(
 
         Ok(reader
             .lines()
-            .filter_map(move |line| async move {
+            .filter_map(|line| async move {
                 match line {
                     Ok(line) => {
                         Some(serde_json::from_str(&line).context("Unable to parse chat response"))
@@ -301,13 +305,17 @@ pub async fn stream_chat_completion(
 pub async fn get_models(
     client: &dyn HttpClient,
     api_url: &str,
-    _: Option<Duration>,
+    low_speed_timeout: Option<Duration>,
 ) -> Result<Vec<LocalModelListing>> {
     let uri = format!("{api_url}/api/tags");
-    let request_builder = HttpRequest::builder()
+    let mut request_builder = HttpRequest::builder()
         .method(Method::GET)
         .uri(uri)
         .header("Accept", "application/json");
+
+    if let Some(low_speed_timeout) = low_speed_timeout {
+        request_builder = request_builder.low_speed_timeout(100, low_speed_timeout);
+    };
 
     let request = request_builder.body(AsyncBody::default())?;
 
@@ -344,7 +352,17 @@ pub async fn preload_model(client: Arc<dyn HttpClient>, api_url: &str, model: &s
             }),
         )?))?;
 
-    let mut response = client.send(request).await?;
+    let mut response = match client.send(request).await {
+        Ok(response) => response,
+        Err(err) => {
+            // Be ok with a timeout during preload of the model
+            if err.is_timeout() {
+                return Ok(());
+            } else {
+                return Err(err.into());
+            }
+        }
+    };
 
     if response.status().is_success() {
         Ok(())

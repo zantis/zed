@@ -1,7 +1,8 @@
+mod case;
 mod change;
-mod convert;
 mod delete;
 mod increment;
+mod indent;
 pub(crate) mod mark;
 mod paste;
 pub(crate) mod repeat;
@@ -15,24 +16,25 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::{
-    Vim,
-    indent::IndentDirection,
-    motion::{self, Motion, first_non_whitespace, next_line_end, right},
+    motion::{self, first_non_whitespace, next_line_end, right, Motion},
     object::Object,
-    state::{Mark, Mode, Operator},
+    state::{Mode, Operator},
     surrounds::SurroundsType,
+    Vim,
 };
+use case::CaseTarget;
 use collections::BTreeSet;
-use convert::ConvertTarget;
+use editor::scroll::Autoscroll;
 use editor::Anchor;
 use editor::Bias;
 use editor::Editor;
-use editor::scroll::Autoscroll;
 use editor::{display_map::ToDisplayPoint, movement};
-use gpui::{Context, Window, actions};
-use language::{Point, SelectionGoal, ToPoint};
+use gpui::{actions, ViewContext};
+use language::{Point, SelectionGoal};
 use log::error;
 use multi_buffer::MultiBufferRow;
+
+use self::indent::IndentDirection;
 
 actions!(
     vim,
@@ -44,11 +46,8 @@ actions!(
         InsertLineAbove,
         InsertLineBelow,
         InsertAtPrevious,
-        JoinLines,
-        JoinLinesNoWhitespace,
         DeleteLeft,
         DeleteRight,
-        HelixDelete,
         ChangeToEndOfLine,
         DeleteToEndOfLine,
         Yank,
@@ -56,16 +55,16 @@ actions!(
         ChangeCase,
         ConvertToUpperCase,
         ConvertToLowerCase,
-        ConvertToRot13,
-        ConvertToRot47,
+        JoinLines,
+        Indent,
+        Outdent,
         ToggleComments,
-        ShowLocation,
         Undo,
         Redo,
     ]
 );
 
-pub(crate) fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
+pub(crate) fn register(editor: &mut Editor, cx: &mut ViewContext<Vim>) {
     Vim::action(editor, cx, Vim::insert_after);
     Vim::action(editor, cx, Vim::insert_before);
     Vim::action(editor, cx, Vim::insert_first_non_whitespace);
@@ -76,91 +75,111 @@ pub(crate) fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
     Vim::action(editor, cx, Vim::change_case);
     Vim::action(editor, cx, Vim::convert_to_upper_case);
     Vim::action(editor, cx, Vim::convert_to_lower_case);
-    Vim::action(editor, cx, Vim::convert_to_rot13);
-    Vim::action(editor, cx, Vim::convert_to_rot47);
     Vim::action(editor, cx, Vim::yank_line);
     Vim::action(editor, cx, Vim::toggle_comments);
     Vim::action(editor, cx, Vim::paste);
-    Vim::action(editor, cx, Vim::show_location);
 
-    Vim::action(editor, cx, |vim, _: &DeleteLeft, window, cx| {
+    Vim::action(editor, cx, |vim, _: &DeleteLeft, cx| {
         vim.record_current_action(cx);
-        let times = Vim::take_count(cx);
-        let forced_motion = Vim::take_forced_motion(cx);
-        vim.delete_motion(Motion::Left, times, forced_motion, window, cx);
+        let times = vim.take_count(cx);
+        vim.delete_motion(Motion::Left, times, cx);
     });
-    Vim::action(editor, cx, |vim, _: &DeleteRight, window, cx| {
+    Vim::action(editor, cx, |vim, _: &DeleteRight, cx| {
         vim.record_current_action(cx);
-        let times = Vim::take_count(cx);
-        let forced_motion = Vim::take_forced_motion(cx);
-        vim.delete_motion(Motion::Right, times, forced_motion, window, cx);
+        let times = vim.take_count(cx);
+        vim.delete_motion(Motion::Right, times, cx);
     });
-
-    Vim::action(editor, cx, |vim, _: &HelixDelete, window, cx| {
-        vim.record_current_action(cx);
-        vim.update_editor(window, cx, |_, editor, window, cx| {
-            editor.change_selections(None, window, cx, |s| {
-                s.move_with(|map, selection| {
-                    if selection.is_empty() {
-                        selection.end = movement::right(map, selection.end)
-                    }
-                })
-            })
-        });
-        vim.visual_delete(false, window, cx);
-    });
-
-    Vim::action(editor, cx, |vim, _: &ChangeToEndOfLine, window, cx| {
+    Vim::action(editor, cx, |vim, _: &ChangeToEndOfLine, cx| {
         vim.start_recording(cx);
-        let times = Vim::take_count(cx);
-        let forced_motion = Vim::take_forced_motion(cx);
+        let times = vim.take_count(cx);
         vim.change_motion(
             Motion::EndOfLine {
                 display_lines: false,
             },
             times,
-            forced_motion,
-            window,
             cx,
         );
     });
-    Vim::action(editor, cx, |vim, _: &DeleteToEndOfLine, window, cx| {
+    Vim::action(editor, cx, |vim, _: &DeleteToEndOfLine, cx| {
         vim.record_current_action(cx);
-        let times = Vim::take_count(cx);
-        let forced_motion = Vim::take_forced_motion(cx);
+        let times = vim.take_count(cx);
         vim.delete_motion(
             Motion::EndOfLine {
                 display_lines: false,
             },
             times,
-            forced_motion,
-            window,
             cx,
         );
     });
-    Vim::action(editor, cx, |vim, _: &JoinLines, window, cx| {
-        vim.join_lines_impl(true, window, cx);
+    Vim::action(editor, cx, |vim, _: &JoinLines, cx| {
+        vim.record_current_action(cx);
+        let mut times = vim.take_count(cx).unwrap_or(1);
+        if vim.mode.is_visual() {
+            times = 1;
+        } else if times > 1 {
+            // 2J joins two lines together (same as J or 1J)
+            times -= 1;
+        }
+
+        vim.update_editor(cx, |_, editor, cx| {
+            editor.transact(cx, |editor, cx| {
+                for _ in 0..times {
+                    editor.join_lines(&Default::default(), cx)
+                }
+            })
+        });
+        if vim.mode.is_visual() {
+            vim.switch_mode(Mode::Normal, false, cx)
+        }
     });
 
-    Vim::action(editor, cx, |vim, _: &JoinLinesNoWhitespace, window, cx| {
-        vim.join_lines_impl(false, window, cx);
+    Vim::action(editor, cx, |vim, _: &Indent, cx| {
+        vim.record_current_action(cx);
+        let count = vim.take_count(cx).unwrap_or(1);
+        vim.update_editor(cx, |_, editor, cx| {
+            editor.transact(cx, |editor, cx| {
+                let mut original_positions = save_selection_starts(editor, cx);
+                for _ in 0..count {
+                    editor.indent(&Default::default(), cx);
+                }
+                restore_selection_cursors(editor, cx, &mut original_positions);
+            });
+        });
+        if vim.mode.is_visual() {
+            vim.switch_mode(Mode::Normal, false, cx)
+        }
     });
 
-    Vim::action(editor, cx, |vim, _: &Undo, window, cx| {
-        let times = Vim::take_count(cx);
-        Vim::take_forced_motion(cx);
-        vim.update_editor(window, cx, |_, editor, window, cx| {
+    Vim::action(editor, cx, |vim, _: &Outdent, cx| {
+        vim.record_current_action(cx);
+        let count = vim.take_count(cx).unwrap_or(1);
+        vim.update_editor(cx, |_, editor, cx| {
+            editor.transact(cx, |editor, cx| {
+                let mut original_positions = save_selection_starts(editor, cx);
+                for _ in 0..count {
+                    editor.outdent(&Default::default(), cx);
+                }
+                restore_selection_cursors(editor, cx, &mut original_positions);
+            });
+        });
+        if vim.mode.is_visual() {
+            vim.switch_mode(Mode::Normal, false, cx)
+        }
+    });
+
+    Vim::action(editor, cx, |vim, _: &Undo, cx| {
+        let times = vim.take_count(cx);
+        vim.update_editor(cx, |_, editor, cx| {
             for _ in 0..times.unwrap_or(1) {
-                editor.undo(&editor::actions::Undo, window, cx);
+                editor.undo(&editor::actions::Undo, cx);
             }
         });
     });
-    Vim::action(editor, cx, |vim, _: &Redo, window, cx| {
-        let times = Vim::take_count(cx);
-        Vim::take_forced_motion(cx);
-        vim.update_editor(window, cx, |_, editor, window, cx| {
+    Vim::action(editor, cx, |vim, _: &Redo, cx| {
+        let times = vim.take_count(cx);
+        vim.update_editor(cx, |_, editor, cx| {
             for _ in 0..times.unwrap_or(1) {
-                editor.redo(&editor::actions::Redo, window, cx);
+                editor.redo(&editor::actions::Redo, cx);
             }
         });
     });
@@ -178,149 +197,61 @@ impl Vim {
         motion: Motion,
         operator: Option<Operator>,
         times: Option<usize>,
-        forced_motion: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &mut ViewContext<Self>,
     ) {
         match operator {
-            None => self.move_cursor(motion, times, window, cx),
-            Some(Operator::Change) => self.change_motion(motion, times, forced_motion, window, cx),
-            Some(Operator::Delete) => self.delete_motion(motion, times, forced_motion, window, cx),
-            Some(Operator::Yank) => self.yank_motion(motion, times, forced_motion, window, cx),
+            None => self.move_cursor(motion, times, cx),
+            Some(Operator::Change) => self.change_motion(motion, times, cx),
+            Some(Operator::Delete) => self.delete_motion(motion, times, cx),
+            Some(Operator::Yank) => self.yank_motion(motion, times, cx),
             Some(Operator::AddSurrounds { target: None }) => {}
-            Some(Operator::Indent) => self.indent_motion(
-                motion,
-                times,
-                forced_motion,
-                IndentDirection::In,
-                window,
-                cx,
-            ),
-            Some(Operator::Rewrap) => self.rewrap_motion(motion, times, forced_motion, window, cx),
-            Some(Operator::Outdent) => self.indent_motion(
-                motion,
-                times,
-                forced_motion,
-                IndentDirection::Out,
-                window,
-                cx,
-            ),
-            Some(Operator::AutoIndent) => self.indent_motion(
-                motion,
-                times,
-                forced_motion,
-                IndentDirection::Auto,
-                window,
-                cx,
-            ),
-            Some(Operator::ShellCommand) => {
-                self.shell_command_motion(motion, times, forced_motion, window, cx)
+            Some(Operator::Indent) => self.indent_motion(motion, times, IndentDirection::In, cx),
+            Some(Operator::Outdent) => self.indent_motion(motion, times, IndentDirection::Out, cx),
+            Some(Operator::Lowercase) => {
+                self.change_case_motion(motion, times, CaseTarget::Lowercase, cx)
             }
-            Some(Operator::Lowercase) => self.convert_motion(
-                motion,
-                times,
-                forced_motion,
-                ConvertTarget::LowerCase,
-                window,
-                cx,
-            ),
-            Some(Operator::Uppercase) => self.convert_motion(
-                motion,
-                times,
-                forced_motion,
-                ConvertTarget::UpperCase,
-                window,
-                cx,
-            ),
-            Some(Operator::OppositeCase) => self.convert_motion(
-                motion,
-                times,
-                forced_motion,
-                ConvertTarget::OppositeCase,
-                window,
-                cx,
-            ),
-            Some(Operator::Rot13) => self.convert_motion(
-                motion,
-                times,
-                forced_motion,
-                ConvertTarget::Rot13,
-                window,
-                cx,
-            ),
-            Some(Operator::Rot47) => self.convert_motion(
-                motion,
-                times,
-                forced_motion,
-                ConvertTarget::Rot47,
-                window,
-                cx,
-            ),
-            Some(Operator::ToggleComments) => {
-                self.toggle_comments_motion(motion, times, forced_motion, window, cx)
+            Some(Operator::Uppercase) => {
+                self.change_case_motion(motion, times, CaseTarget::Uppercase, cx)
             }
-            Some(Operator::ReplaceWithRegister) => {
-                self.replace_with_register_motion(motion, times, forced_motion, window, cx)
+            Some(Operator::OppositeCase) => {
+                self.change_case_motion(motion, times, CaseTarget::OppositeCase, cx)
             }
-            Some(Operator::Exchange) => {
-                self.exchange_motion(motion, times, forced_motion, window, cx)
-            }
+            Some(Operator::ToggleComments) => self.toggle_comments_motion(motion, times, cx),
             Some(operator) => {
                 // Can't do anything for text objects, Ignoring
                 error!("Unexpected normal mode motion operator: {:?}", operator)
             }
         }
-        // Exit temporary normal mode (if active).
-        self.exit_temporary_normal(window, cx);
     }
 
-    pub fn normal_object(&mut self, object: Object, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn normal_object(&mut self, object: Object, cx: &mut ViewContext<Self>) {
         let mut waiting_operator: Option<Operator> = None;
         match self.maybe_pop_operator() {
             Some(Operator::Object { around }) => match self.maybe_pop_operator() {
-                Some(Operator::Change) => self.change_object(object, around, window, cx),
-                Some(Operator::Delete) => self.delete_object(object, around, window, cx),
-                Some(Operator::Yank) => self.yank_object(object, around, window, cx),
+                Some(Operator::Change) => self.change_object(object, around, cx),
+                Some(Operator::Delete) => self.delete_object(object, around, cx),
+                Some(Operator::Yank) => self.yank_object(object, around, cx),
                 Some(Operator::Indent) => {
-                    self.indent_object(object, around, IndentDirection::In, window, cx)
+                    self.indent_object(object, around, IndentDirection::In, cx)
                 }
                 Some(Operator::Outdent) => {
-                    self.indent_object(object, around, IndentDirection::Out, window, cx)
+                    self.indent_object(object, around, IndentDirection::Out, cx)
                 }
-                Some(Operator::AutoIndent) => {
-                    self.indent_object(object, around, IndentDirection::Auto, window, cx)
-                }
-                Some(Operator::ShellCommand) => {
-                    self.shell_command_object(object, around, window, cx);
-                }
-                Some(Operator::Rewrap) => self.rewrap_object(object, around, window, cx),
                 Some(Operator::Lowercase) => {
-                    self.convert_object(object, around, ConvertTarget::LowerCase, window, cx)
+                    self.change_case_object(object, around, CaseTarget::Lowercase, cx)
                 }
                 Some(Operator::Uppercase) => {
-                    self.convert_object(object, around, ConvertTarget::UpperCase, window, cx)
+                    self.change_case_object(object, around, CaseTarget::Uppercase, cx)
                 }
                 Some(Operator::OppositeCase) => {
-                    self.convert_object(object, around, ConvertTarget::OppositeCase, window, cx)
-                }
-                Some(Operator::Rot13) => {
-                    self.convert_object(object, around, ConvertTarget::Rot13, window, cx)
-                }
-                Some(Operator::Rot47) => {
-                    self.convert_object(object, around, ConvertTarget::Rot47, window, cx)
+                    self.change_case_object(object, around, CaseTarget::OppositeCase, cx)
                 }
                 Some(Operator::AddSurrounds { target: None }) => {
                     waiting_operator = Some(Operator::AddSurrounds {
                         target: Some(SurroundsType::Object(object, around)),
                     });
                 }
-                Some(Operator::ToggleComments) => {
-                    self.toggle_comments_object(object, around, window, cx)
-                }
-                Some(Operator::ReplaceWithRegister) => {
-                    self.replace_with_register_object(object, around, window, cx)
-                }
-                Some(Operator::Exchange) => self.exchange_object(object, around, window, cx),
+                Some(Operator::ToggleComments) => self.toggle_comments_object(object, around, cx),
                 _ => {
                     // Can't do anything for namespace operators. Ignoring
                 }
@@ -329,7 +260,7 @@ impl Vim {
                 waiting_operator = Some(Operator::DeleteSurrounds);
             }
             Some(Operator::ChangeSurrounds { target: None }) => {
-                if self.check_and_move_to_valid_bracket_pair(object, window, cx) {
+                if self.check_and_move_to_valid_bracket_pair(object, cx) {
                     waiting_operator = Some(Operator::ChangeSurrounds {
                         target: Some(object),
                     });
@@ -339,9 +270,9 @@ impl Vim {
                 // Can't do anything with change/delete/yank/surrounds and text objects. Ignoring
             }
         }
-        self.clear_operator(window, cx);
+        self.clear_operator(cx);
         if let Some(operator) = waiting_operator {
-            self.push_operator(operator, window, cx);
+            self.push_operator(operator, cx);
         }
     }
 
@@ -349,12 +280,11 @@ impl Vim {
         &mut self,
         motion: Motion,
         times: Option<usize>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &mut ViewContext<Self>,
     ) {
-        self.update_editor(window, cx, |_, editor, window, cx| {
-            let text_layout_details = editor.text_layout_details(window);
-            editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+        self.update_editor(cx, |_, editor, cx| {
+            let text_layout_details = editor.text_layout_details(cx);
+            editor.change_selections(Some(Autoscroll::fit()), cx, |s| {
                 s.move_cursors_with(|map, cursor, goal| {
                     motion
                         .move_point(map, cursor, goal, times, &text_layout_details)
@@ -364,46 +294,30 @@ impl Vim {
         });
     }
 
-    fn insert_after(&mut self, _: &InsertAfter, window: &mut Window, cx: &mut Context<Self>) {
+    fn insert_after(&mut self, _: &InsertAfter, cx: &mut ViewContext<Self>) {
         self.start_recording(cx);
-        self.switch_mode(Mode::Insert, false, window, cx);
-        self.update_editor(window, cx, |_, editor, window, cx| {
-            editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+        self.switch_mode(Mode::Insert, false, cx);
+        self.update_editor(cx, |_, editor, cx| {
+            editor.change_selections(Some(Autoscroll::fit()), cx, |s| {
                 s.move_cursors_with(|map, cursor, _| (right(map, cursor, 1), SelectionGoal::None));
             });
         });
     }
 
-    fn insert_before(&mut self, _: &InsertBefore, window: &mut Window, cx: &mut Context<Self>) {
+    fn insert_before(&mut self, _: &InsertBefore, cx: &mut ViewContext<Self>) {
         self.start_recording(cx);
-        if self.mode.is_visual() {
-            let current_mode = self.mode;
-            self.update_editor(window, cx, |_, editor, window, cx| {
-                editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
-                    s.move_with(|map, selection| {
-                        if current_mode == Mode::VisualLine {
-                            let start_of_line = motion::start_of_line(map, false, selection.start);
-                            selection.collapse_to(start_of_line, SelectionGoal::None)
-                        } else {
-                            selection.collapse_to(selection.start, SelectionGoal::None)
-                        }
-                    });
-                });
-            });
-        }
-        self.switch_mode(Mode::Insert, false, window, cx);
+        self.switch_mode(Mode::Insert, false, cx);
     }
 
     fn insert_first_non_whitespace(
         &mut self,
         _: &InsertFirstNonWhitespace,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &mut ViewContext<Self>,
     ) {
         self.start_recording(cx);
-        self.switch_mode(Mode::Insert, false, window, cx);
-        self.update_editor(window, cx, |_, editor, window, cx| {
-            editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+        self.switch_mode(Mode::Insert, false, cx);
+        self.update_editor(cx, |_, editor, cx| {
+            editor.change_selections(Some(Autoscroll::fit()), cx, |s| {
                 s.move_cursors_with(|map, cursor, _| {
                     (
                         first_non_whitespace(map, false, cursor),
@@ -414,16 +328,11 @@ impl Vim {
         });
     }
 
-    fn insert_end_of_line(
-        &mut self,
-        _: &InsertEndOfLine,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn insert_end_of_line(&mut self, _: &InsertEndOfLine, cx: &mut ViewContext<Self>) {
         self.start_recording(cx);
-        self.switch_mode(Mode::Insert, false, window, cx);
-        self.update_editor(window, cx, |_, editor, window, cx| {
-            editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+        self.switch_mode(Mode::Insert, false, cx);
+        self.update_editor(cx, |_, editor, cx| {
+            editor.change_selections(Some(Autoscroll::fit()), cx, |s| {
                 s.move_cursors_with(|map, cursor, _| {
                     (next_line_end(map, cursor, 1), SelectionGoal::None)
                 });
@@ -431,35 +340,23 @@ impl Vim {
         });
     }
 
-    fn insert_at_previous(
-        &mut self,
-        _: &InsertAtPrevious,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn insert_at_previous(&mut self, _: &InsertAtPrevious, cx: &mut ViewContext<Self>) {
         self.start_recording(cx);
-        self.switch_mode(Mode::Insert, false, window, cx);
-        self.update_editor(window, cx, |vim, editor, window, cx| {
-            let Some(Mark::Local(marks)) = vim.get_mark("^", editor, window, cx) else {
-                return;
-            };
-
-            editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
-                s.select_anchor_ranges(marks.iter().map(|mark| *mark..*mark))
-            });
+        self.switch_mode(Mode::Insert, false, cx);
+        self.update_editor(cx, |vim, editor, cx| {
+            if let Some(marks) = vim.marks.get("^") {
+                editor.change_selections(Some(Autoscroll::fit()), cx, |s| {
+                    s.select_anchor_ranges(marks.iter().map(|mark| *mark..*mark))
+                });
+            }
         });
     }
 
-    fn insert_line_above(
-        &mut self,
-        _: &InsertLineAbove,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn insert_line_above(&mut self, _: &InsertLineAbove, cx: &mut ViewContext<Self>) {
         self.start_recording(cx);
-        self.switch_mode(Mode::Insert, false, window, cx);
-        self.update_editor(window, cx, |_, editor, window, cx| {
-            editor.transact(window, cx, |editor, window, cx| {
+        self.switch_mode(Mode::Insert, false, cx);
+        self.update_editor(cx, |_, editor, cx| {
+            editor.transact(cx, |editor, cx| {
                 let selections = editor.selections.all::<Point>(cx);
                 let snapshot = editor.buffer().read(cx).snapshot(cx);
 
@@ -467,20 +364,16 @@ impl Vim {
                     .into_iter()
                     .map(|selection| selection.start.row)
                     .collect();
-                let edits = selection_start_rows
-                    .into_iter()
-                    .map(|row| {
-                        let indent = snapshot
-                            .indent_and_comment_for_line(MultiBufferRow(row), cx)
-                            .chars()
-                            .collect::<String>();
-
-                        let start_of_line = Point::new(row, 0);
-                        (start_of_line..start_of_line, indent + "\n")
-                    })
-                    .collect::<Vec<_>>();
+                let edits = selection_start_rows.into_iter().map(|row| {
+                    let indent = snapshot
+                        .indent_size_for_line(MultiBufferRow(row))
+                        .chars()
+                        .collect::<String>();
+                    let start_of_line = Point::new(row, 0);
+                    (start_of_line..start_of_line, indent + "\n")
+                });
                 editor.edit_with_autoindent(edits, cx);
-                editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+                editor.change_selections(Some(Autoscroll::fit()), cx, |s| {
                     s.move_cursors_with(|map, cursor, _| {
                         let previous_line = motion::start_of_relative_buffer_row(map, cursor, -1);
                         let insert_point = motion::end_of_line(map, false, previous_line, 1);
@@ -491,17 +384,12 @@ impl Vim {
         });
     }
 
-    fn insert_line_below(
-        &mut self,
-        _: &InsertLineBelow,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn insert_line_below(&mut self, _: &InsertLineBelow, cx: &mut ViewContext<Self>) {
         self.start_recording(cx);
-        self.switch_mode(Mode::Insert, false, window, cx);
-        self.update_editor(window, cx, |_, editor, window, cx| {
-            let text_layout_details = editor.text_layout_details(window);
-            editor.transact(window, cx, |editor, window, cx| {
+        self.switch_mode(Mode::Insert, false, cx);
+        self.update_editor(cx, |_, editor, cx| {
+            let text_layout_details = editor.text_layout_details(cx);
+            editor.transact(cx, |editor, cx| {
                 let selections = editor.selections.all::<Point>(cx);
                 let snapshot = editor.buffer().read(cx).snapshot(cx);
 
@@ -509,19 +397,15 @@ impl Vim {
                     .into_iter()
                     .map(|selection| selection.end.row)
                     .collect();
-                let edits = selection_end_rows
-                    .into_iter()
-                    .map(|row| {
-                        let indent = snapshot
-                            .indent_and_comment_for_line(MultiBufferRow(row), cx)
-                            .chars()
-                            .collect::<String>();
-
-                        let end_of_line = Point::new(row, snapshot.line_len(MultiBufferRow(row)));
-                        (end_of_line..end_of_line, "\n".to_string() + &indent)
-                    })
-                    .collect::<Vec<_>>();
-                editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+                let edits = selection_end_rows.into_iter().map(|row| {
+                    let indent = snapshot
+                        .indent_size_for_line(MultiBufferRow(row))
+                        .chars()
+                        .collect::<String>();
+                    let end_of_line = Point::new(row, snapshot.line_len(MultiBufferRow(row)));
+                    (end_of_line..end_of_line, "\n".to_string() + &indent)
+                });
+                editor.change_selections(Some(Autoscroll::fit()), cx, |s| {
                     s.maybe_move_cursors_with(|map, cursor, goal| {
                         Motion::CurrentLine.move_point(
                             map,
@@ -537,112 +421,30 @@ impl Vim {
         });
     }
 
-    fn join_lines_impl(
-        &mut self,
-        insert_whitespace: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn yank_line(&mut self, _: &YankLine, cx: &mut ViewContext<Self>) {
+        let count = self.take_count(cx);
+        self.yank_motion(motion::Motion::CurrentLine, count, cx)
+    }
+
+    fn toggle_comments(&mut self, _: &ToggleComments, cx: &mut ViewContext<Self>) {
         self.record_current_action(cx);
-        let mut times = Vim::take_count(cx).unwrap_or(1);
-        Vim::take_forced_motion(cx);
-        if self.mode.is_visual() {
-            times = 1;
-        } else if times > 1 {
-            // 2J joins two lines together (same as J or 1J)
-            times -= 1;
-        }
-
-        self.update_editor(window, cx, |_, editor, window, cx| {
-            editor.transact(window, cx, |editor, window, cx| {
-                for _ in 0..times {
-                    editor.join_lines_impl(insert_whitespace, window, cx)
-                }
-            })
-        });
-        if self.mode.is_visual() {
-            self.switch_mode(Mode::Normal, true, window, cx)
-        }
-    }
-
-    fn yank_line(&mut self, _: &YankLine, window: &mut Window, cx: &mut Context<Self>) {
-        let count = Vim::take_count(cx);
-        let forced_motion = Vim::take_forced_motion(cx);
-        self.yank_motion(
-            motion::Motion::CurrentLine,
-            count,
-            forced_motion,
-            window,
-            cx,
-        )
-    }
-
-    fn show_location(&mut self, _: &ShowLocation, window: &mut Window, cx: &mut Context<Self>) {
-        let count = Vim::take_count(cx);
-        Vim::take_forced_motion(cx);
-        self.update_editor(window, cx, |vim, editor, _window, cx| {
-            let selection = editor.selections.newest_anchor();
-            if let Some((_, buffer, _)) = editor.active_excerpt(cx) {
-                let filename = if let Some(file) = buffer.read(cx).file() {
-                    if count.is_some() {
-                        if let Some(local) = file.as_local() {
-                            local.abs_path(cx).to_string_lossy().to_string()
-                        } else {
-                            file.full_path(cx).to_string_lossy().to_string()
-                        }
-                    } else {
-                        file.path().to_string_lossy().to_string()
-                    }
-                } else {
-                    "[No Name]".into()
-                };
-                let buffer = buffer.read(cx);
-                let snapshot = buffer.snapshot();
-                let lines = buffer.max_point().row + 1;
-                let current_line = selection.head().text_anchor.to_point(&snapshot).row;
-                let percentage = current_line as f32 / lines as f32;
-                let modified = if buffer.is_dirty() { " [modified]" } else { "" };
-                vim.status_label = Some(
-                    format!(
-                        "{}{} {} lines --{:.0}%--",
-                        filename,
-                        modified,
-                        lines,
-                        percentage * 100.0,
-                    )
-                    .into(),
-                );
-                cx.notify();
-            }
-        });
-    }
-
-    fn toggle_comments(&mut self, _: &ToggleComments, window: &mut Window, cx: &mut Context<Self>) {
-        self.record_current_action(cx);
-        self.store_visual_marks(window, cx);
-        self.update_editor(window, cx, |vim, editor, window, cx| {
-            editor.transact(window, cx, |editor, window, cx| {
-                let original_positions = vim.save_selection_starts(editor, cx);
-                editor.toggle_comments(&Default::default(), window, cx);
-                vim.restore_selection_cursors(editor, window, cx, original_positions);
+        self.update_editor(cx, |_, editor, cx| {
+            editor.transact(cx, |editor, cx| {
+                let mut original_positions = save_selection_starts(editor, cx);
+                editor.toggle_comments(&Default::default(), cx);
+                restore_selection_cursors(editor, cx, &mut original_positions);
             });
         });
         if self.mode.is_visual() {
-            self.switch_mode(Mode::Normal, true, window, cx)
+            self.switch_mode(Mode::Normal, false, cx)
         }
     }
 
-    pub(crate) fn normal_replace(
-        &mut self,
-        text: Arc<str>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let count = Vim::take_count(cx).unwrap_or(1);
-        Vim::take_forced_motion(cx);
+    pub(crate) fn normal_replace(&mut self, text: Arc<str>, cx: &mut ViewContext<Self>) {
+        let count = self.take_count(cx).unwrap_or(1);
         self.stop_recording(cx);
-        self.update_editor(window, cx, |_, editor, window, cx| {
-            editor.transact(window, cx, |editor, window, cx| {
+        self.update_editor(cx, |_, editor, cx| {
+            editor.transact(cx, |editor, cx| {
                 editor.set_clip_at_line_ends(false, cx);
                 let (map, display_selections) = editor.selections.all_display(cx);
 
@@ -664,9 +466,11 @@ impl Vim {
                     ))
                 }
 
-                editor.edit(edits, cx);
+                editor.buffer().update(cx, |buffer, cx| {
+                    buffer.edit(edits, None, cx);
+                });
                 editor.set_clip_at_line_ends(true, cx);
-                editor.change_selections(None, window, cx, |s| {
+                editor.change_selections(None, cx, |s| {
                     s.move_with(|map, selection| {
                         let point = movement::saturating_left(map, selection.head());
                         selection.collapse_to(point, SelectionGoal::None)
@@ -674,60 +478,47 @@ impl Vim {
                 });
             });
         });
-        self.pop_operator(window, cx);
+        self.pop_operator(cx);
     }
+}
 
-    pub fn save_selection_starts(
-        &self,
-        editor: &Editor,
+fn save_selection_starts(editor: &Editor, cx: &mut ViewContext<Editor>) -> HashMap<usize, Anchor> {
+    let (map, selections) = editor.selections.all_display(cx);
+    selections
+        .iter()
+        .map(|selection| {
+            (
+                selection.id,
+                map.display_point_to_anchor(selection.start, Bias::Right),
+            )
+        })
+        .collect::<HashMap<_, _>>()
+}
 
-        cx: &mut Context<Editor>,
-    ) -> HashMap<usize, Anchor> {
-        let (map, selections) = editor.selections.all_display(cx);
-        selections
-            .iter()
-            .map(|selection| {
-                (
-                    selection.id,
-                    map.display_point_to_anchor(selection.start, Bias::Right),
-                )
-            })
-            .collect::<HashMap<_, _>>()
-    }
-
-    pub fn restore_selection_cursors(
-        &self,
-        editor: &mut Editor,
-        window: &mut Window,
-        cx: &mut Context<Editor>,
-        mut positions: HashMap<usize, Anchor>,
-    ) {
-        editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
-            s.move_with(|map, selection| {
-                if let Some(anchor) = positions.remove(&selection.id) {
-                    selection.collapse_to(anchor.to_display_point(map), SelectionGoal::None);
-                }
-            });
+fn restore_selection_cursors(
+    editor: &mut Editor,
+    cx: &mut ViewContext<Editor>,
+    positions: &mut HashMap<usize, Anchor>,
+) {
+    editor.change_selections(Some(Autoscroll::fit()), cx, |s| {
+        s.move_with(|map, selection| {
+            if let Some(anchor) = positions.remove(&selection.id) {
+                selection.collapse_to(anchor.to_display_point(map), SelectionGoal::None);
+            }
         });
-    }
-
-    fn exit_temporary_normal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.temp_mode {
-            self.switch_mode(Mode::Insert, true, window, cx);
-        }
-    }
+    });
 }
 #[cfg(test)]
 mod test {
-    use gpui::{KeyBinding, TestAppContext, UpdateGlobal};
+    use gpui::{KeyBinding, TestAppContext};
     use indoc::indoc;
-    use language::language_settings::AllLanguageSettings;
     use settings::SettingsStore;
 
     use crate::{
-        VimSettings, motion,
+        motion,
         state::Mode::{self},
         test::{NeovimBackedTestContext, VimTestContext},
+        VimSettings,
     };
 
     #[gpui::test]
@@ -1549,7 +1340,7 @@ mod test {
     #[gpui::test]
     async fn test_subword_motions(cx: &mut gpui::TestAppContext) {
         let mut cx = VimTestContext::new(cx, true).await;
-        cx.update(|_, cx| {
+        cx.update(|cx| {
             cx.bind_keys(vec![
                 KeyBinding::new(
                     "w",
@@ -1626,109 +1417,5 @@ mod test {
         cx.set_shared_state("ˇhello world\n").await;
         cx.simulate_shared_keystrokes("2 0 r - ").await;
         cx.shared_state().await.assert_eq("ˇhello world\n");
-    }
-
-    #[gpui::test]
-    async fn test_gq(cx: &mut gpui::TestAppContext) {
-        let mut cx = NeovimBackedTestContext::new(cx).await;
-        cx.set_neovim_option("textwidth=5").await;
-
-        cx.update(|_, cx| {
-            SettingsStore::update_global(cx, |settings, cx| {
-                settings.update_user_settings::<AllLanguageSettings>(cx, |settings| {
-                    settings.defaults.preferred_line_length = Some(5);
-                });
-            })
-        });
-
-        cx.set_shared_state("ˇth th th th th th\n").await;
-        cx.simulate_shared_keystrokes("g q q").await;
-        cx.shared_state().await.assert_eq("th th\nth th\nˇth th\n");
-
-        cx.set_shared_state("ˇth th th th th th\nth th th th th th\n")
-            .await;
-        cx.simulate_shared_keystrokes("v j g q").await;
-        cx.shared_state()
-            .await
-            .assert_eq("th th\nth th\nth th\nth th\nth th\nˇth th\n");
-    }
-
-    #[gpui::test]
-    async fn test_o_comment(cx: &mut gpui::TestAppContext) {
-        let mut cx = NeovimBackedTestContext::new(cx).await;
-        cx.set_neovim_option("filetype=rust").await;
-
-        cx.set_shared_state("// helloˇ\n").await;
-        cx.simulate_shared_keystrokes("o").await;
-        cx.shared_state().await.assert_eq("// hello\n// ˇ\n");
-        cx.simulate_shared_keystrokes("x escape shift-o").await;
-        cx.shared_state().await.assert_eq("// hello\n// ˇ\n// x\n");
-    }
-
-    #[gpui::test]
-    async fn test_yank_line_with_trailing_newline(cx: &mut gpui::TestAppContext) {
-        let mut cx = NeovimBackedTestContext::new(cx).await;
-        cx.set_shared_state("heˇllo\n").await;
-        cx.simulate_shared_keystrokes("y y p").await;
-        cx.shared_state().await.assert_eq("hello\nˇhello\n");
-    }
-
-    #[gpui::test]
-    async fn test_yank_line_without_trailing_newline(cx: &mut gpui::TestAppContext) {
-        let mut cx = NeovimBackedTestContext::new(cx).await;
-        cx.set_shared_state("heˇllo").await;
-        cx.simulate_shared_keystrokes("y y p").await;
-        cx.shared_state().await.assert_eq("hello\nˇhello");
-    }
-
-    #[gpui::test]
-    async fn test_yank_multiline_without_trailing_newline(cx: &mut gpui::TestAppContext) {
-        let mut cx = NeovimBackedTestContext::new(cx).await;
-        cx.set_shared_state("heˇllo\nhello").await;
-        cx.simulate_shared_keystrokes("2 y y p").await;
-        cx.shared_state()
-            .await
-            .assert_eq("hello\nˇhello\nhello\nhello");
-    }
-
-    #[gpui::test]
-    async fn test_dd_then_paste_without_trailing_newline(cx: &mut gpui::TestAppContext) {
-        let mut cx = NeovimBackedTestContext::new(cx).await;
-        cx.set_shared_state("heˇllo").await;
-        cx.simulate_shared_keystrokes("d d").await;
-        cx.shared_state().await.assert_eq("ˇ");
-        cx.simulate_shared_keystrokes("p p").await;
-        cx.shared_state().await.assert_eq("\nhello\nˇhello");
-    }
-
-    #[gpui::test]
-    async fn test_visual_mode_insert_before_after(cx: &mut gpui::TestAppContext) {
-        let mut cx = NeovimBackedTestContext::new(cx).await;
-
-        cx.set_shared_state("heˇllo").await;
-        cx.simulate_shared_keystrokes("v i w shift-i").await;
-        cx.shared_state().await.assert_eq("ˇhello");
-
-        cx.set_shared_state(indoc! {"
-            The quick brown
-            fox ˇjumps over
-            the lazy dog"})
-            .await;
-        cx.simulate_shared_keystrokes("shift-v shift-i").await;
-        cx.shared_state().await.assert_eq(indoc! {"
-            The quick brown
-            ˇfox jumps over
-            the lazy dog"});
-
-        cx.set_shared_state(indoc! {"
-            The quick brown
-            fox ˇjumps over
-            the lazy dog"})
-            .await;
-        cx.simulate_shared_keystrokes("shift-v shift-a").await;
-        cx.shared_state().await.assert_eq(indoc! {"
-            The quick brown
-            fox jˇumps over
-            the lazy dog"});
     }
 }

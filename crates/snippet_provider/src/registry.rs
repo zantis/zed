@@ -2,10 +2,10 @@ use std::{path::Path, sync::Arc};
 
 use anyhow::Result;
 use collections::HashMap;
-use gpui::{App, Global, ReadGlobal, UpdateGlobal};
+use gpui::{AppContext, Global, ReadGlobal, UpdateGlobal};
 use parking_lot::RwLock;
 
-use crate::{Snippet, SnippetKind, file_stem_to_key};
+use crate::{file_stem_to_key, Snippet, SnippetKind};
 
 struct GlobalSnippetRegistry(Arc<SnippetRegistry>);
 
@@ -17,16 +17,16 @@ pub struct SnippetRegistry {
 }
 
 impl SnippetRegistry {
-    pub fn global(cx: &App) -> Arc<Self> {
+    pub fn global(cx: &AppContext) -> Arc<Self> {
         GlobalSnippetRegistry::global(cx).0.clone()
     }
 
-    pub fn try_global(cx: &App) -> Option<Arc<Self>> {
+    pub fn try_global(cx: &AppContext) -> Option<Arc<Self>> {
         cx.try_global::<GlobalSnippetRegistry>()
             .map(|registry| registry.0.clone())
     }
 
-    pub fn init_global(cx: &mut App) {
+    pub fn init_global(cx: &mut AppContext) {
         GlobalSnippetRegistry::set_global(cx, GlobalSnippetRegistry(Arc::new(Self::new())))
     }
 
@@ -37,8 +37,7 @@ impl SnippetRegistry {
     }
 
     pub fn register_snippets(&self, file_path: &Path, contents: &str) -> Result<()> {
-        let snippets_in_file: crate::format::VSSnippetsFile =
-            serde_json_lenient::from_str(contents)?;
+        let snippets_in_file: crate::format::VSSnippetsFile = serde_json::from_str(contents)?;
         let kind = file_path
             .file_stem()
             .and_then(|stem| stem.to_str().and_then(file_stem_to_key));

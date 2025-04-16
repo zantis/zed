@@ -1,5 +1,5 @@
 use anyhow::Result;
-use gpui::{App, ClipboardItem, Context, Entity, Task, Window, div, prelude::*};
+use gpui::{div, prelude::*, ClipboardItem, Model, Task, ViewContext, WindowContext};
 use language::Buffer;
 use markdown_preview::{
     markdown_elements::ParsedMarkdown, markdown_parser::parse_markdown,
@@ -16,19 +16,22 @@ pub struct MarkdownView {
 }
 
 impl MarkdownView {
-    pub fn from(text: String, cx: &mut Context<Self>) -> Self {
-        let parsed = {
+    pub fn from(text: String, cx: &mut ViewContext<Self>) -> Self {
+        let task = cx.spawn(|markdown_view, mut cx| {
             let text = text.clone();
-            cx.background_spawn(async move { parse_markdown(&text.clone(), None, None).await })
-        };
-        let task = cx.spawn(async move |markdown_view, cx| {
-            let content = parsed.await;
+            let parsed = cx
+                .background_executor()
+                .spawn(async move { parse_markdown(&text, None, None).await });
 
-            markdown_view.update(cx, |markdown, cx| {
-                markdown.parsing_markdown_task.take();
-                markdown.contents = Some(content);
-                cx.notify();
-            })
+            async move {
+                let content = parsed.await;
+
+                markdown_view.update(&mut cx, |markdown, cx| {
+                    markdown.parsing_markdown_task.take();
+                    markdown.contents = Some(content);
+                    cx.notify();
+                })
+            }
         });
 
         Self {
@@ -40,21 +43,21 @@ impl MarkdownView {
 }
 
 impl OutputContent for MarkdownView {
-    fn clipboard_content(&self, _window: &Window, _cx: &App) -> Option<ClipboardItem> {
+    fn clipboard_content(&self, _cx: &WindowContext) -> Option<ClipboardItem> {
         Some(ClipboardItem::new_string(self.raw_text.clone()))
     }
 
-    fn has_clipboard_content(&self, _window: &Window, _cx: &App) -> bool {
+    fn has_clipboard_content(&self, _cx: &WindowContext) -> bool {
         true
     }
 
-    fn has_buffer_content(&self, _window: &Window, _cx: &App) -> bool {
+    fn has_buffer_content(&self, _cx: &WindowContext) -> bool {
         true
     }
 
-    fn buffer_content(&mut self, _: &mut Window, cx: &mut App) -> Option<Entity<Buffer>> {
-        let buffer = cx.new(|cx| {
-            // TODO: Bring in the language registry so we can set the language to markdown
+    fn buffer_content(&mut self, cx: &mut WindowContext) -> Option<Model<Buffer>> {
+        let buffer = cx.new_model(|cx| {
+            // todo!(): Bring in the language registry so we can set the language to markdown
             let mut buffer = Buffer::local(self.raw_text.clone(), cx)
                 .with_language(language::PLAIN_TEXT.clone(), cx);
             buffer.set_capability(language::Capability::ReadOnly, cx);
@@ -65,13 +68,13 @@ impl OutputContent for MarkdownView {
 }
 
 impl Render for MarkdownView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         let Some(parsed) = self.contents.as_ref() else {
             return div().into_any_element();
         };
 
         let mut markdown_render_context =
-            markdown_preview::markdown_renderer::RenderContext::new(None, window, cx);
+            markdown_preview::markdown_renderer::RenderContext::new(None, cx);
 
         v_flex()
             .gap_3()

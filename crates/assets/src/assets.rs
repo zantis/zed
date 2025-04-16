@@ -1,14 +1,13 @@
 // This crate was essentially pulled out verbatim from main `zed` crate to avoid having to run RustEmbed macro whenever zed has to be rebuilt. It saves a second or two on an incremental build.
 use anyhow::anyhow;
 
-use gpui::{App, AssetSource, Result, SharedString};
+use gpui::{AppContext, AssetSource, Result, SharedString};
 use rust_embed::RustEmbed;
 
 #[derive(RustEmbed)]
 #[folder = "../../assets"]
 #[include = "fonts/**/*"]
 #[include = "icons/**/*"]
-#[include = "images/**/*"]
 #[include = "themes/**/*"]
 #[exclude = "themes/src/*"]
 #[include = "sounds/**/*"]
@@ -39,7 +38,7 @@ impl AssetSource for Assets {
 
 impl Assets {
     /// Populate the [`TextSystem`] of the given [`AppContext`] with all `.ttf` fonts in the `fonts` directory.
-    pub fn load_fonts(&self, cx: &App) -> gpui::Result<()> {
+    pub fn load_fonts(&self, cx: &AppContext) -> gpui::Result<()> {
         let font_paths = self.list("fonts")?;
         let mut embedded_fonts = Vec::new();
         for font_path in font_paths {
@@ -55,13 +54,12 @@ impl Assets {
         cx.text_system().add_fonts(embedded_fonts)
     }
 
-    pub fn load_test_fonts(&self, cx: &App) {
+    pub fn load_test_fonts(&self, cx: &AppContext) {
         cx.text_system()
-            .add_fonts(vec![
-                self.load("fonts/plex-mono/ZedPlexMono-Regular.ttf")
-                    .unwrap()
-                    .unwrap(),
-            ])
+            .add_fonts(vec![self
+                .load("fonts/plex-mono/ZedPlexMono-Regular.ttf")
+                .unwrap()
+                .unwrap()])
             .unwrap()
     }
 }

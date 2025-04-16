@@ -66,15 +66,11 @@ impl Arena {
         where
             F: FnOnce() -> T,
         {
-            unsafe {
-                ptr::write(ptr, f());
-            }
+            ptr::write(ptr, f());
         }
 
         unsafe fn drop<T>(ptr: *mut u8) {
-            unsafe {
-                std::ptr::drop_in_place(ptr.cast::<T>());
-            }
+            std::ptr::drop_in_place(ptr.cast::<T>());
         }
 
         unsafe {
@@ -120,7 +116,6 @@ impl<T: ?Sized> ArenaBox<T> {
         }
     }
 
-    #[track_caller]
     fn validate(&self) {
         assert!(
             self.valid.get(),

@@ -5,8 +5,7 @@ description = "Convert HTML to Markdown"
 repository = "https://github.com/zed-industries/zed"
 documentation = "https://docs.rs/html_to_markdown"
 keywords = ["html", "markdown", "html-to-markdown"]
-edition.workspace = true
-publish = true
+edition = "2021"
 license = "Apache-2.0"
 
 [lints]
@@ -20,7 +19,6 @@ anyhow.workspace = true
 html5ever.workspace = true
 markup5ever_rcdom.workspace = true
 regex.workspace = true
-workspace-hack.workspace = true
 
 [dev-dependencies]
 indoc.workspace = true

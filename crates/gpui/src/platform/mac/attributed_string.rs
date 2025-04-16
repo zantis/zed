@@ -5,6 +5,7 @@ use objc::{class, msg_send, sel, sel_impl};
 /// The `cocoa` crate does not define NSAttributedString (and related Cocoa classes),
 /// which are needed for copying rich text (that is, text intermingled with images)
 /// to the clipboard. This adds access to those APIs.
+
 #[allow(non_snake_case)]
 pub trait NSAttributedString: Sized {
     unsafe fn alloc(_: Self) -> id {
@@ -69,7 +70,9 @@ mod tests {
 
         unsafe {
             let image: id = msg_send![class!(NSImage), alloc];
-            image.initWithContentsOfFile_(NSString::alloc(nil).init_str("test.jpeg"));
+            image.initWithContentsOfFile_(
+                NSString::alloc(nil).init_str("/Users/rtfeldman/Downloads/test.jpeg"),
+            );
             let _size = image.size();
 
             let string = NSString::alloc(nil).init_str("Test String");

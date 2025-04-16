@@ -1,14 +1,9 @@
-use std::fs;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 
-use anyhow::Result;
-use gpui::{
-    App, AppContext, Application, AssetSource, Bounds, Context, ImageSource, KeyBinding, Menu,
-    MenuItem, Point, SharedString, SharedUri, TitlebarOptions, Window, WindowBounds, WindowOptions,
-    actions, div, img, prelude::*, px, rgb, size,
-};
-use reqwest_client::ReqwestClient;
+use gpui::*;
+use std::fs;
 
 struct Assets {
     base: PathBuf,
@@ -53,87 +48,46 @@ impl ImageContainer {
 }
 
 impl RenderOnce for ImageContainer {
-    fn render(self, _window: &mut Window, _: &mut App) -> impl IntoElement {
+    fn render(self, _: &mut WindowContext) -> impl IntoElement {
         div().child(
             div()
                 .flex_row()
                 .size_full()
                 .gap_4()
                 .child(self.text)
-                .child(img(self.src).size(px(256.0))),
+                .child(img(self.src).w(px(256.0)).h(px(256.0))),
         )
     }
 }
 
 struct ImageShowcase {
-    local_resource: Arc<std::path::Path>,
+    local_resource: Arc<PathBuf>,
     remote_resource: SharedUri,
     asset_resource: SharedString,
 }
 
 impl Render for ImageShowcase {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _cx: &mut ViewContext<Self>) -> impl IntoElement {
         div()
-            .id("main")
-            .overflow_y_scroll()
-            .p_5()
-            .size_full()
             .flex()
-            .flex_col()
+            .flex_row()
+            .size_full()
             .justify_center()
             .items_center()
             .gap_8()
-            .bg(rgb(0xffffff))
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .justify_center()
-                    .items_center()
-                    .gap_8()
-                    .child(ImageContainer::new(
-                        "Image loaded from a local file",
-                        self.local_resource.clone(),
-                    ))
-                    .child(ImageContainer::new(
-                        "Image loaded from a remote resource",
-                        self.remote_resource.clone(),
-                    ))
-                    .child(ImageContainer::new(
-                        "Image loaded from an asset",
-                        self.asset_resource.clone(),
-                    )),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .gap_8()
-                    .child(
-                        div()
-                            .flex_col()
-                            .child("Auto Width")
-                            .child(img("https://picsum.photos/800/400").h(px(180.))),
-                    )
-                    .child(
-                        div()
-                            .flex_col()
-                            .child("Auto Height")
-                            .child(img("https://picsum.photos/800/400").w(px(180.))),
-                    ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .justify_center()
-                    .items_center()
-                    .w_full()
-                    .border_1()
-                    .border_color(rgb(0xC0C0C0))
-                    .child("image with max width 100%")
-                    .child(img("https://picsum.photos/800/400").max_w_full()),
-            )
+            .bg(rgb(0xFFFFFF))
+            .child(ImageContainer::new(
+                "Image loaded from a local file",
+                self.local_resource.clone(),
+            ))
+            .child(ImageContainer::new(
+                "Image loaded from a remote resource",
+                self.remote_resource.clone(),
+            ))
+            .child(ImageContainer::new(
+                "Image loaded from an asset",
+                self.asset_resource.clone(),
+            ))
     }
 }
 
@@ -142,16 +96,11 @@ actions!(image, [Quit]);
 fn main() {
     env_logger::init();
 
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-
-    Application::new()
+    App::new()
         .with_assets(Assets {
-            base: manifest_dir.join("examples"),
+            base: PathBuf::from("crates/gpui/examples"),
         })
-        .run(move |cx: &mut App| {
-            let http_client = ReqwestClient::user_agent("gpui example").unwrap();
-            cx.set_http_client(Arc::new(http_client));
-
+        .run(|cx: &mut AppContext| {
             cx.activate(true);
             cx.on_action(|_: &Quit, cx| cx.quit());
             cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
@@ -175,12 +124,14 @@ fn main() {
                 ..Default::default()
             };
 
-            cx.open_window(window_options, |_, cx| {
-                cx.new(|_| ImageShowcase {
+            cx.open_window(window_options, |cx| {
+                cx.new_view(|_cx| ImageShowcase {
                     // Relative path to your root project path
-                    local_resource: manifest_dir.join("examples/image/app-icon.png").into(),
-                    remote_resource: "https://picsum.photos/800/400".into(),
-                    asset_resource: "image/color.svg".into(),
+                    local_resource: Arc::new(
+                        PathBuf::from_str("crates/gpui/examples/image/app-icon.png").unwrap(),
+                    ),
+                    remote_resource: "https://picsum.photos/512/512".into(),
+                    asset_resource: "image/app-icon.png".into(),
                 })
             })
             .unwrap();

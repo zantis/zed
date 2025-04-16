@@ -5,13 +5,15 @@ pub use supermaven_completion_provider::*;
 
 use anyhow::{Context as _, Result};
 #[allow(unused_imports)]
-use client::{Client, proto};
+use client::{proto, Client};
 use collections::BTreeMap;
 
-use futures::{AsyncBufReadExt, StreamExt, channel::mpsc, io::BufReader};
-use gpui::{App, AsyncApp, Context, Entity, EntityId, Global, Task, WeakEntity, actions};
+use futures::{channel::mpsc, io::BufReader, AsyncBufReadExt, StreamExt};
+use gpui::{
+    actions, AppContext, AsyncAppContext, EntityId, Global, Model, ModelContext, Task, WeakModel,
+};
 use language::{
-    Anchor, Buffer, BufferSnapshot, ToOffset, language_settings::all_language_settings,
+    language_settings::all_language_settings, Anchor, Buffer, BufferSnapshot, ToOffset,
 };
 use messages::*;
 use postage::watch;
@@ -19,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use settings::SettingsStore;
 use smol::{
     io::AsyncWriteExt,
-    process::{Child, ChildStdin, ChildStdout},
+    process::{Child, ChildStdin, ChildStdout, Command},
 };
 use std::{path::PathBuf, process::Stdio, sync::Arc};
 use ui::prelude::*;
@@ -27,20 +29,20 @@ use util::ResultExt;
 
 actions!(supermaven, [SignOut]);
 
-pub fn init(client: Arc<Client>, cx: &mut App) {
-    let supermaven = cx.new(|_| Supermaven::Starting);
+pub fn init(client: Arc<Client>, cx: &mut AppContext) {
+    let supermaven = cx.new_model(|_| Supermaven::Starting);
     Supermaven::set_global(supermaven.clone(), cx);
 
-    let mut provider = all_language_settings(None, cx).edit_predictions.provider;
-    if provider == language::language_settings::EditPredictionProvider::Supermaven {
+    let mut provider = all_language_settings(None, cx).inline_completions.provider;
+    if provider == language::language_settings::InlineCompletionProvider::Supermaven {
         supermaven.update(cx, |supermaven, cx| supermaven.start(client.clone(), cx));
     }
 
     cx.observe_global::<SettingsStore>(move |cx| {
-        let new_provider = all_language_settings(None, cx).edit_predictions.provider;
+        let new_provider = all_language_settings(None, cx).inline_completions.provider;
         if new_provider != provider {
             provider = new_provider;
-            if provider == language::language_settings::EditPredictionProvider::Supermaven {
+            if provider == language::language_settings::InlineCompletionProvider::Supermaven {
                 supermaven.update(cx, |supermaven, cx| supermaven.start(client.clone(), cx));
             } else {
                 supermaven.update(cx, |supermaven, _cx| supermaven.stop());
@@ -71,27 +73,27 @@ pub enum AccountStatus {
 }
 
 #[derive(Clone)]
-struct SupermavenGlobal(Entity<Supermaven>);
+struct SupermavenGlobal(Model<Supermaven>);
 
 impl Global for SupermavenGlobal {}
 
 impl Supermaven {
-    pub fn global(cx: &App) -> Option<Entity<Self>> {
+    pub fn global(cx: &AppContext) -> Option<Model<Self>> {
         cx.try_global::<SupermavenGlobal>()
             .map(|model| model.0.clone())
     }
 
-    pub fn set_global(supermaven: Entity<Self>, cx: &mut App) {
+    pub fn set_global(supermaven: Model<Self>, cx: &mut AppContext) {
         cx.set_global(SupermavenGlobal(supermaven));
     }
 
-    pub fn start(&mut self, client: Arc<Client>, cx: &mut Context<Self>) {
+    pub fn start(&mut self, client: Arc<Client>, cx: &mut ModelContext<Self>) {
         if let Self::Starting = self {
-            cx.spawn(async move |this, cx| {
+            cx.spawn(|this, mut cx| async move {
                 let binary_path =
                     supermaven_api::get_supermaven_agent_path(client.http_client()).await?;
 
-                this.update(cx, |this, cx| {
+                this.update(&mut cx, |this, cx| {
                     if let Self::Starting = this {
                         *this =
                             Self::Spawned(SupermavenAgent::new(binary_path, client.clone(), cx)?);
@@ -113,9 +115,9 @@ impl Supermaven {
 
     pub fn complete(
         &mut self,
-        buffer: &Entity<Buffer>,
+        buffer: &Model<Buffer>,
         cursor_position: Anchor,
-        cx: &App,
+        cx: &AppContext,
     ) -> Option<SupermavenCompletion> {
         if let Self::Spawned(agent) = self {
             let buffer_id = buffer.entity_id();
@@ -139,20 +141,11 @@ impl Supermaven {
                 SupermavenCompletionState {
                     buffer_id,
                     prefix_anchor: cursor_position,
-                    prefix_offset: offset,
                     text: String::new(),
                     dedent: String::new(),
                     updates_tx,
                 },
             );
-            // ensure the states map is max 1000 elements
-            if agent.states.len() > 1000 {
-                // state id is monotonic so it's sufficient to remove the first element
-                agent
-                    .states
-                    .remove(&agent.states.keys().next().unwrap().clone());
-            }
-
             let _ = agent
                 .outgoing_tx
                 .unbounded_send(OutboundMessage::StateUpdate(StateUpdateMessage {
@@ -177,9 +170,9 @@ impl Supermaven {
 
     pub fn completion(
         &self,
-        buffer: &Entity<Buffer>,
+        buffer: &Model<Buffer>,
         cursor_position: Anchor,
-        cx: &App,
+        cx: &AppContext,
     ) -> Option<&str> {
         if let Self::Spawned(agent) = self {
             find_relevant_completion(
@@ -223,11 +216,11 @@ fn find_relevant_completion<'a>(
         };
 
         let current_cursor_offset = cursor_position.to_offset(buffer);
-        if current_cursor_offset < state.prefix_offset {
+        let original_cursor_offset = state.prefix_anchor.to_offset(buffer);
+        if current_cursor_offset < original_cursor_offset {
             continue;
         }
 
-        let original_cursor_offset = buffer.clip_offset(state.prefix_offset, text::Bias::Left);
         let text_inserted_since_completion_request =
             buffer.text_for_range(original_cursor_offset..current_cursor_offset);
         let mut trimmed_completion = state_completion;
@@ -265,16 +258,23 @@ impl SupermavenAgent {
     fn new(
         binary_path: PathBuf,
         client: Arc<Client>,
-        cx: &mut Context<Supermaven>,
+        cx: &mut ModelContext<Supermaven>,
     ) -> Result<Self> {
-        let mut process = util::command::new_smol_command(&binary_path)
+        let mut process = Command::new(&binary_path);
+        process
             .arg("stdio")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .context("failed to start the binary")?;
+            .kill_on_drop(true);
+
+        #[cfg(target_os = "windows")]
+        {
+            use smol::process::windows::CommandExt;
+            process.creation_flags(windows::Win32::System::Threading::CREATE_NO_WINDOW.0);
+        }
+
+        let mut process = process.spawn().context("failed to start the binary")?;
 
         let stdin = process
             .stdin
@@ -290,7 +290,7 @@ impl SupermavenAgent {
         cx.spawn({
             let client = client.clone();
             let outgoing_tx = outgoing_tx.clone();
-            async move |this, cx| {
+            move |this, mut cx| async move {
                 let mut status = client.status();
                 while let Some(status) = status.next().await {
                     if status.is_connected() {
@@ -298,7 +298,7 @@ impl SupermavenAgent {
                         outgoing_tx
                             .unbounded_send(OutboundMessage::SetApiKey(SetApiKey { api_key }))
                             .ok();
-                        this.update(cx, |this, cx| {
+                        this.update(&mut cx, |this, cx| {
                             if let Supermaven::Spawned(this) = this {
                                 this.account_status = AccountStatus::Ready;
                                 cx.notify();
@@ -317,12 +317,10 @@ impl SupermavenAgent {
             next_state_id: SupermavenCompletionStateId::default(),
             states: BTreeMap::default(),
             outgoing_tx,
-            _handle_outgoing_messages: cx.spawn(async move |_, _cx| {
-                Self::handle_outgoing_messages(outgoing_rx, stdin).await
-            }),
-            _handle_incoming_messages: cx.spawn(async move |this, cx| {
-                Self::handle_incoming_messages(this, stdout, cx).await
-            }),
+            _handle_outgoing_messages: cx
+                .spawn(|_, _cx| Self::handle_outgoing_messages(outgoing_rx, stdin)),
+            _handle_incoming_messages: cx
+                .spawn(|this, cx| Self::handle_incoming_messages(this, stdout, cx)),
             account_status: AccountStatus::Unknown,
             service_tier: None,
             client,
@@ -342,9 +340,9 @@ impl SupermavenAgent {
     }
 
     async fn handle_incoming_messages(
-        this: WeakEntity<Supermaven>,
+        this: WeakModel<Supermaven>,
         stdout: ChildStdout,
-        cx: &mut AsyncApp,
+        mut cx: AsyncAppContext,
     ) -> Result<()> {
         const MESSAGE_PREFIX: &str = "SM-MESSAGE ";
 
@@ -364,7 +362,7 @@ impl SupermavenAgent {
                 continue;
             };
 
-            this.update(cx, |this, _cx| {
+            this.update(&mut cx, |this, _cx| {
                 if let Supermaven::Spawned(this) = this {
                     this.handle_message(message);
                 }
@@ -421,9 +419,6 @@ pub struct SupermavenCompletionStateId(usize);
 pub struct SupermavenCompletionState {
     buffer_id: EntityId,
     prefix_anchor: Anchor,
-    // prefix_offset is tracked independently because the anchor biases left which
-    // doesn't allow us to determine if the prior text has been deleted.
-    prefix_offset: usize,
     text: String,
     dedent: String,
     updates_tx: watch::Sender<()>,

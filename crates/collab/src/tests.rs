@@ -2,16 +2,15 @@ use std::sync::Arc;
 
 use call::Room;
 use client::ChannelId;
-use gpui::{Entity, TestAppContext};
+use gpui::{Model, TestAppContext};
 
 mod channel_buffer_tests;
 mod channel_guest_tests;
 mod channel_message_tests;
 mod channel_tests;
-// mod debug_panel_tests;
+mod dev_server_tests;
 mod editor_tests;
 mod following_tests;
-mod git_tests;
 mod integration_tests;
 mod notification_tests;
 mod random_channel_buffer_tests;
@@ -20,9 +19,9 @@ mod randomized_test_helpers;
 mod remote_editing_collaboration_tests;
 mod test_server;
 
-use language::{Language, LanguageConfig, LanguageMatcher, tree_sitter_rust};
+use language::{tree_sitter_rust, Language, LanguageConfig, LanguageMatcher};
 pub use randomized_test_helpers::{
-    RandomizedTest, TestError, UserTestPlan, run_randomized_test, save_randomized_test_plan,
+    run_randomized_test, save_randomized_test_plan, RandomizedTest, TestError, UserTestPlan,
 };
 pub use test_server::{TestClient, TestServer};
 
@@ -32,7 +31,7 @@ struct RoomParticipants {
     pending: Vec<String>,
 }
 
-fn room_participants(room: &Entity<Room>, cx: &mut TestAppContext) -> RoomParticipants {
+fn room_participants(room: &Model<Room>, cx: &mut TestAppContext) -> RoomParticipants {
     room.read_with(cx, |room, _| {
         let mut remote = room
             .remote_participants()
@@ -50,7 +49,7 @@ fn room_participants(room: &Entity<Room>, cx: &mut TestAppContext) -> RoomPartic
     })
 }
 
-fn channel_id(room: &Entity<Room>, cx: &mut TestAppContext) -> Option<ChannelId> {
+fn channel_id(room: &Model<Room>, cx: &mut TestAppContext) -> Option<ChannelId> {
     cx.read(|cx| room.read(cx).channel_id())
 }
 
@@ -64,6 +63,6 @@ fn rust_lang() -> Arc<Language> {
             },
             ..Default::default()
         },
-        Some(tree_sitter_rust::LANGUAGE.into()),
+        Some(tree_sitter_rust::language()),
     ))
 }

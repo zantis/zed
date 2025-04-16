@@ -1,8 +1,8 @@
-use editor::{Bias, Editor, scroll::Autoscroll, styled_runs_for_code_label};
+use editor::{scroll::Autoscroll, styled_runs_for_code_label, Bias, Editor};
 use fuzzy::{StringMatch, StringMatchCandidate};
 use gpui::{
-    App, Context, DismissEvent, Entity, FontWeight, ParentElement, StyledText, Task, WeakEntity,
-    Window, rems,
+    rems, AppContext, DismissEvent, FontWeight, Model, ParentElement, StyledText, Task, View,
+    ViewContext, WeakView, WindowContext,
 };
 use ordered_float::OrderedFloat;
 use picker::{Picker, PickerDelegate};
@@ -11,33 +11,31 @@ use std::{borrow::Cow, cmp::Reverse, sync::Arc};
 use theme::ActiveTheme;
 use util::ResultExt;
 use workspace::{
+    ui::{v_flex, Color, Label, LabelCommon, LabelLike, ListItem, ListItemSpacing, Selectable},
     Workspace,
-    ui::{Color, Label, LabelCommon, LabelLike, ListItem, ListItemSpacing, Toggleable, v_flex},
 };
 
-pub fn init(cx: &mut App) {
-    cx.observe_new(
-        |workspace: &mut Workspace, _window, _: &mut Context<Workspace>| {
-            workspace.register_action(
-                |workspace, _: &workspace::ToggleProjectSymbols, window, cx| {
-                    let project = workspace.project().clone();
-                    let handle = cx.entity().downgrade();
-                    workspace.toggle_modal(window, cx, move |window, cx| {
-                        let delegate = ProjectSymbolsDelegate::new(handle, project);
-                        Picker::uniform_list(delegate, window, cx).width(rems(34.))
-                    })
-                },
-            );
+pub fn init(cx: &mut AppContext) {
+    cx.observe_new_views(
+        |workspace: &mut Workspace, _: &mut ViewContext<Workspace>| {
+            workspace.register_action(|workspace, _: &workspace::ToggleProjectSymbols, cx| {
+                let project = workspace.project().clone();
+                let handle = cx.view().downgrade();
+                workspace.toggle_modal(cx, move |cx| {
+                    let delegate = ProjectSymbolsDelegate::new(handle, project);
+                    Picker::uniform_list(delegate, cx).width(rems(34.))
+                })
+            });
         },
     )
     .detach();
 }
 
-pub type ProjectSymbols = Entity<Picker<ProjectSymbolsDelegate>>;
+pub type ProjectSymbols = View<Picker<ProjectSymbolsDelegate>>;
 
 pub struct ProjectSymbolsDelegate {
-    workspace: WeakEntity<Workspace>,
-    project: Entity<Project>,
+    workspace: WeakView<Workspace>,
+    project: Model<Project>,
     selected_match_index: usize,
     symbols: Vec<Symbol>,
     visible_match_candidates: Vec<StringMatchCandidate>,
@@ -47,7 +45,7 @@ pub struct ProjectSymbolsDelegate {
 }
 
 impl ProjectSymbolsDelegate {
-    fn new(workspace: WeakEntity<Workspace>, project: Entity<Project>) -> Self {
+    fn new(workspace: WeakView<Workspace>, project: Model<Project>) -> Self {
         Self {
             workspace,
             project,
@@ -60,7 +58,7 @@ impl ProjectSymbolsDelegate {
         }
     }
 
-    fn filter(&mut self, query: &str, window: &mut Window, cx: &mut Context<Picker<Self>>) {
+    fn filter(&mut self, query: &str, cx: &mut ViewContext<Picker<Self>>) {
         const MAX_MATCHES: usize = 100;
         let mut visible_matches = cx.background_executor().block(fuzzy::match_strings(
             &self.visible_match_candidates,
@@ -80,7 +78,10 @@ impl ProjectSymbolsDelegate {
         ));
         let sort_key_for_match = |mat: &StringMatch| {
             let symbol = &self.symbols[mat.candidate_id];
-            (Reverse(OrderedFloat(mat.score)), symbol.label.filter_text())
+            (
+                Reverse(OrderedFloat(mat.score)),
+                &symbol.label.text[symbol.label.filter_range.clone()],
+            )
         };
 
         visible_matches.sort_unstable_by_key(sort_key_for_match);
@@ -97,17 +98,17 @@ impl ProjectSymbolsDelegate {
         }
 
         self.matches = matches;
-        self.set_selected_index(0, window, cx);
+        self.set_selected_index(0, cx);
     }
 }
 
 impl PickerDelegate for ProjectSymbolsDelegate {
     type ListItem = ListItem;
-    fn placeholder_text(&self, _window: &mut Window, _cx: &mut App) -> Arc<str> {
+    fn placeholder_text(&self, _cx: &mut WindowContext) -> Arc<str> {
         "Search project symbols...".into()
     }
 
-    fn confirm(&mut self, secondary: bool, window: &mut Window, cx: &mut Context<Picker<Self>>) {
+    fn confirm(&mut self, secondary: bool, cx: &mut ViewContext<Picker<Self>>) {
         if let Some(symbol) = self
             .matches
             .get(self.selected_match_index)
@@ -118,23 +119,23 @@ impl PickerDelegate for ProjectSymbolsDelegate {
             });
             let symbol = symbol.clone();
             let workspace = self.workspace.clone();
-            cx.spawn_in(window, async move |_, cx| {
+            cx.spawn(|_, mut cx| async move {
                 let buffer = buffer.await?;
-                workspace.update_in(cx, |workspace, window, cx| {
+                workspace.update(&mut cx, |workspace, cx| {
                     let position = buffer
                         .read(cx)
                         .clip_point_utf16(symbol.range.start, Bias::Left);
                     let pane = if secondary {
-                        workspace.adjacent_pane(window, cx)
+                        workspace.adjacent_pane(cx)
                     } else {
                         workspace.active_pane().clone()
                     };
 
                     let editor =
-                        workspace.open_project_item::<Editor>(pane, buffer, true, true, window, cx);
+                        workspace.open_project_item::<Editor>(pane, buffer, true, true, cx);
 
                     editor.update(cx, |editor, cx| {
-                        editor.change_selections(Some(Autoscroll::center()), window, cx, |s| {
+                        editor.change_selections(Some(Autoscroll::center()), cx, |s| {
                             s.select_ranges([position..position])
                         });
                     });
@@ -146,7 +147,7 @@ impl PickerDelegate for ProjectSymbolsDelegate {
         }
     }
 
-    fn dismissed(&mut self, _window: &mut Window, _cx: &mut Context<Picker<Self>>) {}
+    fn dismissed(&mut self, _cx: &mut ViewContext<Picker<Self>>) {}
 
     fn match_count(&self) -> usize {
         self.matches.len()
@@ -156,37 +157,30 @@ impl PickerDelegate for ProjectSymbolsDelegate {
         self.selected_match_index
     }
 
-    fn set_selected_index(
-        &mut self,
-        ix: usize,
-        _window: &mut Window,
-        _cx: &mut Context<Picker<Self>>,
-    ) {
+    fn set_selected_index(&mut self, ix: usize, _cx: &mut ViewContext<Picker<Self>>) {
         self.selected_match_index = ix;
     }
 
-    fn update_matches(
-        &mut self,
-        query: String,
-        window: &mut Window,
-        cx: &mut Context<Picker<Self>>,
-    ) -> Task<()> {
-        self.filter(&query, window, cx);
+    fn update_matches(&mut self, query: String, cx: &mut ViewContext<Picker<Self>>) -> Task<()> {
+        self.filter(&query, cx);
         self.show_worktree_root_name = self.project.read(cx).visible_worktrees(cx).count() > 1;
         let symbols = self
             .project
             .update(cx, |project, cx| project.symbols(&query, cx));
-        cx.spawn_in(window, async move |this, cx| {
+        cx.spawn(|this, mut cx| async move {
             let symbols = symbols.await.log_err();
             if let Some(symbols) = symbols {
-                this.update_in(cx, |this, window, cx| {
+                this.update(&mut cx, |this, cx| {
                     let delegate = &mut this.delegate;
                     let project = delegate.project.read(cx);
                     let (visible_match_candidates, external_match_candidates) = symbols
                         .iter()
                         .enumerate()
                         .map(|(id, symbol)| {
-                            StringMatchCandidate::new(id, &symbol.label.filter_text())
+                            StringMatchCandidate::new(
+                                id,
+                                symbol.label.text[symbol.label.filter_range.clone()].to_string(),
+                            )
                         })
                         .partition(|candidate| {
                             project
@@ -197,7 +191,7 @@ impl PickerDelegate for ProjectSymbolsDelegate {
                     delegate.visible_match_candidates = visible_match_candidates;
                     delegate.external_match_candidates = external_match_candidates;
                     delegate.symbols = symbols;
-                    delegate.filter(&query, window, cx);
+                    delegate.filter(&query, cx);
                 })
                 .log_err();
             }
@@ -208,8 +202,7 @@ impl PickerDelegate for ProjectSymbolsDelegate {
         &self,
         ix: usize,
         selected: bool,
-        window: &mut Window,
-        cx: &mut Context<Picker<Self>>,
+        cx: &mut ViewContext<Picker<Self>>,
     ) -> Option<Self::ListItem> {
         let string_match = &self.matches[ix];
         let symbol = &self.symbols[string_match.candidate_id];
@@ -247,15 +240,13 @@ impl PickerDelegate for ProjectSymbolsDelegate {
             ListItem::new(ix)
                 .inset(true)
                 .spacing(ListItemSpacing::Sparse)
-                .toggle_state(selected)
+                .selected(selected)
                 .child(
                     v_flex()
                         .child(
                             LabelLike::new().child(
-                                StyledText::new(label).with_default_highlights(
-                                    &window.text_style().clone(),
-                                    highlights,
-                                ),
+                                StyledText::new(label)
+                                    .with_highlights(&cx.text_style().clone(), highlights),
                             ),
                         )
                         .child(Label::new(path).color(Color::Muted)),
@@ -270,22 +261,19 @@ mod tests {
     use futures::StreamExt;
     use gpui::{SemanticVersion, TestAppContext, VisualContext};
     use language::{FakeLspAdapter, Language, LanguageConfig, LanguageMatcher};
-    use lsp::OneOf;
     use project::FakeFs;
     use serde_json::json;
     use settings::SettingsStore;
     use std::{path::Path, sync::Arc};
-    use util::path;
 
     #[gpui::test]
     async fn test_project_symbols(cx: &mut TestAppContext) {
         init_test(cx);
 
         let fs = FakeFs::new(cx.executor());
-        fs.insert_tree(path!("/dir"), json!({ "test.rs": "" }))
-            .await;
+        fs.insert_tree("/dir", json!({ "test.rs": "" })).await;
 
-        let project = Project::test(fs.clone(), [path!("/dir").as_ref()], cx).await;
+        let project = Project::test(fs.clone(), ["/dir".as_ref()], cx).await;
 
         let language_registry = project.read_with(cx, |project, _| project.languages().clone());
         language_registry.add(Arc::new(Language::new(
@@ -299,20 +287,12 @@ mod tests {
             },
             None,
         )));
-        let mut fake_servers = language_registry.register_fake_lsp(
-            "Rust",
-            FakeLspAdapter {
-                capabilities: lsp::ServerCapabilities {
-                    workspace_symbol_provider: Some(OneOf::Left(true)),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-        );
+        let mut fake_servers =
+            language_registry.register_fake_lsp_adapter("Rust", FakeLspAdapter::default());
 
         let _buffer = project
             .update(cx, |project, cx| {
-                project.open_local_buffer_with_lsp(path!("/dir/test.rs"), cx)
+                project.open_local_buffer("/dir/test.rs", cx)
             })
             .await
             .unwrap();
@@ -320,12 +300,12 @@ mod tests {
         // Set up fake language server to return fuzzy matches against
         // a fixed set of symbol names.
         let fake_symbols = [
-            symbol("one", path!("/external")),
-            symbol("ton", path!("/dir/test.rs")),
-            symbol("uno", path!("/dir/test.rs")),
+            symbol("one", "/external"),
+            symbol("ton", "/dir/test.rs"),
+            symbol("uno", "/dir/test.rs"),
         ];
         let fake_server = fake_servers.next().await.unwrap();
-        fake_server.set_request_handler::<lsp::WorkspaceSymbolRequest, _, _>(
+        fake_server.handle_request::<lsp::WorkspaceSymbolRequest, _, _>(
             move |params: lsp::WorkspaceSymbolParams, cx| {
                 let executor = cx.background_executor().clone();
                 let fake_symbols = fake_symbols.clone();
@@ -333,7 +313,7 @@ mod tests {
                     let candidates = fake_symbols
                         .iter()
                         .enumerate()
-                        .map(|(id, symbol)| StringMatchCandidate::new(id, &symbol.name))
+                        .map(|(id, symbol)| StringMatchCandidate::new(id, symbol.name.clone()))
                         .collect::<Vec<_>>();
                     let matches = if params.query.is_empty() {
                         Vec::new()
@@ -359,14 +339,12 @@ mod tests {
             },
         );
 
-        let (workspace, cx) =
-            cx.add_window_view(|window, cx| Workspace::test_new(project.clone(), window, cx));
+        let (workspace, cx) = cx.add_window_view(|cx| Workspace::test_new(project.clone(), cx));
 
         // Create the project symbols view.
-        let symbols = cx.new_window_entity(|window, cx| {
+        let symbols = cx.new_view(|cx| {
             Picker::uniform_list(
                 ProjectSymbolsDelegate::new(workspace.downgrade(), project.clone()),
-                window,
                 cx,
             )
         });
@@ -374,10 +352,10 @@ mod tests {
         // Spawn multiples updates before the first update completes,
         // such that in the end, there are no matches. Testing for regression:
         // https://github.com/zed-industries/zed/issues/861
-        symbols.update_in(cx, |p, window, cx| {
-            p.update_matches("o".to_string(), window, cx);
-            p.update_matches("on".to_string(), window, cx);
-            p.update_matches("onex".to_string(), window, cx);
+        symbols.update(cx, |p, cx| {
+            p.update_matches("o".to_string(), cx);
+            p.update_matches("on".to_string(), cx);
+            p.update_matches("onex".to_string(), cx);
         });
 
         cx.run_until_parked();
@@ -386,9 +364,9 @@ mod tests {
         });
 
         // Spawn more updates such that in the end, there are matches.
-        symbols.update_in(cx, |p, window, cx| {
-            p.update_matches("one".to_string(), window, cx);
-            p.update_matches("on".to_string(), window, cx);
+        symbols.update(cx, |p, cx| {
+            p.update_matches("one".to_string(), cx);
+            p.update_matches("on".to_string(), cx);
         });
 
         cx.run_until_parked();
@@ -400,9 +378,9 @@ mod tests {
         });
 
         // Spawn more updates such that in the end, there are again no matches.
-        symbols.update_in(cx, |p, window, cx| {
-            p.update_matches("o".to_string(), window, cx);
-            p.update_matches("".to_string(), window, cx);
+        symbols.update(cx, |p, cx| {
+            p.update_matches("o".to_string(), cx);
+            p.update_matches("".to_string(), cx);
         });
 
         cx.run_until_parked();

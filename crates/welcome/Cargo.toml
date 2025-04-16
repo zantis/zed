@@ -1,8 +1,8 @@
 [package]
 name = "welcome"
 version = "0.1.0"
-edition.workspace = true
-publish.workspace = true
+edition = "2021"
+publish = false
 license = "GPL-3.0-or-later"
 
 [lints]
@@ -17,23 +17,22 @@ test-support = []
 [dependencies]
 anyhow.workspace = true
 client.workspace = true
+inline_completion_button.workspace = true
 db.workspace = true
+extensions_ui.workspace = true
 fuzzy.workspace = true
 gpui.workspace = true
 install_cli.workspace = true
-language.workspace = true
 picker.workspace = true
 project.workspace = true
 schemars.workspace = true
 serde.workspace = true
 settings.workspace = true
-telemetry.workspace = true
+theme_selector.workspace = true
 ui.workspace = true
 util.workspace = true
-vim_mode_setting.workspace = true
+vim.workspace = true
 workspace.workspace = true
-zed_actions.workspace = true
-workspace-hack.workspace = true
 
 [dev-dependencies]
 editor = { workspace = true, features = ["test-support"] }

@@ -2,9 +2,9 @@ use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
 use syn::{
-    Token, Visibility, braced,
+    braced,
     parse::{Parse, ParseStream, Result},
-    parse_macro_input,
+    parse_macro_input, Token, Visibility,
 };
 
 #[derive(Debug)]
@@ -271,20 +271,6 @@ pub fn cursor_style_methods(input: TokenStream) -> TokenStream {
             self
         }
 
-        /// Sets cursor style when hovering over an element to `nesw-resize`.
-        /// [Docs](https://tailwindcss.com/docs/cursor)
-        #visibility fn cursor_nesw_resize(mut self) -> Self {
-            self.style().mouse_cursor = Some(gpui::CursorStyle::ResizeUpRightDownLeft);
-            self
-        }
-
-        /// Sets cursor style when hovering over an element to `nwse-resize`.
-        /// [Docs](https://tailwindcss.com/docs/cursor)
-        #visibility fn cursor_nwse_resize(mut self) -> Self {
-            self.style().mouse_cursor = Some(gpui::CursorStyle::ResizeUpLeftDownRight);
-            self
-        }
-
         /// Sets cursor style when hovering over an element to `col-resize`.
         /// [Docs](https://tailwindcss.com/docs/cursor)
         #visibility fn cursor_col_resize(mut self) -> Self {
@@ -324,13 +310,6 @@ pub fn cursor_style_methods(input: TokenStream) -> TokenStream {
         /// [Docs](https://tailwindcss.com/docs/cursor)
         #visibility fn cursor_w_resize(mut self) -> Self {
             self.style().mouse_cursor = Some(gpui::CursorStyle::ResizeLeft);
-            self
-        }
-
-        /// Sets cursor style when hovering over an element to `none`.
-        /// [Docs](https://tailwindcss.com/docs/cursor)
-        #visibility fn cursor_none(mut self, cursor: CursorStyle) -> Self {
-            self.style().mouse_cursor = Some(gpui::CursorStyle::None);
             self
         }
     };
@@ -1240,19 +1219,14 @@ fn corner_suffixes() -> Vec<CornerStyleSuffix> {
             doc_string_suffix: "0px",
         },
         CornerStyleSuffix {
-            suffix: "xs",
+            suffix: "sm",
             radius_tokens: quote! { rems(0.125) },
             doc_string_suffix: "2px (0.125rem)",
         },
         CornerStyleSuffix {
-            suffix: "sm",
+            suffix: "md",
             radius_tokens: quote! { rems(0.25) },
             doc_string_suffix: "4px (0.25rem)",
-        },
-        CornerStyleSuffix {
-            suffix: "md",
-            radius_tokens: quote! { rems(0.375) },
-            doc_string_suffix: "6px (0.375rem)",
         },
         CornerStyleSuffix {
             suffix: "lg",
@@ -1292,27 +1266,27 @@ fn border_prefixes() -> Vec<BorderStylePrefix> {
                 quote! { border_widths.bottom },
                 quote! { border_widths.left },
             ],
-            doc_string_prefix: "Sets the border width of the element. [Docs](https://tailwindcss.com/docs/border-width)",
+            doc_string_prefix: "Sets the border width of the element. [Docs](https://tailwindcss.com/docs/border-width)"
         },
         BorderStylePrefix {
             prefix: "border_t",
             fields: vec![quote! { border_widths.top }],
-            doc_string_prefix: "Sets the border width of the top side of the element. [Docs](https://tailwindcss.com/docs/border-width#individual-sides)",
+            doc_string_prefix: "Sets the border width of the top side of the element. [Docs](https://tailwindcss.com/docs/border-width#individual-sides)"
         },
         BorderStylePrefix {
             prefix: "border_b",
             fields: vec![quote! { border_widths.bottom }],
-            doc_string_prefix: "Sets the border width of the bottom side of the element. [Docs](https://tailwindcss.com/docs/border-width#individual-sides)",
+            doc_string_prefix: "Sets the border width of the bottom side of the element. [Docs](https://tailwindcss.com/docs/border-width#individual-sides)"
         },
         BorderStylePrefix {
             prefix: "border_r",
             fields: vec![quote! { border_widths.right }],
-            doc_string_prefix: "Sets the border width of the right side of the element. [Docs](https://tailwindcss.com/docs/border-width#individual-sides)",
+            doc_string_prefix: "Sets the border width of the right side of the element. [Docs](https://tailwindcss.com/docs/border-width#individual-sides)"
         },
         BorderStylePrefix {
             prefix: "border_l",
             fields: vec![quote! { border_widths.left }],
-            doc_string_prefix: "Sets the border width of the left side of the element. [Docs](https://tailwindcss.com/docs/border-width#individual-sides)",
+            doc_string_prefix: "Sets the border width of the left side of the element. [Docs](https://tailwindcss.com/docs/border-width#individual-sides)"
         },
         BorderStylePrefix {
             prefix: "border_x",
@@ -1320,7 +1294,7 @@ fn border_prefixes() -> Vec<BorderStylePrefix> {
                 quote! { border_widths.left },
                 quote! { border_widths.right },
             ],
-            doc_string_prefix: "Sets the border width of the vertical sides of the element. [Docs](https://tailwindcss.com/docs/border-width#horizontal-and-vertical-sides)",
+            doc_string_prefix: "Sets the border width of the vertical sides of the element. [Docs](https://tailwindcss.com/docs/border-width#horizontal-and-vertical-sides)"
         },
         BorderStylePrefix {
             prefix: "border_y",
@@ -1328,7 +1302,7 @@ fn border_prefixes() -> Vec<BorderStylePrefix> {
                 quote! { border_widths.top },
                 quote! { border_widths.bottom },
             ],
-            doc_string_prefix: "Sets the border width of the horizontal sides of the element. [Docs](https://tailwindcss.com/docs/border-width#horizontal-and-vertical-sides)",
+            doc_string_prefix: "Sets the border width of the horizontal sides of the element. [Docs](https://tailwindcss.com/docs/border-width#horizontal-and-vertical-sides)"
         },
     ]
 }

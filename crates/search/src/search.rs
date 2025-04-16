@@ -1,20 +1,19 @@
 use bitflags::bitflags;
 pub use buffer_search::BufferSearchBar;
 use editor::SearchSettings;
-use gpui::{Action, App, FocusHandle, IntoElement, actions};
+use gpui::{actions, Action, AppContext, IntoElement};
 use project::search::SearchQuery;
 pub use project_search::ProjectSearchView;
-use ui::{ButtonStyle, IconButton, IconButtonShape};
-use ui::{Tooltip, prelude::*};
+use ui::{prelude::*, Tooltip};
+use ui::{ButtonStyle, IconButton};
 use workspace::notifications::NotificationId;
 use workspace::{Toast, Workspace};
 
 pub mod buffer_search;
 pub mod project_search;
 pub(crate) mod search_bar;
-pub mod search_status_button;
 
-pub fn init(cx: &mut App) {
+pub fn init(cx: &mut AppContext) {
     menu::init();
     buffer_search::init(cx);
     project_search::init(cx);
@@ -31,7 +30,7 @@ actions!(
         ToggleReplace,
         ToggleSelection,
         SelectNextMatch,
-        SelectPreviousMatch,
+        SelectPrevMatch,
         SelectAllMatches,
         NextHistoryQuery,
         PreviousHistoryQuery,
@@ -48,19 +47,16 @@ bitflags! {
         const CASE_SENSITIVE = 0b010;
         const INCLUDE_IGNORED = 0b100;
         const REGEX = 0b1000;
-        const ONE_MATCH_PER_LINE = 0b100000;
-        /// If set, reverse direction when finding the active match
-        const BACKWARDS = 0b10000;
     }
 }
 
 impl SearchOptions {
     pub fn label(&self) -> &'static str {
         match *self {
-            SearchOptions::WHOLE_WORD => "Match Whole Words",
-            SearchOptions::CASE_SENSITIVE => "Match Case Sensitively",
+            SearchOptions::WHOLE_WORD => "Match whole words",
+            SearchOptions::CASE_SENSITIVE => "Match case sensitively",
             SearchOptions::INCLUDE_IGNORED => "Also search files ignored by configuration",
-            SearchOptions::REGEX => "Use Regular Expressions",
+            SearchOptions::REGEX => "Use regular expressions",
             _ => panic!("{:?} is not a named SearchOption", self),
         }
     }
@@ -107,38 +103,37 @@ impl SearchOptions {
         options
     }
 
-    pub fn as_button<Action: Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static>(
+    pub fn as_button(
         &self,
         active: bool,
-        focus_handle: FocusHandle,
-        action: Action,
-    ) -> impl IntoElement + use<Action> {
+        action: impl Fn(&gpui::ClickEvent, &mut WindowContext) + 'static,
+    ) -> impl IntoElement {
         IconButton::new(self.label(), self.icon())
             .on_click(action)
             .style(ButtonStyle::Subtle)
-            .shape(IconButtonShape::Square)
-            .toggle_state(active)
+            .selected(active)
             .tooltip({
                 let action = self.to_toggle_action();
                 let label = self.label();
-                move |window, cx| Tooltip::for_action_in(label, &*action, &focus_handle, window, cx)
+                move |cx| Tooltip::for_action(label, &*action, cx)
             })
     }
 }
 
-pub(crate) fn show_no_more_matches(window: &mut Window, cx: &mut App) {
-    window.defer(cx, |window, cx| {
+pub(crate) fn show_no_more_matches(cx: &mut WindowContext) {
+    cx.defer(|cx| {
         struct NotifType();
         let notification_id = NotificationId::unique::<NotifType>();
-
-        let Some(workspace) = window.root::<Workspace>().flatten() else {
+        let Some(workspace) = cx.window_handle().downcast::<Workspace>() else {
             return;
         };
-        workspace.update(cx, |workspace, cx| {
-            workspace.show_toast(
-                Toast::new(notification_id.clone(), "No more matches").autohide(),
-                cx,
-            );
-        })
+        workspace
+            .update(cx, |workspace, cx| {
+                workspace.show_toast(
+                    Toast::new(notification_id.clone(), "No more matches").autohide(),
+                    cx,
+                );
+            })
+            .ok();
     });
 }

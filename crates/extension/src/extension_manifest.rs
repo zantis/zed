@@ -1,8 +1,7 @@
-use anyhow::{Context as _, Result, anyhow, bail};
+use anyhow::{anyhow, Context, Result};
 use collections::{BTreeMap, HashMap};
 use fs::Fs;
-use language::LanguageName;
-use lsp::LanguageServerName;
+use language::LanguageServerName;
 use semantic_version::SemanticVersion;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -70,76 +69,17 @@ pub struct ExtensionManifest {
     #[serde(default)]
     pub themes: Vec<PathBuf>,
     #[serde(default)]
-    pub icon_themes: Vec<PathBuf>,
-    #[serde(default)]
     pub languages: Vec<PathBuf>,
     #[serde(default)]
     pub grammars: BTreeMap<Arc<str>, GrammarManifestEntry>,
     #[serde(default)]
     pub language_servers: BTreeMap<LanguageServerName, LanguageServerManifestEntry>,
     #[serde(default)]
-    pub context_servers: BTreeMap<Arc<str>, ContextServerManifestEntry>,
-    #[serde(default)]
     pub slash_commands: BTreeMap<Arc<str>, SlashCommandManifestEntry>,
     #[serde(default)]
     pub indexed_docs_providers: BTreeMap<Arc<str>, IndexedDocsProviderEntry>,
     #[serde(default)]
     pub snippets: Option<PathBuf>,
-    #[serde(default)]
-    pub capabilities: Vec<ExtensionCapability>,
-}
-
-impl ExtensionManifest {
-    pub fn allow_exec(
-        &self,
-        desired_command: &str,
-        desired_args: &[impl AsRef<str> + std::fmt::Debug],
-    ) -> Result<()> {
-        let is_allowed = self.capabilities.iter().any(|capability| match capability {
-            ExtensionCapability::ProcessExec { command, args } if command == desired_command => {
-                for (ix, arg) in args.iter().enumerate() {
-                    if arg == "**" {
-                        return true;
-                    }
-
-                    if ix >= desired_args.len() {
-                        return false;
-                    }
-
-                    if arg != "*" && arg != desired_args[ix].as_ref() {
-                        return false;
-                    }
-                }
-                if args.len() < desired_args.len() {
-                    return false;
-                }
-                true
-            }
-            _ => false,
-        });
-
-        if !is_allowed {
-            bail!(
-                "capability for process:exec {desired_command} {desired_args:?} was not listed in the extension manifest",
-            );
-        }
-
-        Ok(())
-    }
-}
-
-/// A capability for an extension.
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind")]
-pub enum ExtensionCapability {
-    #[serde(rename = "process:exec")]
-    ProcessExec {
-        /// The command to execute.
-        command: String,
-        /// The arguments to pass to the command. Use `*` for a single wildcard argument.
-        /// If the last element is `**`, then any trailing arguments are allowed.
-        args: Vec<String>,
-    },
 }
 
 #[derive(Clone, Default, PartialEq, Eq, Debug, Deserialize, Serialize)]
@@ -166,10 +106,10 @@ pub struct GrammarManifestEntry {
 pub struct LanguageServerManifestEntry {
     /// Deprecated in favor of `languages`.
     #[serde(default)]
-    language: Option<LanguageName>,
+    language: Option<Arc<str>>,
     /// The list of languages this language server should work with.
     #[serde(default)]
-    languages: Vec<LanguageName>,
+    languages: Vec<Arc<str>>,
     #[serde(default)]
     pub language_ids: HashMap<String, String>,
     #[serde(default)]
@@ -184,7 +124,7 @@ impl LanguageServerManifestEntry {
     ///
     /// We can replace this with just field access for the `languages` field once
     /// we have removed `language`.
-    pub fn languages(&self) -> impl IntoIterator<Item = LanguageName> + '_ {
+    pub fn languages(&self) -> impl IntoIterator<Item = Arc<str>> + '_ {
         let language = if self.languages.is_empty() {
             self.language.clone()
         } else {
@@ -193,9 +133,6 @@ impl LanguageServerManifestEntry {
         self.languages.iter().cloned().chain(language)
     }
 }
-
-#[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
-pub struct ContextServerManifestEntry {}
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
 pub struct SlashCommandManifestEntry {
@@ -232,7 +169,7 @@ impl ExtensionManifest {
                 .await
                 .with_context(|| format!("failed to load {extension_name} extension.toml"))?;
             toml::from_str(&manifest_content)
-                .with_context(|| format!("invalid extension.toml for extension {extension_name}"))
+                .with_context(|| format!("invalid extension.json for extension {extension_name}"))
         }
     }
 }
@@ -256,7 +193,6 @@ fn manifest_from_old_manifest(
             themes.dedup();
             themes
         },
-        icon_themes: Vec::new(),
         languages: {
             let mut languages = manifest_json.languages.into_values().collect::<Vec<_>>();
             languages.sort();
@@ -269,114 +205,8 @@ fn manifest_from_old_manifest(
             .map(|grammar_name| (grammar_name, Default::default()))
             .collect(),
         language_servers: Default::default(),
-        context_servers: BTreeMap::default(),
         slash_commands: BTreeMap::default(),
         indexed_docs_providers: BTreeMap::default(),
         snippets: None,
-        capabilities: Vec::new(),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn extension_manifest() -> ExtensionManifest {
-        ExtensionManifest {
-            id: "test".into(),
-            name: "Test".to_string(),
-            version: "1.0.0".into(),
-            schema_version: SchemaVersion::ZERO,
-            description: None,
-            repository: None,
-            authors: vec![],
-            lib: Default::default(),
-            themes: vec![],
-            icon_themes: vec![],
-            languages: vec![],
-            grammars: BTreeMap::default(),
-            language_servers: BTreeMap::default(),
-            context_servers: BTreeMap::default(),
-            slash_commands: BTreeMap::default(),
-            indexed_docs_providers: BTreeMap::default(),
-            snippets: None,
-            capabilities: vec![],
-        }
-    }
-
-    #[test]
-    fn test_allow_exact_match() {
-        let manifest = ExtensionManifest {
-            capabilities: vec![ExtensionCapability::ProcessExec {
-                command: "ls".to_string(),
-                args: vec!["-la".to_string()],
-            }],
-            ..extension_manifest()
-        };
-
-        assert!(manifest.allow_exec("ls", &["-la"]).is_ok());
-        assert!(manifest.allow_exec("ls", &["-l"]).is_err());
-        assert!(manifest.allow_exec("pwd", &[] as &[&str]).is_err());
-    }
-
-    #[test]
-    fn test_allow_wildcard_arg() {
-        let manifest = ExtensionManifest {
-            capabilities: vec![ExtensionCapability::ProcessExec {
-                command: "git".to_string(),
-                args: vec!["*".to_string()],
-            }],
-            ..extension_manifest()
-        };
-
-        assert!(manifest.allow_exec("git", &["status"]).is_ok());
-        assert!(manifest.allow_exec("git", &["commit"]).is_ok());
-        assert!(manifest.allow_exec("git", &["status", "-s"]).is_err()); // too many args
-        assert!(manifest.allow_exec("npm", &["install"]).is_err()); // wrong command
-    }
-
-    #[test]
-    fn test_allow_double_wildcard() {
-        let manifest = ExtensionManifest {
-            capabilities: vec![ExtensionCapability::ProcessExec {
-                command: "cargo".to_string(),
-                args: vec!["test".to_string(), "**".to_string()],
-            }],
-            ..extension_manifest()
-        };
-
-        assert!(manifest.allow_exec("cargo", &["test"]).is_ok());
-        assert!(manifest.allow_exec("cargo", &["test", "--all"]).is_ok());
-        assert!(
-            manifest
-                .allow_exec("cargo", &["test", "--all", "--no-fail-fast"])
-                .is_ok()
-        );
-        assert!(manifest.allow_exec("cargo", &["build"]).is_err()); // wrong first arg
-    }
-
-    #[test]
-    fn test_allow_mixed_wildcards() {
-        let manifest = ExtensionManifest {
-            capabilities: vec![ExtensionCapability::ProcessExec {
-                command: "docker".to_string(),
-                args: vec!["run".to_string(), "*".to_string(), "**".to_string()],
-            }],
-            ..extension_manifest()
-        };
-
-        assert!(manifest.allow_exec("docker", &["run", "nginx"]).is_ok());
-        assert!(manifest.allow_exec("docker", &["run"]).is_err());
-        assert!(
-            manifest
-                .allow_exec("docker", &["run", "ubuntu", "bash"])
-                .is_ok()
-        );
-        assert!(
-            manifest
-                .allow_exec("docker", &["run", "alpine", "sh", "-c", "echo hello"])
-                .is_ok()
-        );
-        assert!(manifest.allow_exec("docker", &["ps"]).is_err()); // wrong first arg
     }
 }

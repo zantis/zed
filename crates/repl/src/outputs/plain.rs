@@ -16,18 +16,19 @@
 //!
 
 use alacritty_terminal::{
-    event::VoidListener,
     grid::Dimensions as _,
     index::{Column, Line, Point},
     term::Config,
     vte::ansi::Processor,
 };
-use gpui::{Bounds, ClipboardItem, Entity, FontStyle, TextStyle, WhiteSpace, canvas, size};
+use gpui::{canvas, size, ClipboardItem, FontStyle, Model, TextStyle, WhiteSpace};
 use language::Buffer;
 use settings::Settings as _;
+use std::mem;
+use terminal::ZedListener;
 use terminal_view::terminal_element::TerminalElement;
 use theme::ThemeSettings;
-use ui::{IntoElement, prelude::*};
+use ui::{prelude::*, IntoElement};
 
 use crate::outputs::OutputContent;
 
@@ -45,21 +46,20 @@ use crate::outputs::OutputContent;
 /// supporting ANSI escape sequences for text formatting and colors.
 ///
 pub struct TerminalOutput {
-    full_buffer: Option<Entity<Buffer>>,
+    full_buffer: Option<Model<Buffer>>,
     /// ANSI escape sequence processor for parsing input text.
     parser: Processor,
     /// Alacritty terminal instance that manages the terminal state and content.
-    handler: alacritty_terminal::Term<VoidListener>,
+    handler: alacritty_terminal::Term<ZedListener>,
 }
 
 const DEFAULT_NUM_LINES: usize = 32;
 const DEFAULT_NUM_COLUMNS: usize = 128;
 
 /// Returns the default text style for the terminal output.
-pub fn text_style(window: &mut Window, cx: &mut App) -> TextStyle {
+pub fn text_style(cx: &mut WindowContext) -> TextStyle {
     let settings = ThemeSettings::get_global(cx).clone();
 
-    let font_size = settings.buffer_font_size(cx).into();
     let font_family = settings.buffer_font.family;
     let font_features = settings.buffer_font.features;
     let font_weight = settings.buffer_font.weight;
@@ -72,27 +72,29 @@ pub fn text_style(window: &mut Window, cx: &mut App) -> TextStyle {
         font_features,
         font_weight,
         font_fallbacks,
-        font_size,
+        font_size: theme::get_buffer_font_size(cx).into(),
         font_style: FontStyle::Normal,
-        line_height: window.line_height().into(),
-        background_color: Some(theme.colors().terminal_ansi_background),
+        line_height: cx.line_height().into(),
+        background_color: Some(theme.colors().terminal_background),
         white_space: WhiteSpace::Normal,
+        truncate: None,
         // These are going to be overridden per-cell
+        underline: None,
+        strikethrough: None,
         color: theme.colors().terminal_foreground,
-        ..Default::default()
     };
 
     text_style
 }
 
 /// Returns the default terminal size for the terminal output.
-pub fn terminal_size(window: &mut Window, cx: &mut App) -> terminal::TerminalBounds {
-    let text_style = text_style(window, cx);
-    let text_system = window.text_system();
+pub fn terminal_size(cx: &mut WindowContext) -> terminal::TerminalSize {
+    let text_style = text_style(cx);
+    let text_system = cx.text_system();
 
-    let line_height = window.line_height();
+    let line_height = cx.line_height();
 
-    let font_pixels = text_style.font_size.to_pixels(window.rem_size());
+    let font_pixels = text_style.font_size.to_pixels(cx.rem_size());
     let font_id = text_system.resolve_font(&text_style.font());
 
     let cell_width = text_system
@@ -105,15 +107,12 @@ pub fn terminal_size(window: &mut Window, cx: &mut App) -> terminal::TerminalBou
 
     // Reversed math from terminal::TerminalSize to get pixel width according to terminal width
     let width = columns as f32 * cell_width;
-    let height = num_lines as f32 * window.line_height();
+    let height = num_lines as f32 * cx.line_height();
 
-    terminal::TerminalBounds {
+    terminal::TerminalSize {
         cell_width,
         line_height,
-        bounds: Bounds {
-            origin: gpui::Point::default(),
-            size: size(width, height),
-        },
+        size: size(width, height),
     }
 }
 
@@ -123,13 +122,15 @@ impl TerminalOutput {
     /// This method initializes a new terminal emulator with default configuration
     /// and sets up the necessary components for handling terminal events and rendering.
     ///
-    pub fn new(window: &mut Window, cx: &mut App) -> Self {
+    pub fn new(cx: &mut WindowContext) -> Self {
+        let (events_tx, events_rx) = futures::channel::mpsc::unbounded();
         let term = alacritty_terminal::Term::new(
             Config::default(),
-            &terminal_size(window, cx),
-            VoidListener,
+            &terminal_size(cx),
+            terminal::ZedListener(events_tx.clone()),
         );
 
+        mem::forget(events_rx);
         Self {
             parser: Processor::new(),
             handler: term,
@@ -149,8 +150,8 @@ impl TerminalOutput {
     /// # Returns
     ///
     /// A new instance of `TerminalOutput` containing the provided text.
-    pub fn from(text: &str, window: &mut Window, cx: &mut App) -> Self {
-        let mut output = Self::new(window, cx);
+    pub fn from(text: &str, cx: &mut WindowContext) -> Self {
+        let mut output = Self::new(cx);
         output.append_text(text, cx);
         output
     }
@@ -181,14 +182,14 @@ impl TerminalOutput {
     /// # Arguments
     ///
     /// * `text` - A string slice containing the text to be appended.
-    pub fn append_text(&mut self, text: &str, cx: &mut App) {
+    pub fn append_text(&mut self, text: &str, cx: &mut WindowContext) {
         for byte in text.as_bytes() {
             if *byte == b'\n' {
                 // Dirty (?) hack to move the cursor down
-                self.parser.advance(&mut self.handler, &[b'\r']);
-                self.parser.advance(&mut self.handler, &[b'\n']);
+                self.parser.advance(&mut self.handler, b'\r');
+                self.parser.advance(&mut self.handler, b'\n');
             } else {
-                self.parser.advance(&mut self.handler, &[*byte]);
+                self.parser.advance(&mut self.handler, *byte);
             }
         }
 
@@ -245,9 +246,9 @@ impl Render for TerminalOutput {
     /// Converts the current terminal state into a renderable GPUI element. It handles
     /// the layout of the terminal grid, calculates the dimensions of the output, and
     /// creates a canvas element that paints the terminal cells and background rectangles.
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let text_style = text_style(window, cx);
-        let text_system = window.text_system();
+    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
+        let text_style = text_style(cx);
+        let text_system = cx.text_system();
 
         let grid = self
             .handler
@@ -257,15 +258,14 @@ impl Render for TerminalOutput {
                 point: ic.point,
                 cell: ic.cell.clone(),
             });
-        let (cells, rects) =
-            TerminalElement::layout_grid(grid, &text_style, text_system, None, window, cx);
+        let (cells, rects) = TerminalElement::layout_grid(grid, &text_style, text_system, None, cx);
 
         // lines are 0-indexed, so we must add 1 to get the number of lines
-        let text_line_height = text_style.line_height_in_pixels(window.rem_size());
+        let text_line_height = text_style.line_height_in_pixels(cx.rem_size());
         let num_lines = cells.iter().map(|c| c.point.line).max().unwrap_or(0) + 1;
         let height = num_lines as f32 * text_line_height;
 
-        let font_pixels = text_style.font_size.to_pixels(window.rem_size());
+        let font_pixels = text_style.font_size.to_pixels(cx.rem_size());
         let font_id = text_system.resolve_font(&text_style.font());
 
         let cell_width = text_system
@@ -275,31 +275,30 @@ impl Render for TerminalOutput {
 
         canvas(
             // prepaint
-            move |_bounds, _, _| {},
+            move |_bounds, _| {},
             // paint
-            move |bounds, _, window, cx| {
+            move |bounds, _, cx| {
                 for rect in rects {
                     rect.paint(
                         bounds.origin,
-                        &terminal::TerminalBounds {
+                        &terminal::TerminalSize {
                             cell_width,
                             line_height: text_line_height,
-                            bounds,
+                            size: bounds.size,
                         },
-                        window,
+                        cx,
                     );
                 }
 
                 for cell in cells {
                     cell.paint(
                         bounds.origin,
-                        &terminal::TerminalBounds {
+                        &terminal::TerminalSize {
                             cell_width,
                             line_height: text_line_height,
-                            bounds,
+                            size: bounds.size,
                         },
                         bounds,
-                        window,
                         cx,
                     );
                 }
@@ -311,24 +310,24 @@ impl Render for TerminalOutput {
 }
 
 impl OutputContent for TerminalOutput {
-    fn clipboard_content(&self, _window: &Window, _cx: &App) -> Option<ClipboardItem> {
+    fn clipboard_content(&self, _cx: &WindowContext) -> Option<ClipboardItem> {
         Some(ClipboardItem::new_string(self.full_text()))
     }
 
-    fn has_clipboard_content(&self, _window: &Window, _cx: &App) -> bool {
+    fn has_clipboard_content(&self, _cx: &WindowContext) -> bool {
         true
     }
 
-    fn has_buffer_content(&self, _window: &Window, _cx: &App) -> bool {
+    fn has_buffer_content(&self, _cx: &WindowContext) -> bool {
         true
     }
 
-    fn buffer_content(&mut self, _: &mut Window, cx: &mut App) -> Option<Entity<Buffer>> {
+    fn buffer_content(&mut self, cx: &mut WindowContext) -> Option<Model<Buffer>> {
         if self.full_buffer.as_ref().is_some() {
             return self.full_buffer.clone();
         }
 
-        let buffer = cx.new(|cx| {
+        let buffer = cx.new_model(|cx| {
             let mut buffer =
                 Buffer::local(self.full_text(), cx).with_language(language::PLAIN_TEXT.clone(), cx);
             buffer.set_capability(language::Capability::ReadOnly, cx);

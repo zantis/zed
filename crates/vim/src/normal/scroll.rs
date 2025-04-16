@@ -1,10 +1,10 @@
 use crate::Vim;
 use editor::{
-    DisplayPoint, Editor, EditorSettings,
     display_map::{DisplayRow, ToDisplayPoint},
     scroll::ScrollAmount,
+    DisplayPoint, Editor, EditorSettings,
 };
-use gpui::{Context, Window, actions};
+use gpui::{actions, ViewContext};
 use language::Bias;
 use settings::Settings;
 
@@ -13,21 +13,21 @@ actions!(
     [LineUp, LineDown, ScrollUp, ScrollDown, PageUp, PageDown]
 );
 
-pub fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
-    Vim::action(editor, cx, |vim, _: &LineDown, window, cx| {
-        vim.scroll(false, window, cx, |c| ScrollAmount::Line(c.unwrap_or(1.)))
+pub fn register(editor: &mut Editor, cx: &mut ViewContext<Vim>) {
+    Vim::action(editor, cx, |vim, _: &LineDown, cx| {
+        vim.scroll(false, cx, |c| ScrollAmount::Line(c.unwrap_or(1.)))
     });
-    Vim::action(editor, cx, |vim, _: &LineUp, window, cx| {
-        vim.scroll(false, window, cx, |c| ScrollAmount::Line(-c.unwrap_or(1.)))
+    Vim::action(editor, cx, |vim, _: &LineUp, cx| {
+        vim.scroll(false, cx, |c| ScrollAmount::Line(-c.unwrap_or(1.)))
     });
-    Vim::action(editor, cx, |vim, _: &PageDown, window, cx| {
-        vim.scroll(false, window, cx, |c| ScrollAmount::Page(c.unwrap_or(1.)))
+    Vim::action(editor, cx, |vim, _: &PageDown, cx| {
+        vim.scroll(false, cx, |c| ScrollAmount::Page(c.unwrap_or(1.)))
     });
-    Vim::action(editor, cx, |vim, _: &PageUp, window, cx| {
-        vim.scroll(false, window, cx, |c| ScrollAmount::Page(-c.unwrap_or(1.)))
+    Vim::action(editor, cx, |vim, _: &PageUp, cx| {
+        vim.scroll(false, cx, |c| ScrollAmount::Page(-c.unwrap_or(1.)))
     });
-    Vim::action(editor, cx, |vim, _: &ScrollDown, window, cx| {
-        vim.scroll(true, window, cx, |c| {
+    Vim::action(editor, cx, |vim, _: &ScrollDown, cx| {
+        vim.scroll(true, cx, |c| {
             if let Some(c) = c {
                 ScrollAmount::Line(c)
             } else {
@@ -35,8 +35,8 @@ pub fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
             }
         })
     });
-    Vim::action(editor, cx, |vim, _: &ScrollUp, window, cx| {
-        vim.scroll(true, window, cx, |c| {
+    Vim::action(editor, cx, |vim, _: &ScrollUp, cx| {
+        vim.scroll(true, cx, |c| {
             if let Some(c) = c {
                 ScrollAmount::Line(-c)
             } else {
@@ -50,14 +50,12 @@ impl Vim {
     fn scroll(
         &mut self,
         move_cursor: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &mut ViewContext<Self>,
         by: fn(c: Option<f32>) -> ScrollAmount,
     ) {
-        let amount = by(Vim::take_count(cx).map(|c| c as f32));
-        Vim::take_forced_motion(cx);
-        self.update_editor(window, cx, |_, editor, window, cx| {
-            scroll_editor(editor, move_cursor, &amount, window, cx)
+        let amount = by(self.take_count(cx).map(|c| c as f32));
+        self.update_editor(cx, |_, editor, cx| {
+            scroll_editor(editor, move_cursor, &amount, cx)
         });
     }
 }
@@ -66,41 +64,30 @@ fn scroll_editor(
     editor: &mut Editor,
     preserve_cursor_position: bool,
     amount: &ScrollAmount,
-    window: &mut Window,
-    cx: &mut Context<Editor>,
+    cx: &mut ViewContext<Editor>,
 ) {
     let should_move_cursor = editor.newest_selection_on_screen(cx).is_eq();
     let old_top_anchor = editor.scroll_manager.anchor().anchor;
 
-    if editor.scroll_hover(amount, window, cx) {
+    if editor.scroll_hover(amount, cx) {
         return;
     }
 
-    let full_page_up = amount.is_full_page() && amount.direction().is_upwards();
-    let amount = match (amount.is_full_page(), editor.visible_line_count()) {
-        (true, Some(visible_line_count)) => {
-            if amount.direction().is_upwards() {
-                ScrollAmount::Line(amount.lines(visible_line_count) + 1.0)
-            } else {
-                ScrollAmount::Line(amount.lines(visible_line_count) - 1.0)
-            }
-        }
-        _ => amount.clone(),
-    };
-
-    editor.scroll_screen(&amount, window, cx);
+    editor.scroll_screen(amount, cx);
     if !should_move_cursor {
         return;
     }
 
-    let Some(visible_line_count) = editor.visible_line_count() else {
+    let visible_line_count = if let Some(visible_line_count) = editor.visible_line_count() {
+        visible_line_count
+    } else {
         return;
     };
 
     let top_anchor = editor.scroll_manager.anchor().anchor;
     let vertical_scroll_margin = EditorSettings::get_global(cx).vertical_scroll_margin;
 
-    editor.change_selections(None, window, cx, |s| {
+    editor.change_selections(None, cx, |s| {
         s.move_with(|map, selection| {
             let mut head = selection.head();
             let top = top_anchor.to_display_point(map);
@@ -128,26 +115,11 @@ fn scroll_editor(
             } else {
                 DisplayRow(top.row().0 + vertical_scroll_margin)
             };
-
-            let max_visible_row = top.row().0.saturating_add(
+            let max_row = DisplayRow(map.max_point().row().0.max(top.row().0.saturating_add(
                 (visible_line_count as u32).saturating_sub(1 + vertical_scroll_margin),
-            );
-            // scroll off the end.
-            let max_row = if top.row().0 + visible_line_count as u32 >= map.max_point().row().0 {
-                map.max_point().row()
-            } else {
-                DisplayRow(
-                    (top.row().0 + visible_line_count as u32)
-                        .saturating_sub(1 + vertical_scroll_margin),
-                )
-            };
+            )));
 
-            let new_row = if full_page_up {
-                // Special-casing ctrl-b/page-up, which is special-cased by Vim, it seems
-                // to always put the cursor on the last line of the page, even if the cursor
-                // was before that.
-                DisplayRow(max_visible_row)
-            } else if head.row() < min_row {
+            let new_row = if head.row() < min_row {
                 min_row
             } else if head.row() > max_row {
                 max_row
@@ -172,7 +144,7 @@ mod test {
         test::{NeovimBackedTestContext, VimTestContext},
     };
     use editor::{EditorSettings, ScrollBeyondLastLine};
-    use gpui::{AppContext as _, point, px, size};
+    use gpui::{point, px, size, Context};
     use indoc::indoc;
     use language::Point;
     use settings::SettingsStore;
@@ -194,21 +166,21 @@ mod test {
     async fn test_scroll(cx: &mut gpui::TestAppContext) {
         let mut cx = VimTestContext::new(cx, true).await;
 
-        let (line_height, visible_line_count) = cx.editor(|editor, window, _cx| {
+        let (line_height, visible_line_count) = cx.editor(|editor, cx| {
             (
                 editor
                     .style()
                     .unwrap()
                     .text
-                    .line_height_in_pixels(window.rem_size()),
+                    .line_height_in_pixels(cx.rem_size()),
                 editor.visible_line_count().unwrap(),
             )
         });
 
         let window = cx.window;
         let margin = cx
-            .update_window(window, |_, window, _cx| {
-                window.viewport_size().height - line_height * visible_line_count
+            .update_window(window, |_, cx| {
+                cx.viewport_size().height - line_height * visible_line_count
             })
             .unwrap();
         cx.simulate_window_resize(
@@ -235,33 +207,30 @@ mod test {
             Mode::Normal,
         );
 
-        cx.update_editor(|editor, window, cx| {
-            assert_eq!(editor.snapshot(window, cx).scroll_position(), point(0., 0.))
+        cx.update_editor(|editor, cx| {
+            assert_eq!(editor.snapshot(cx).scroll_position(), point(0., 0.))
         });
         cx.simulate_keystrokes("ctrl-e");
-        cx.update_editor(|editor, window, cx| {
-            assert_eq!(editor.snapshot(window, cx).scroll_position(), point(0., 1.))
+        cx.update_editor(|editor, cx| {
+            assert_eq!(editor.snapshot(cx).scroll_position(), point(0., 1.))
         });
         cx.simulate_keystrokes("2 ctrl-e");
-        cx.update_editor(|editor, window, cx| {
-            assert_eq!(editor.snapshot(window, cx).scroll_position(), point(0., 3.))
+        cx.update_editor(|editor, cx| {
+            assert_eq!(editor.snapshot(cx).scroll_position(), point(0., 3.))
         });
         cx.simulate_keystrokes("ctrl-y");
-        cx.update_editor(|editor, window, cx| {
-            assert_eq!(editor.snapshot(window, cx).scroll_position(), point(0., 2.))
+        cx.update_editor(|editor, cx| {
+            assert_eq!(editor.snapshot(cx).scroll_position(), point(0., 2.))
         });
 
         // does not select in normal mode
         cx.simulate_keystrokes("g g");
-        cx.update_editor(|editor, window, cx| {
-            assert_eq!(editor.snapshot(window, cx).scroll_position(), point(0., 0.))
+        cx.update_editor(|editor, cx| {
+            assert_eq!(editor.snapshot(cx).scroll_position(), point(0., 0.))
         });
         cx.simulate_keystrokes("ctrl-d");
-        cx.update_editor(|editor, window, cx| {
-            assert_eq!(
-                editor.snapshot(window, cx).scroll_position(),
-                point(0., 3.0)
-            );
+        cx.update_editor(|editor, cx| {
+            assert_eq!(editor.snapshot(cx).scroll_position(), point(0., 3.0));
             assert_eq!(
                 editor.selections.newest(cx).range(),
                 Point::new(6, 0)..Point::new(6, 0)
@@ -270,22 +239,18 @@ mod test {
 
         // does select in visual mode
         cx.simulate_keystrokes("g g");
-        cx.update_editor(|editor, window, cx| {
-            assert_eq!(editor.snapshot(window, cx).scroll_position(), point(0., 0.))
+        cx.update_editor(|editor, cx| {
+            assert_eq!(editor.snapshot(cx).scroll_position(), point(0., 0.))
         });
         cx.simulate_keystrokes("v ctrl-d");
-        cx.update_editor(|editor, window, cx| {
-            assert_eq!(
-                editor.snapshot(window, cx).scroll_position(),
-                point(0., 3.0)
-            );
+        cx.update_editor(|editor, cx| {
+            assert_eq!(editor.snapshot(cx).scroll_position(), point(0., 3.0));
             assert_eq!(
                 editor.selections.newest(cx).range(),
                 Point::new(0, 0)..Point::new(6, 1)
             )
         });
     }
-
     #[gpui::test]
     async fn test_ctrl_d_u(cx: &mut gpui::TestAppContext) {
         let mut cx = NeovimBackedTestContext::new(cx).await;
@@ -318,76 +283,18 @@ mod test {
     }
 
     #[gpui::test]
-    async fn test_ctrl_f_b(cx: &mut gpui::TestAppContext) {
-        let mut cx = NeovimBackedTestContext::new(cx).await;
-
-        let visible_lines = 10;
-        cx.set_scroll_height(visible_lines).await;
-
-        // First test without vertical scroll margin
-        cx.neovim.set_option(&format!("scrolloff={}", 0)).await;
-        cx.update_global(|store: &mut SettingsStore, cx| {
-            store.update_user_settings::<EditorSettings>(cx, |s| {
-                s.vertical_scroll_margin = Some(0.0)
-            });
-        });
-
-        let content = "ˇ".to_owned() + &sample_text(26, 2, 'a');
-        cx.set_shared_state(&content).await;
-
-        // scroll down: ctrl-f
-        cx.simulate_shared_keystrokes("ctrl-f").await;
-        cx.shared_state().await.assert_matches();
-
-        cx.simulate_shared_keystrokes("ctrl-f").await;
-        cx.shared_state().await.assert_matches();
-
-        // scroll up: ctrl-b
-        cx.simulate_shared_keystrokes("ctrl-b").await;
-        cx.shared_state().await.assert_matches();
-
-        cx.simulate_shared_keystrokes("ctrl-b").await;
-        cx.shared_state().await.assert_matches();
-
-        // Now go back to start of file, and test with vertical scroll margin
-        cx.simulate_shared_keystrokes("g g").await;
-        cx.shared_state().await.assert_matches();
-
-        cx.neovim.set_option(&format!("scrolloff={}", 3)).await;
-        cx.update_global(|store: &mut SettingsStore, cx| {
-            store.update_user_settings::<EditorSettings>(cx, |s| {
-                s.vertical_scroll_margin = Some(3.0)
-            });
-        });
-
-        // scroll down: ctrl-f
-        cx.simulate_shared_keystrokes("ctrl-f").await;
-        cx.shared_state().await.assert_matches();
-
-        cx.simulate_shared_keystrokes("ctrl-f").await;
-        cx.shared_state().await.assert_matches();
-
-        // scroll up: ctrl-b
-        cx.simulate_shared_keystrokes("ctrl-b").await;
-        cx.shared_state().await.assert_matches();
-
-        cx.simulate_shared_keystrokes("ctrl-b").await;
-        cx.shared_state().await.assert_matches();
-    }
-
-    #[gpui::test]
     async fn test_scroll_beyond_last_line(cx: &mut gpui::TestAppContext) {
         let mut cx = NeovimBackedTestContext::new(cx).await;
 
         cx.set_scroll_height(10).await;
+        cx.neovim.set_option(&format!("scrolloff={}", 0)).await;
 
         let content = "ˇ".to_owned() + &sample_text(26, 2, 'a');
         cx.set_shared_state(&content).await;
 
         cx.update_global(|store: &mut SettingsStore, cx| {
             store.update_user_settings::<EditorSettings>(cx, |s| {
-                s.scroll_beyond_last_line = Some(ScrollBeyondLastLine::Off);
-                // s.vertical_scroll_margin = Some(0.);
+                s.scroll_beyond_last_line = Some(ScrollBeyondLastLine::Off)
             });
         });
 
@@ -402,25 +309,5 @@ mod test {
         cx.shared_state().await.assert_matches();
         cx.simulate_shared_keystrokes("ctrl-u").await;
         cx.shared_state().await.assert_matches();
-    }
-
-    #[gpui::test]
-    async fn test_ctrl_y_e(cx: &mut gpui::TestAppContext) {
-        let mut cx = NeovimBackedTestContext::new(cx).await;
-
-        cx.set_scroll_height(10).await;
-
-        let content = "ˇ".to_owned() + &sample_text(26, 2, 'a');
-        cx.set_shared_state(&content).await;
-
-        for _ in 0..8 {
-            cx.simulate_shared_keystrokes("ctrl-e").await;
-            cx.shared_state().await.assert_matches();
-        }
-
-        for _ in 0..8 {
-            cx.simulate_shared_keystrokes("ctrl-y").await;
-            cx.shared_state().await.assert_matches();
-        }
     }
 }

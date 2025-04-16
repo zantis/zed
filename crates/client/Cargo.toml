@@ -1,8 +1,8 @@
 [package]
 name = "client"
 version = "0.1.0"
-edition.workspace = true
-publish.workspace = true
+edition = "2021"
+publish = false
 license = "GPL-3.0-or-later"
 
 [lints]
@@ -18,31 +18,32 @@ test-support = ["clock/test-support", "collections/test-support", "gpui/test-sup
 [dependencies]
 anyhow.workspace = true
 async-recursion = "0.3"
-async-tungstenite = { workspace = true, features = ["tokio", "tokio-rustls-manual-roots"] }
+async-tungstenite = { workspace = true, features = ["async-std", "async-native-tls"] }
 chrono = { workspace = true, features = ["serde"] }
 clock.workspace = true
 collections.workspace = true
-credentials_provider.workspace = true
 feature_flags.workspace = true
+fs.workspace = true
 futures.workspace = true
 gpui.workspace = true
-gpui_tokio.workspace = true
 http_client.workspace = true
-http_client_tls.workspace = true
 log.workspace = true
+once_cell.workspace = true
 paths.workspace = true
 parking_lot.workspace = true
 postage.workspace = true
 rand.workspace = true
 release_channel.workspace = true
-rpc = { workspace = true, features = ["gpui"] }
+rpc.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 settings.workspace = true
 sha2.workspace = true
 smol.workspace = true
+sysinfo.workspace = true
 telemetry_events.workspace = true
+tempfile.workspace = true
 text.workspace = true
 thiserror.workspace = true
 time.workspace = true
@@ -51,9 +52,6 @@ tokio-socks = { version = "0.5.2", default-features = false, features = ["future
 url.workspace = true
 util.workspace = true
 worktree.workspace = true
-telemetry.workspace = true
-tokio.workspace = true
-workspace-hack.workspace = true
 
 [dev-dependencies]
 clock = { workspace = true, features = ["test-support"] }
@@ -69,3 +67,4 @@ windows.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa.workspace = true
+async-native-tls = { version = "0.5.0", features = ["vendored"] }

@@ -1,10 +1,10 @@
 use super::metal_atlas::MetalAtlas;
 use crate::{
-    AtlasTextureId, AtlasTextureKind, AtlasTile, Background, Bounds, ContentMask, DevicePixels,
-    MonochromeSprite, PaintSurface, Path, PathId, PathVertex, PolychromeSprite, PrimitiveBatch,
-    Quad, ScaledPixels, Scene, Shadow, Size, Surface, Underline, point, size,
+    point, size, AtlasTextureId, AtlasTextureKind, AtlasTile, Bounds, ContentMask, DevicePixels,
+    Hsla, MonochromeSprite, PaintSurface, Path, PathId, PathVertex, PolychromeSprite,
+    PrimitiveBatch, Quad, ScaledPixels, Scene, Shadow, Size, Surface, Underline,
 };
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use block::ConcreteBlock;
 use cocoa::{
     base::{NO, YES},
@@ -13,11 +13,8 @@ use cocoa::{
 };
 use collections::HashMap;
 use core_foundation::base::TCFType;
-use core_video::{
-    metal_texture::CVMetalTextureGetTexture, metal_texture_cache::CVMetalTextureCache,
-    pixel_buffer::kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
-};
-use foreign_types::{ForeignType, ForeignTypeRef};
+use foreign_types::ForeignType;
+use media::core_video::CVMetalTextureCache;
 use metal::{CAMetalLayer, CommandQueue, MTLPixelFormat, MTLResourceOptions, NSRange};
 use objc::{self, msg_send, sel, sel_impl};
 use parking_lot::Mutex;
@@ -31,9 +28,6 @@ pub(crate) type PointF = crate::Point<f32>;
 const SHADERS_METALLIB: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/shaders.metallib"));
 #[cfg(feature = "runtime_shaders")]
 const SHADERS_SOURCE_FILE: &str = include_str!(concat!(env!("OUT_DIR"), "/stitched_shaders.metal"));
-// Use 4x MSAA, all devices support it.
-// https://developer.apple.com/documentation/metal/mtldevice/1433355-supportstexturesamplecount
-const PATH_SAMPLE_COUNT: u32 = 4;
 
 pub type Context = Arc<Mutex<InstanceBufferPool>>;
 pub type Renderer = MetalRenderer;
@@ -110,7 +104,7 @@ pub(crate) struct MetalRenderer {
     #[allow(clippy::arc_with_non_send_sync)]
     instance_buffer_pool: Arc<Mutex<InstanceBufferPool>>,
     sprite_atlas: Arc<MetalAtlas>,
-    core_video_texture_cache: core_video::metal_texture_cache::CVMetalTextureCache,
+    core_video_texture_cache: CVMetalTextureCache,
 }
 
 impl MetalRenderer {
@@ -176,7 +170,6 @@ impl MetalRenderer {
             "path_rasterization_vertex",
             "path_rasterization_fragment",
             MTLPixelFormat::R16Float,
-            PATH_SAMPLE_COUNT,
         );
         let path_sprites_pipeline_state = build_pipeline_state(
             &device,
@@ -236,9 +229,9 @@ impl MetalRenderer {
         );
 
         let command_queue = device.new_command_queue();
-        let sprite_atlas = Arc::new(MetalAtlas::new(device.clone(), PATH_SAMPLE_COUNT));
+        let sprite_atlas = Arc::new(MetalAtlas::new(device.clone()));
         let core_video_texture_cache =
-            CVMetalTextureCache::new(None, device.clone(), None).unwrap();
+            unsafe { CVMetalTextureCache::new(device.as_ptr()).unwrap() };
 
         Self {
             device,
@@ -291,11 +284,11 @@ impl MetalRenderer {
         }
     }
 
-    pub fn update_transparency(&self, _transparent: bool) {
+    pub fn update_transparency(&mut self, _transparent: bool) {
         // todo(mac)?
     }
 
-    pub fn destroy(&self) {
+    pub fn destroy(&mut self) {
         // nothing to do
     }
 
@@ -471,8 +464,7 @@ impl MetalRenderer {
 
             if !ok {
                 command_encoder.end_encoding();
-                return Err(anyhow!(
-                    "scene too large: {} paths, {} shadows, {} quads, {} underlines, {} mono, {} poly, {} surfaces",
+                return Err(anyhow!("scene too large: {} paths, {} shadows, {} quads, {} underlines, {} mono, {} poly, {} surfaces",
                     scene.paths.len(),
                     scene.shadows.len(),
                     scene.quads.len(),
@@ -494,7 +486,7 @@ impl MetalRenderer {
     }
 
     fn rasterize_paths(
-        &self,
+        &mut self,
         paths: &[Path<ScaledPixels>],
         instance_buffer: &mut InstanceBuffer,
         instance_offset: &mut usize,
@@ -539,20 +531,10 @@ impl MetalRenderer {
                 .unwrap();
 
             let texture = self.sprite_atlas.metal_texture(texture_id);
-            let msaa_texture = self.sprite_atlas.msaa_texture(texture_id);
-
-            if let Some(msaa_texture) = msaa_texture {
-                color_attachment.set_texture(Some(&msaa_texture));
-                color_attachment.set_resolve_texture(Some(&texture));
-                color_attachment.set_load_action(metal::MTLLoadAction::Clear);
-                color_attachment.set_store_action(metal::MTLStoreAction::MultisampleResolve);
-            } else {
-                color_attachment.set_texture(Some(&texture));
-                color_attachment.set_load_action(metal::MTLLoadAction::Clear);
-                color_attachment.set_store_action(metal::MTLStoreAction::Store);
-            }
+            color_attachment.set_texture(Some(&texture));
+            color_attachment.set_load_action(metal::MTLLoadAction::Clear);
+            color_attachment.set_store_action(metal::MTLStoreAction::Store);
             color_attachment.set_clear_color(metal::MTLClearColor::new(0., 0., 0., 1.));
-
             let command_encoder = command_buffer.new_render_command_encoder(render_pass_descriptor);
             command_encoder.set_render_pipeline_state(&self.paths_rasterization_pipeline_state);
             command_encoder.set_vertex_buffer(
@@ -594,7 +576,7 @@ impl MetalRenderer {
     }
 
     fn draw_shadows(
-        &self,
+        &mut self,
         shadows: &[Shadow],
         instance_buffer: &mut InstanceBuffer,
         instance_offset: &mut usize,
@@ -657,7 +639,7 @@ impl MetalRenderer {
     }
 
     fn draw_quads(
-        &self,
+        &mut self,
         quads: &[Quad],
         instance_buffer: &mut InstanceBuffer,
         instance_offset: &mut usize,
@@ -716,7 +698,7 @@ impl MetalRenderer {
     }
 
     fn draw_paths(
-        &self,
+        &mut self,
         paths: &[Path<ScaledPixels>],
         tiles_by_path_id: &HashMap<PathId, AtlasTile>,
         instance_buffer: &mut InstanceBuffer,
@@ -826,7 +808,7 @@ impl MetalRenderer {
     }
 
     fn draw_underlines(
-        &self,
+        &mut self,
         underlines: &[Underline],
         instance_buffer: &mut InstanceBuffer,
         instance_offset: &mut usize,
@@ -889,7 +871,7 @@ impl MetalRenderer {
     }
 
     fn draw_monochrome_sprites(
-        &self,
+        &mut self,
         texture_id: AtlasTextureId,
         sprites: &[MonochromeSprite],
         instance_buffer: &mut InstanceBuffer,
@@ -963,7 +945,7 @@ impl MetalRenderer {
     }
 
     fn draw_polychrome_sprites(
-        &self,
+        &mut self,
         texture_id: AtlasTextureId,
         sprites: &[PolychromeSprite],
         instance_buffer: &mut InstanceBuffer,
@@ -1058,37 +1040,39 @@ impl MetalRenderer {
 
         for surface in surfaces {
             let texture_size = size(
-                DevicePixels::from(surface.image_buffer.get_width() as i32),
-                DevicePixels::from(surface.image_buffer.get_height() as i32),
+                DevicePixels::from(surface.image_buffer.width() as i32),
+                DevicePixels::from(surface.image_buffer.height() as i32),
             );
 
             assert_eq!(
-                surface.image_buffer.get_pixel_format(),
-                kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+                surface.image_buffer.pixel_format_type(),
+                media::core_video::kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
             );
 
-            let y_texture = self
-                .core_video_texture_cache
-                .create_texture_from_image(
-                    surface.image_buffer.as_concrete_TypeRef(),
-                    None,
-                    MTLPixelFormat::R8Unorm,
-                    surface.image_buffer.get_width_of_plane(0),
-                    surface.image_buffer.get_height_of_plane(0),
-                    0,
-                )
-                .unwrap();
-            let cb_cr_texture = self
-                .core_video_texture_cache
-                .create_texture_from_image(
-                    surface.image_buffer.as_concrete_TypeRef(),
-                    None,
-                    MTLPixelFormat::RG8Unorm,
-                    surface.image_buffer.get_width_of_plane(1),
-                    surface.image_buffer.get_height_of_plane(1),
-                    1,
-                )
-                .unwrap();
+            let y_texture = unsafe {
+                self.core_video_texture_cache
+                    .create_texture_from_image(
+                        surface.image_buffer.as_concrete_TypeRef(),
+                        ptr::null(),
+                        MTLPixelFormat::R8Unorm,
+                        surface.image_buffer.plane_width(0),
+                        surface.image_buffer.plane_height(0),
+                        0,
+                    )
+                    .unwrap()
+            };
+            let cb_cr_texture = unsafe {
+                self.core_video_texture_cache
+                    .create_texture_from_image(
+                        surface.image_buffer.as_concrete_TypeRef(),
+                        ptr::null(),
+                        MTLPixelFormat::RG8Unorm,
+                        surface.image_buffer.plane_width(1),
+                        surface.image_buffer.plane_height(1),
+                        1,
+                    )
+                    .unwrap()
+            };
 
             align_offset(instance_offset);
             let next_offset = *instance_offset + mem::size_of::<Surface>();
@@ -1106,15 +1090,14 @@ impl MetalRenderer {
                 mem::size_of_val(&texture_size) as u64,
                 &texture_size as *const Size<DevicePixels> as *const _,
             );
-            // let y_texture = y_texture.get_texture().unwrap().
-            command_encoder.set_fragment_texture(SurfaceInputIndex::YTexture as u64, unsafe {
-                let texture = CVMetalTextureGetTexture(y_texture.as_concrete_TypeRef());
-                Some(metal::TextureRef::from_ptr(texture as *mut _))
-            });
-            command_encoder.set_fragment_texture(SurfaceInputIndex::CbCrTexture as u64, unsafe {
-                let texture = CVMetalTextureGetTexture(cb_cr_texture.as_concrete_TypeRef());
-                Some(metal::TextureRef::from_ptr(texture as *mut _))
-            });
+            command_encoder.set_fragment_texture(
+                SurfaceInputIndex::YTexture as u64,
+                Some(y_texture.as_texture_ref()),
+            );
+            command_encoder.set_fragment_texture(
+                SurfaceInputIndex::CbCrTexture as u64,
+                Some(cb_cr_texture.as_texture_ref()),
+            );
 
             unsafe {
                 let buffer_contents = (instance_buffer.metal_buffer.contents() as *mut u8)
@@ -1177,7 +1160,6 @@ fn build_path_rasterization_pipeline_state(
     vertex_fn_name: &str,
     fragment_fn_name: &str,
     pixel_format: metal::MTLPixelFormat,
-    path_sample_count: u32,
 ) -> metal::RenderPipelineState {
     let vertex_fn = library
         .get_function(vertex_fn_name, None)
@@ -1190,10 +1172,6 @@ fn build_path_rasterization_pipeline_state(
     descriptor.set_label(label);
     descriptor.set_vertex_function(Some(vertex_fn.as_ref()));
     descriptor.set_fragment_function(Some(fragment_fn.as_ref()));
-    if path_sample_count > 1 {
-        descriptor.set_raster_sample_count(path_sample_count as _);
-        descriptor.set_alpha_to_coverage_enabled(true);
-    }
     let color_attachment = descriptor.color_attachments().object_at(0).unwrap();
     color_attachment.set_pixel_format(pixel_format);
     color_attachment.set_blending_enabled(true);
@@ -1211,7 +1189,7 @@ fn build_path_rasterization_pipeline_state(
 
 // Align to multiples of 256 make Metal happy.
 fn align_offset(offset: &mut usize) {
-    *offset = (*offset).div_ceil(256) * 256;
+    *offset = ((*offset + 255) / 256) * 256;
 }
 
 #[repr(C)]
@@ -1264,7 +1242,7 @@ enum PathRasterizationInputIndex {
 #[repr(C)]
 pub struct PathSprite {
     pub bounds: Bounds<ScaledPixels>,
-    pub color: Background,
+    pub color: Hsla,
     pub tile: AtlasTile,
 }
 

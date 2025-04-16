@@ -1,9 +1,8 @@
 use anyhow::Result;
 use db::sqlez::bindable::{Bind, Column, StaticColumnCount};
 use db::sqlez::statement::Statement;
-use fs::MTime;
-use itertools::Itertools as _;
 use std::path::PathBuf;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use db::sqlez_macros::sql;
 use db::{define_connection, query};
@@ -12,38 +11,34 @@ use workspace::{ItemId, WorkspaceDb, WorkspaceId};
 
 #[derive(Clone, Debug, PartialEq, Default)]
 pub(crate) struct SerializedEditor {
-    pub(crate) abs_path: Option<PathBuf>,
+    pub(crate) path: Option<PathBuf>,
     pub(crate) contents: Option<String>,
     pub(crate) language: Option<String>,
-    pub(crate) mtime: Option<MTime>,
+    pub(crate) mtime: Option<SystemTime>,
 }
 
 impl StaticColumnCount for SerializedEditor {
     fn column_count() -> usize {
-        6
+        5
     }
 }
 
 impl Bind for SerializedEditor {
     fn bind(&self, statement: &Statement, start_index: i32) -> Result<i32> {
-        let start_index = statement.bind(&self.abs_path, start_index)?;
-        let start_index = statement.bind(
-            &self
-                .abs_path
-                .as_ref()
-                .map(|p| p.to_string_lossy().to_string()),
-            start_index,
-        )?;
+        let start_index = statement.bind(&self.path, start_index)?;
         let start_index = statement.bind(&self.contents, start_index)?;
         let start_index = statement.bind(&self.language, start_index)?;
 
-        let start_index = match self
-            .mtime
-            .and_then(|mtime| mtime.to_seconds_and_nanos_for_persistence())
-        {
+        let mtime = self.mtime.and_then(|mtime| {
+            mtime
+                .duration_since(UNIX_EPOCH)
+                .ok()
+                .map(|duration| (duration.as_secs() as i64, duration.subsec_nanos() as i32))
+        });
+        let start_index = match mtime {
             Some((seconds, nanos)) => {
-                let start_index = statement.bind(&(seconds as i64), start_index)?;
-                statement.bind(&(nanos as i32), start_index)?
+                let start_index = statement.bind(&seconds, start_index)?;
+                statement.bind(&nanos, start_index)?
             }
             None => {
                 let start_index = statement.bind::<Option<i64>>(&None, start_index)?;
@@ -56,10 +51,7 @@ impl Bind for SerializedEditor {
 
 impl Column for SerializedEditor {
     fn column(statement: &mut Statement, start_index: i32) -> Result<(Self, i32)> {
-        let (abs_path, start_index): (Option<PathBuf>, i32) =
-            Column::column(statement, start_index)?;
-        let (_abs_path, start_index): (Option<PathBuf>, i32) =
-            Column::column(statement, start_index)?;
+        let (path, start_index): (Option<PathBuf>, i32) = Column::column(statement, start_index)?;
         let (contents, start_index): (Option<String>, i32) =
             Column::column(statement, start_index)?;
         let (language, start_index): (Option<String>, i32) =
@@ -71,10 +63,10 @@ impl Column for SerializedEditor {
 
         let mtime = mtime_seconds
             .zip(mtime_nanos)
-            .map(|(seconds, nanos)| MTime::from_seconds_and_nanos(seconds as u64, nanos as u32));
+            .map(|(seconds, nanos)| UNIX_EPOCH + Duration::new(seconds as u64, nanos as u32));
 
         let editor = Self {
-            abs_path,
+            path,
             contents,
             language,
             mtime,
@@ -92,29 +84,13 @@ define_connection!(
     //   scroll_top_row: usize,
     //   scroll_vertical_offset: f32,
     //   scroll_horizontal_offset: f32,
-    //   contents: Option<String>,
+    //   content: Option<String>,
     //   language: Option<String>,
     //   mtime_seconds: Option<i64>,
     //   mtime_nanos: Option<i32>,
     // )
-    //
-    // editor_selections(
-    //   item_id: usize,
-    //   editor_id: usize,
-    //   workspace_id: usize,
-    //   start: usize,
-    //   end: usize,
-    // )
-    //
-    // editor_folds(
-    //   item_id: usize,
-    //   editor_id: usize,
-    //   workspace_id: usize,
-    //   start: usize,
-    //   end: usize,
-    // )
-    pub static ref DB: EditorDb<WorkspaceDb> = &[
-        sql! (
+    pub static ref DB: EditorDb<WorkspaceDb> =
+        &[sql! (
             CREATE TABLE editors(
                 item_id INTEGER NOT NULL,
                 workspace_id INTEGER NOT NULL,
@@ -160,46 +136,13 @@ define_connection!(
             ALTER TABLE editors ADD COLUMN mtime_seconds INTEGER DEFAULT NULL;
             ALTER TABLE editors ADD COLUMN mtime_nanos INTEGER DEFAULT NULL;
         ),
-        sql! (
-            CREATE TABLE editor_selections (
-                item_id INTEGER NOT NULL,
-                editor_id INTEGER NOT NULL,
-                workspace_id INTEGER NOT NULL,
-                start INTEGER NOT NULL,
-                end INTEGER NOT NULL,
-                PRIMARY KEY(item_id),
-                FOREIGN KEY(editor_id, workspace_id) REFERENCES editors(item_id, workspace_id)
-                ON DELETE CASCADE
-            ) STRICT;
-        ),
-        sql! (
-            ALTER TABLE editors ADD COLUMN buffer_path TEXT;
-            UPDATE editors SET buffer_path = CAST(path AS TEXT);
-        ),
-        sql! (
-            CREATE TABLE editor_folds (
-                item_id INTEGER NOT NULL,
-                editor_id INTEGER NOT NULL,
-                workspace_id INTEGER NOT NULL,
-                start INTEGER NOT NULL,
-                end INTEGER NOT NULL,
-                PRIMARY KEY(item_id),
-                FOREIGN KEY(editor_id, workspace_id) REFERENCES editors(item_id, workspace_id)
-                ON DELETE CASCADE
-            ) STRICT;
-        ),
-    ];
+        ];
 );
-
-// https://www.sqlite.org/limits.html
-// > <..> the maximum value of a host parameter number is SQLITE_MAX_VARIABLE_NUMBER,
-// > which defaults to <..> 32766 for SQLite versions after 3.32.0.
-const MAX_QUERY_PLACEHOLDERS: usize = 32000;
 
 impl EditorDb {
     query! {
         pub fn get_serialized_editor(item_id: ItemId, workspace_id: WorkspaceId) -> Result<Option<SerializedEditor>> {
-            SELECT path, buffer_path, contents, language, mtime_seconds, mtime_nanos FROM editors
+            SELECT path, contents, language, mtime_seconds, mtime_nanos FROM editors
             WHERE item_id = ? AND workspace_id = ?
         }
     }
@@ -207,18 +150,17 @@ impl EditorDb {
     query! {
         pub async fn save_serialized_editor(item_id: ItemId, workspace_id: WorkspaceId, serialized_editor: SerializedEditor) -> Result<()> {
             INSERT INTO editors
-                (item_id, workspace_id, path, buffer_path, contents, language, mtime_seconds, mtime_nanos)
+                (item_id, workspace_id, path, contents, language, mtime_seconds, mtime_nanos)
             VALUES
-                (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                (?1, ?2, ?3, ?4, ?5, ?6, ?7)
             ON CONFLICT DO UPDATE SET
                 item_id = ?1,
                 workspace_id = ?2,
                 path = ?3,
-                buffer_path = ?4,
-                contents = ?5,
-                language = ?6,
-                mtime_seconds = ?7,
-                mtime_nanos = ?8
+                contents = ?4,
+                language = ?5,
+                mtime_seconds = ?6,
+                mtime_nanos = ?7
         }
     }
 
@@ -246,130 +188,6 @@ impl EditorDb {
                 scroll_vertical_offset = ?5
             WHERE item_id = ?1 AND workspace_id = ?2
         }
-    }
-
-    query! {
-        pub fn get_editor_selections(
-            editor_id: ItemId,
-            workspace_id: WorkspaceId
-        ) -> Result<Vec<(usize, usize)>> {
-            SELECT start, end
-            FROM editor_selections
-            WHERE editor_id = ?1 AND workspace_id = ?2
-        }
-    }
-
-    query! {
-        pub fn get_editor_folds(
-            editor_id: ItemId,
-            workspace_id: WorkspaceId
-        ) -> Result<Vec<(usize, usize)>> {
-            SELECT start, end
-            FROM editor_folds
-            WHERE editor_id = ?1 AND workspace_id = ?2
-        }
-    }
-
-    pub async fn save_editor_selections(
-        &self,
-        editor_id: ItemId,
-        workspace_id: WorkspaceId,
-        selections: Vec<(usize, usize)>,
-    ) -> Result<()> {
-        let mut first_selection;
-        let mut last_selection = 0_usize;
-        for (count, placeholders) in std::iter::once("(?1, ?2, ?, ?)")
-            .cycle()
-            .take(selections.len())
-            .chunks(MAX_QUERY_PLACEHOLDERS / 4)
-            .into_iter()
-            .map(|chunk| {
-                let mut count = 0;
-                let placeholders = chunk
-                    .inspect(|_| {
-                        count += 1;
-                    })
-                    .join(", ");
-                (count, placeholders)
-            })
-            .collect::<Vec<_>>()
-        {
-            first_selection = last_selection;
-            last_selection = last_selection + count;
-            let query = format!(
-                r#"
-DELETE FROM editor_selections WHERE editor_id = ?1 AND workspace_id = ?2;
-
-INSERT OR IGNORE INTO editor_selections (editor_id, workspace_id, start, end)
-VALUES {placeholders};
-"#
-            );
-
-            let selections = selections[first_selection..last_selection].to_vec();
-            self.write(move |conn| {
-                let mut statement = Statement::prepare(conn, query)?;
-                statement.bind(&editor_id, 1)?;
-                let mut next_index = statement.bind(&workspace_id, 2)?;
-                for (start, end) in selections {
-                    next_index = statement.bind(&start, next_index)?;
-                    next_index = statement.bind(&end, next_index)?;
-                }
-                statement.exec()
-            })
-            .await?;
-        }
-        Ok(())
-    }
-
-    pub async fn save_editor_folds(
-        &self,
-        editor_id: ItemId,
-        workspace_id: WorkspaceId,
-        folds: Vec<(usize, usize)>,
-    ) -> Result<()> {
-        let mut first_fold;
-        let mut last_fold = 0_usize;
-        for (count, placeholders) in std::iter::once("(?1, ?2, ?, ?)")
-            .cycle()
-            .take(folds.len())
-            .chunks(MAX_QUERY_PLACEHOLDERS / 4)
-            .into_iter()
-            .map(|chunk| {
-                let mut count = 0;
-                let placeholders = chunk
-                    .inspect(|_| {
-                        count += 1;
-                    })
-                    .join(", ");
-                (count, placeholders)
-            })
-            .collect::<Vec<_>>()
-        {
-            first_fold = last_fold;
-            last_fold = last_fold + count;
-            let query = format!(
-                r#"
-DELETE FROM editor_folds WHERE editor_id = ?1 AND workspace_id = ?2;
-
-INSERT OR IGNORE INTO editor_folds (editor_id, workspace_id, start, end)
-VALUES {placeholders};
-"#
-            );
-
-            let folds = folds[first_fold..last_fold].to_vec();
-            self.write(move |conn| {
-                let mut statement = Statement::prepare(conn, query)?;
-                statement.bind(&editor_id, 1)?;
-                let mut next_index = statement.bind(&workspace_id, 2)?;
-                for (start, end) in folds {
-                    next_index = statement.bind(&start, next_index)?;
-                    next_index = statement.bind(&end, next_index)?;
-                }
-                statement.exec()
-            })
-            .await?;
-        }
-        Ok(())
     }
 
     pub async fn delete_unloaded_items(
@@ -408,7 +226,7 @@ mod tests {
         let workspace_id = workspace::WORKSPACE_DB.next_id().await.unwrap();
 
         let serialized_editor = SerializedEditor {
-            abs_path: Some(PathBuf::from("testing.txt")),
+            path: Some(PathBuf::from("testing.txt")),
             contents: None,
             language: None,
             mtime: None,
@@ -426,7 +244,7 @@ mod tests {
 
         // Now update contents and language
         let serialized_editor = SerializedEditor {
-            abs_path: Some(PathBuf::from("testing.txt")),
+            path: Some(PathBuf::from("testing.txt")),
             contents: Some("Test".to_owned()),
             language: Some("Go".to_owned()),
             mtime: None,
@@ -444,7 +262,7 @@ mod tests {
 
         // Now set all the fields to NULL
         let serialized_editor = SerializedEditor {
-            abs_path: None,
+            path: None,
             contents: None,
             language: None,
             mtime: None,
@@ -461,11 +279,12 @@ mod tests {
         assert_eq!(have, serialized_editor);
 
         // Storing and retrieving mtime
+        let now = SystemTime::now();
         let serialized_editor = SerializedEditor {
-            abs_path: None,
+            path: None,
             contents: None,
             language: None,
-            mtime: Some(MTime::from_seconds_and_nanos(100, 42)),
+            mtime: Some(now),
         };
 
         DB.save_serialized_editor(1234, workspace_id, serialized_editor.clone())

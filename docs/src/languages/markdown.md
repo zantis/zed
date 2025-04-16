@@ -2,7 +2,7 @@
 
 Markdown support is available natively in Zed.
 
-- Tree-sitter: [tree-sitter-markdown](https://github.com/tree-sitter-grammars/tree-sitter-markdown)
+- Tree Sitter: [tree-sitter-markdown](https://github.com/tree-sitter-grammars/tree-sitter-markdown)
 - Language Server: N/A
 
 ## Syntax Highlighting Code Blocks
@@ -21,26 +21,13 @@ def fib(n):
 
 ## Configuration
 
-### Format
-
-Zed supports using Prettier to automatically re-format Markdown documents. You can trigger this manually via the {#action editor::Format} action or via the {#kb editor::Format} keyboard shortcut. Alternately, you can automatically format by enabling [`format_on_save`](./configuring-zed.md#format-on-save) in your settings.json:
+If you wish change the default language settings for Markdown files, perhaps to disable auto format on save or if your markdown relies upon trailing whitespace `  ` being converted to `<br />` you can add change these values in your `settings.json`:
 
 ```json
   "languages": {
     "Markdown": {
+      "remove_trailing_whitespace_on_save": true,
       "format_on_save": "on"
-    }
-  },
-```
-
-### Trailing Whitespace
-
-By default Zed will remove trailing whitespace on save. If you rely on invisible trailing whitespace being converted to `<br />` in Markdown files you can disable this behavior with:
-
-```json
-  "languages": {
-    "Markdown": {
-      "remove_trailing_whitespace_on_save": false
     }
   },
 ```

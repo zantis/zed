@@ -1,4 +1,4 @@
-use crate::{FontId, GlyphId, Pixels, PlatformTextSystem, Point, SharedString, Size, point, px};
+use crate::{point, px, FontId, GlyphId, Pixels, PlatformTextSystem, Point, Size};
 use collections::FxHashMap;
 use parking_lot::{Mutex, RwLock, RwLockUpgradableReadGuard};
 use smallvec::SmallVec;
@@ -8,8 +8,6 @@ use std::{
     ops::Range,
     sync::Arc,
 };
-
-use super::LineWrapper;
 
 /// A laid out and styled line of text
 #[derive(Default, Debug)]
@@ -29,7 +27,7 @@ pub struct LineLayout {
 }
 
 /// A run of text that has been shaped .
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ShapedRun {
     /// The font id for this run
     pub font_id: FontId,
@@ -90,14 +88,6 @@ impl LineLayout {
             }
         }
 
-        if self.len == 1 {
-            if x > self.width / 2. {
-                return 1;
-            } else {
-                return 0;
-            }
-        }
-
         self.len
     }
 
@@ -129,9 +119,9 @@ impl LineLayout {
         &self,
         text: &str,
         wrap_width: Pixels,
-        max_lines: Option<usize>,
     ) -> SmallVec<[WrapBoundary; 1]> {
         let mut boundaries = SmallVec::new();
+
         let mut first_non_whitespace_ix = None;
         let mut last_candidate_ix = None;
         let mut last_candidate_x = px(0.);
@@ -162,18 +152,9 @@ impl LineLayout {
                 continue;
             }
 
-            // Here is very similar to `LineWrapper::wrap_line` to determine text wrapping,
-            // but there are some differences, so we have to duplicate the code here.
-            if LineWrapper::is_word_char(ch) {
-                if prev_ch == ' ' && ch != ' ' && first_non_whitespace_ix.is_some() {
-                    last_candidate_ix = Some(boundary);
-                    last_candidate_x = x;
-                }
-            } else {
-                if ch != ' ' && first_non_whitespace_ix.is_some() {
-                    last_candidate_ix = Some(boundary);
-                    last_candidate_x = x;
-                }
+            if prev_ch == ' ' && ch != ' ' && first_non_whitespace_ix.is_some() {
+                last_candidate_ix = Some(boundary);
+                last_candidate_x = x;
             }
 
             if ch != ' ' && first_non_whitespace_ix.is_none() {
@@ -182,15 +163,7 @@ impl LineLayout {
 
             let next_x = glyphs.peek().map_or(self.width, |(_, _, x)| *x);
             let width = next_x - last_boundary_x;
-
             if width > wrap_width && boundary > last_boundary {
-                // When used line_clamp, we should limit the number of lines.
-                if let Some(max_lines) = max_lines {
-                    if boundaries.len() >= max_lines - 1 {
-                        break;
-                    }
-                }
-
                 if let Some(last_candidate_ix) = last_candidate_ix.take() {
                     last_boundary = last_candidate_ix;
                     last_boundary_x = last_candidate_x;
@@ -198,6 +171,7 @@ impl LineLayout {
                     last_boundary = boundary;
                     last_boundary_x = x;
                 }
+
                 boundaries.push(last_boundary);
             }
             prev_ch = ch;
@@ -278,34 +252,10 @@ impl WrappedLineLayout {
     }
 
     /// The index corresponding to a given position in this layout for the given line height.
-    ///
-    /// See also [`Self::closest_index_for_position`].
     pub fn index_for_position(
-        &self,
-        position: Point<Pixels>,
-        line_height: Pixels,
-    ) -> Result<usize, usize> {
-        self._index_for_position(position, line_height, false)
-    }
-
-    /// The closest index to a given position in this layout for the given line height.
-    ///
-    /// Closest means the character boundary closest to the given position.
-    ///
-    /// See also [`LineLayout::closest_index_for_x`].
-    pub fn closest_index_for_position(
-        &self,
-        position: Point<Pixels>,
-        line_height: Pixels,
-    ) -> Result<usize, usize> {
-        self._index_for_position(position, line_height, true)
-    }
-
-    fn _index_for_position(
         &self,
         mut position: Point<Pixels>,
         line_height: Pixels,
-        closest: bool,
     ) -> Result<usize, usize> {
         let wrapped_line_ix = (position.y / line_height) as usize;
 
@@ -345,16 +295,10 @@ impl WrappedLineLayout {
         } else if position_in_unwrapped_line.x >= wrapped_line_end_x {
             Err(wrapped_line_end_index)
         } else {
-            if closest {
-                Ok(self
-                    .unwrapped_layout
-                    .closest_index_for_x(position_in_unwrapped_line.x))
-            } else {
-                Ok(self
-                    .unwrapped_layout
-                    .index_for_x(position_in_unwrapped_line.x)
-                    .unwrap())
-            }
+            Ok(self
+                .unwrapped_layout
+                .index_for_x(position_in_unwrapped_line.x)
+                .unwrap())
         }
     }
 
@@ -465,20 +409,15 @@ impl LineLayoutCache {
         curr_frame.used_wrapped_lines.clear();
     }
 
-    pub fn layout_wrapped_line<Text>(
+    pub fn layout_wrapped_line(
         &self,
-        text: Text,
+        text: &str,
         font_size: Pixels,
         runs: &[FontRun],
         wrap_width: Option<Pixels>,
-        max_lines: Option<usize>,
-    ) -> Arc<WrappedLineLayout>
-    where
-        Text: AsRef<str>,
-        SharedString: From<Text>,
-    {
+    ) -> Arc<WrappedLineLayout> {
         let key = &CacheKeyRef {
-            text: text.as_ref(),
+            text,
             font_size,
             runs,
             wrap_width,
@@ -499,10 +438,10 @@ impl LineLayoutCache {
             layout
         } else {
             drop(current_frame);
-            let text = SharedString::from(text);
-            let unwrapped_layout = self.layout_line::<&SharedString>(&text, font_size, runs);
+
+            let unwrapped_layout = self.layout_line(text, font_size, runs);
             let wrap_boundaries = if let Some(wrap_width) = wrap_width {
-                unwrapped_layout.compute_wrap_boundaries(text.as_ref(), wrap_width, max_lines)
+                unwrapped_layout.compute_wrap_boundaries(text.as_ref(), wrap_width)
             } else {
                 SmallVec::new()
             };
@@ -512,7 +451,7 @@ impl LineLayoutCache {
                 wrap_width,
             });
             let key = Arc::new(CacheKey {
-                text,
+                text: text.into(),
                 font_size,
                 runs: SmallVec::from(runs),
                 wrap_width,
@@ -528,18 +467,9 @@ impl LineLayoutCache {
         }
     }
 
-    pub fn layout_line<Text>(
-        &self,
-        text: Text,
-        font_size: Pixels,
-        runs: &[FontRun],
-    ) -> Arc<LineLayout>
-    where
-        Text: AsRef<str>,
-        SharedString: From<Text>,
-    {
+    pub fn layout_line(&self, text: &str, font_size: Pixels, runs: &[FontRun]) -> Arc<LineLayout> {
         let key = &CacheKeyRef {
-            text: text.as_ref(),
+            text,
             font_size,
             runs,
             wrap_width: None,
@@ -556,13 +486,9 @@ impl LineLayoutCache {
             current_frame.used_lines.push(key);
             layout
         } else {
-            let text = SharedString::from(text);
-            let layout = Arc::new(
-                self.platform_text_system
-                    .layout_line(&text, font_size, runs),
-            );
+            let layout = Arc::new(self.platform_text_system.layout_line(text, font_size, runs));
             let key = Arc::new(CacheKey {
-                text,
+                text: text.into(),
                 font_size,
                 runs: SmallVec::from(runs),
                 wrap_width: None,
@@ -587,7 +513,7 @@ trait AsCacheKeyRef {
 
 #[derive(Clone, Debug, Eq)]
 struct CacheKey {
-    text: SharedString,
+    text: String,
     font_size: Pixels,
     runs: SmallVec<[FontRun; 1]>,
     wrap_width: Option<Pixels>,
@@ -601,15 +527,15 @@ struct CacheKeyRef<'a> {
     wrap_width: Option<Pixels>,
 }
 
-impl PartialEq for (dyn AsCacheKeyRef + '_) {
+impl<'a> PartialEq for (dyn AsCacheKeyRef + 'a) {
     fn eq(&self, other: &dyn AsCacheKeyRef) -> bool {
         self.as_cache_key_ref() == other.as_cache_key_ref()
     }
 }
 
-impl Eq for (dyn AsCacheKeyRef + '_) {}
+impl<'a> Eq for (dyn AsCacheKeyRef + 'a) {}
 
-impl Hash for (dyn AsCacheKeyRef + '_) {
+impl<'a> Hash for (dyn AsCacheKeyRef + 'a) {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.as_cache_key_ref().hash(state)
     }
@@ -644,7 +570,7 @@ impl<'a> Borrow<dyn AsCacheKeyRef + 'a> for Arc<CacheKey> {
     }
 }
 
-impl AsCacheKeyRef for CacheKeyRef<'_> {
+impl<'a> AsCacheKeyRef for CacheKeyRef<'a> {
     fn as_cache_key_ref(&self) -> CacheKeyRef {
         *self
     }

@@ -1,6 +1,6 @@
 use crate::Result;
 use rpc::proto;
-use sea_orm::{DbErr, entity::prelude::*};
+use sea_orm::{entity::prelude::*, DbErr};
 use serde::{Deserialize, Serialize};
 
 #[macro_export]
@@ -32,7 +32,6 @@ macro_rules! id_type {
             #[allow(unused)]
             #[allow(missing_docs)]
             pub fn from_proto(value: u64) -> Self {
-                debug_assert!(value != 0);
                 Self(value as i32)
             }
 
@@ -72,13 +71,13 @@ macro_rules! id_type {
 id_type!(AccessTokenId);
 id_type!(BillingCustomerId);
 id_type!(BillingSubscriptionId);
-id_type!(BillingPreferencesId);
 id_type!(BufferId);
 id_type!(ChannelBufferCollaboratorId);
 id_type!(ChannelChatParticipantId);
 id_type!(ChannelId);
 id_type!(ChannelMemberId);
 id_type!(ContactId);
+id_type!(DevServerId);
 id_type!(ExtensionId);
 id_type!(FlagId);
 id_type!(FollowerId);
@@ -88,6 +87,7 @@ id_type!(NotificationId);
 id_type!(NotificationKindId);
 id_type!(ProjectCollaboratorId);
 id_type!(ProjectId);
+id_type!(DevServerProjectId);
 id_type!(ReplicaId);
 id_type!(RoomId);
 id_type!(RoomParticipantId);
@@ -273,6 +273,12 @@ impl From<ChannelVisibility> for i32 {
         let proto: proto::ChannelVisibility = val.into();
         proto.into()
     }
+}
+
+#[derive(Copy, Clone, Debug, Serialize, PartialEq)]
+pub enum PrincipalId {
+    UserId(UserId),
+    DevServerId(DevServerId),
 }
 
 /// Indicate whether a [Buffer] has permissions to edit.

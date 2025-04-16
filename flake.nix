@@ -3,62 +3,59 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs?ref=nixos-unstable";
-    rust-overlay = {
-      url = "github:oxalica/rust-overlay";
+    fenix = {
+      url = "github:nix-community/fenix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    crane.url = "github:ipetkov/crane";
+    crane = {
+      url = "github:ipetkov/crane";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     flake-compat.url = "github:edolstra/flake-compat";
   };
 
-  outputs =
-    {
-      nixpkgs,
-      rust-overlay,
-      crane,
-      ...
-    }:
-    let
-      systems = [
+  outputs = {
+    nixpkgs,
+    crane,
+    fenix,
+    ...
+  }: let
+    forAllSystems = function:
+      nixpkgs.lib.genAttrs [
         "x86_64-linux"
-        "x86_64-darwin"
         "aarch64-linux"
-        "aarch64-darwin"
-      ];
+      ] (system:
+        function (import nixpkgs {
+          inherit system;
+          overlays = [fenix.overlays.default];
+        }));
+  in {
+    packages = forAllSystems (pkgs: let
+      craneLib = (crane.mkLib pkgs).overrideToolchain (p: p.fenix.stable.toolchain);
+      rustPlatform = pkgs.makeRustPlatform {
+        inherit (pkgs.fenix.stable.toolchain) cargo rustc;
+      };
+      nightlyBuild = pkgs.callPackage ./nix/build.nix {
+        inherit craneLib rustPlatform;
+      };
+    in {
+      zed-editor = nightlyBuild;
+      default = nightlyBuild;
+    });
 
-      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
-      mkZed =
-        pkgs:
-        let
-          rustBin = rust-overlay.lib.mkRustBin { } pkgs;
-        in
-        pkgs.callPackage ./nix/build.nix {
-          crane = crane.mkLib pkgs;
-          rustToolchain = rustBin.fromRustupToolchainFile ./rust-toolchain.toml;
+    devShells = forAllSystems (pkgs: {
+      default = import ./nix/shell.nix {inherit pkgs;};
+    });
+
+    formatter = forAllSystems (pkgs: pkgs.alejandra);
+
+    overlays.default = final: prev: {
+      zed-editor = final.callPackage ./nix/build.nix {
+        craneLib = (crane.mkLib final).overrideToolchain (p: p.fenix.stable.toolchain);
+        rustPlatform = final.makeRustPlatform {
+          inherit (final.fenix.stable.toolchain) cargo rustc;
         };
-    in
-    rec {
-      packages = forAllSystems (pkgs: rec {
-        default = mkZed pkgs;
-        debug = default.override { profile = "dev"; };
-      });
-      devShells = forAllSystems (pkgs: {
-        default = pkgs.callPackage ./nix/shell.nix {
-          zed-editor = packages.${pkgs.hostPlatform.system}.default;
-        };
-      });
-      formatter = forAllSystems (pkgs: pkgs.nixfmt-rfc-style);
-      overlays.default = final: _: {
-        zed-editor = mkZed final;
       };
     };
-
-  nixConfig = {
-    extra-substituters = [
-      "https://zed-industries.cachix.org"
-    ];
-    extra-trusted-public-keys = [
-      "zed-industries.cachix.org-1:QW3RoXK0Lm4ycmU5/3bmYRd3MLf4RbTGPqRulGlX5W0="
-    ];
   };
 }

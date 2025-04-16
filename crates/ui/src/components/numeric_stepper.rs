@@ -1,24 +1,24 @@
 use gpui::ClickEvent;
 
-use crate::{IconButtonShape, prelude::*};
+use crate::{prelude::*, IconButtonShape};
 
 #[derive(IntoElement)]
 pub struct NumericStepper {
     id: ElementId,
     value: SharedString,
-    on_decrement: Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>,
-    on_increment: Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>,
+    on_decrement: Box<dyn Fn(&ClickEvent, &mut WindowContext) + 'static>,
+    on_increment: Box<dyn Fn(&ClickEvent, &mut WindowContext) + 'static>,
     /// Whether to reserve space for the reset button.
     reserve_space_for_reset: bool,
-    on_reset: Option<Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>>,
+    on_reset: Option<Box<dyn Fn(&ClickEvent, &mut WindowContext) + 'static>>,
 }
 
 impl NumericStepper {
     pub fn new(
         id: impl Into<ElementId>,
         value: impl Into<SharedString>,
-        on_decrement: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-        on_increment: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+        on_decrement: impl Fn(&ClickEvent, &mut WindowContext) + 'static,
+        on_increment: impl Fn(&ClickEvent, &mut WindowContext) + 'static,
     ) -> Self {
         Self {
             id: id.into(),
@@ -37,7 +37,7 @@ impl NumericStepper {
 
     pub fn on_reset(
         mut self,
-        on_reset: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+        on_reset: impl Fn(&ClickEvent, &mut WindowContext) + 'static,
     ) -> Self {
         self.on_reset = Some(Box::new(on_reset));
         self
@@ -45,7 +45,7 @@ impl NumericStepper {
 }
 
 impl RenderOnce for NumericStepper {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, cx: &mut WindowContext) -> impl IntoElement {
         let shape = IconButtonShape::Square;
         let icon_size = IconSize::Small;
 
@@ -63,7 +63,7 @@ impl RenderOnce for NumericStepper {
                 } else if self.reserve_space_for_reset {
                     element.child(
                         h_flex()
-                            .size(icon_size.square(window, cx))
+                            .size(icon_size.square(cx))
                             .flex_none()
                             .into_any_element(),
                     )
@@ -75,7 +75,7 @@ impl RenderOnce for NumericStepper {
                 h_flex()
                     .gap_1()
                     .px_1()
-                    .rounded_xs()
+                    .rounded_sm()
                     .bg(cx.theme().colors().editor_background)
                     .child(
                         IconButton::new("decrement", IconName::Dash)

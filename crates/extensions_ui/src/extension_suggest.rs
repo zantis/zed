@@ -4,20 +4,20 @@ use std::sync::{Arc, OnceLock};
 
 use db::kvp::KEY_VALUE_STORE;
 use editor::Editor;
-use extension_host::ExtensionStore;
-use gpui::{AppContext as _, Context, Entity, SharedString, Window};
+use extension::ExtensionStore;
+use gpui::{Model, VisualContext};
 use language::Buffer;
-use ui::prelude::*;
-use workspace::notifications::simple_message_notification::MessageNotification;
-use workspace::{Workspace, notifications::NotificationId};
+use ui::{SharedString, ViewContext};
+use workspace::{
+    notifications::{simple_message_notification, NotificationId},
+    Workspace,
+};
 
 const SUGGESTIONS_BY_EXTENSION_ID: &[(&str, &[&str])] = &[
     ("astro", &["astro"]),
     ("beancount", &["beancount"]),
     ("clojure", &["bb", "clj", "cljc", "cljs", "edn"]),
-    ("neocmake", &["CMakeLists.txt", "cmake"]),
     ("csharp", &["cs"]),
-    ("cython", &["pyx", "pxd", "pxi"]),
     ("dart", &["dart"]),
     ("dockerfile", &["Dockerfile"]),
     ("elisp", &["el"]),
@@ -54,7 +54,6 @@ const SUGGESTIONS_BY_EXTENSION_ID: &[(&str, &[&str])] = &[
     ("ocaml", &["ml", "mli"]),
     ("php", &["php"]),
     ("prisma", &["prisma"]),
-    ("proto", &["proto"]),
     ("purescript", &["purs"]),
     ("r", &["r", "R"]),
     ("racket", &["rkt"]),
@@ -134,7 +133,7 @@ fn language_extension_key(extension_id: &str) -> String {
     format!("{}_extension_suggest", extension_id)
 }
 
-pub(crate) fn suggest(buffer: Entity<Buffer>, window: &mut Window, cx: &mut Context<Workspace>) {
+pub(crate) fn suggest(buffer: Model<Buffer>, cx: &mut ViewContext<Workspace>) {
     let Some(file) = buffer.read(cx).file().cloned() else {
         return;
     };
@@ -152,7 +151,7 @@ pub(crate) fn suggest(buffer: Entity<Buffer>, window: &mut Window, cx: &mut Cont
         return;
     };
 
-    cx.on_next_frame(window, move |workspace, _, cx| {
+    cx.on_next_frame(move |workspace, cx| {
         let Some(editor) = workspace.active_item_as::<Editor>(cx) else {
             return;
         };
@@ -163,25 +162,20 @@ pub(crate) fn suggest(buffer: Entity<Buffer>, window: &mut Window, cx: &mut Cont
 
         struct ExtensionSuggestionNotification;
 
-        let notification_id = NotificationId::composite::<ExtensionSuggestionNotification>(
+        let notification_id = NotificationId::identified::<ExtensionSuggestionNotification>(
             SharedString::from(extension_id.clone()),
         );
 
         workspace.show_notification(notification_id, cx, |cx| {
-            cx.new(move |cx| {
-                MessageNotification::new(
-                    format!(
-                        "Do you want to install the recommended '{}' extension for '{}' files?",
-                        extension_id, file_name_or_extension
-                    ),
-                    cx,
-                )
-                .primary_message("Yes, install extension")
-                .primary_icon(IconName::Check)
-                .primary_icon_color(Color::Success)
-                .primary_on_click({
+            cx.new_view(move |_cx| {
+                simple_message_notification::MessageNotification::new(format!(
+                    "Do you want to install the recommended '{}' extension for '{}' files?",
+                    extension_id, file_name_or_extension
+                ))
+                .with_click_message("Yes")
+                .on_click({
                     let extension_id = extension_id.clone();
-                    move |_window, cx| {
+                    move |cx| {
                         let extension_id = extension_id.clone();
                         let extension_store = ExtensionStore::global(cx);
                         extension_store.update(cx, move |store, cx| {
@@ -189,10 +183,8 @@ pub(crate) fn suggest(buffer: Entity<Buffer>, window: &mut Window, cx: &mut Cont
                         });
                     }
                 })
-                .secondary_message("No, don't install it")
-                .secondary_icon(IconName::Close)
-                .secondary_icon_color(Color::Error)
-                .secondary_on_click(move |_window, cx| {
+                .with_secondary_click_message("No")
+                .on_secondary_click(move |cx| {
                     let key = language_extension_key(&extension_id);
                     db::write_and_log(cx, move || {
                         KEY_VALUE_STORE.write_kvp(key, "dismissed".to_string())

@@ -1,50 +1,19 @@
 use std::fs;
 use zed::LanguageServerId;
-use zed_extension_api::settings::LspSettings;
 use zed_extension_api::{self as zed, Result};
-
-struct TaploBinary {
-    path: String,
-    args: Option<Vec<String>>,
-}
 
 struct TomlExtension {
     cached_binary_path: Option<String>,
 }
 
 impl TomlExtension {
-    fn language_server_binary(
+    fn language_server_binary_path(
         &mut self,
         language_server_id: &LanguageServerId,
-        worktree: &zed::Worktree,
-    ) -> Result<TaploBinary> {
-        let binary_settings = LspSettings::for_worktree("taplo", worktree)
-            .ok()
-            .and_then(|lsp_settings| lsp_settings.binary);
-        let binary_args = binary_settings
-            .as_ref()
-            .and_then(|binary_settings| binary_settings.arguments.clone());
-
-        if let Some(path) = binary_settings.and_then(|binary_settings| binary_settings.path) {
-            return Ok(TaploBinary {
-                path,
-                args: binary_args,
-            });
-        }
-
-        if let Some(path) = worktree.which("taplo") {
-            return Ok(TaploBinary {
-                path,
-                args: binary_args,
-            });
-        }
-
+    ) -> Result<String> {
         if let Some(path) = &self.cached_binary_path {
             if fs::metadata(path).map_or(false, |stat| stat.is_file()) {
-                return Ok(TaploBinary {
-                    path: path.clone(),
-                    args: binary_args,
-                });
+                return Ok(path.clone());
             }
         }
 
@@ -119,10 +88,7 @@ impl TomlExtension {
         }
 
         self.cached_binary_path = Some(binary_path.clone());
-        Ok(TaploBinary {
-            path: binary_path,
-            args: binary_args,
-        })
+        Ok(binary_path)
     }
 }
 
@@ -136,14 +102,11 @@ impl zed::Extension for TomlExtension {
     fn language_server_command(
         &mut self,
         language_server_id: &LanguageServerId,
-        worktree: &zed::Worktree,
+        _worktree: &zed::Worktree,
     ) -> Result<zed::Command> {
-        let taplo_binary = self.language_server_binary(language_server_id, worktree)?;
         Ok(zed::Command {
-            command: taplo_binary.path,
-            args: taplo_binary
-                .args
-                .unwrap_or_else(|| vec!["lsp".to_string(), "stdio".to_string()]),
+            command: self.language_server_binary_path(language_server_id)?,
+            args: vec!["lsp".to_string(), "stdio".to_string()],
             env: Default::default(),
         })
     }

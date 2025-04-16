@@ -1,6 +1,6 @@
 # Deno
 
-Deno support is available through the [Deno extension](https://github.com/zed-extensions/deno).
+Deno support is available through the [Deno extension](https://github.com/zed-industries/zed/tree/main/extensions/deno).
 
 - Language server: [Deno Language Server](https://docs.deno.com/runtime/manual/advanced/language_server/overview/)
 
@@ -10,15 +10,6 @@ To use the Deno Language Server with TypeScript and TSX files, you will likely w
 
 ```json
 {
-  "lsp": {
-    "deno": {
-      "settings": {
-        "deno": {
-          "enable": true
-        }
-      }
-    }
-  },
   "languages": {
     "TypeScript": {
       "language_servers": [
@@ -26,8 +17,7 @@ To use the Deno Language Server with TypeScript and TSX files, you will likely w
         "!typescript-language-server",
         "!vtsls",
         "!eslint"
-      ],
-      "formatter": "language_server"
+      ]
     },
     "TSX": {
       "language_servers": [
@@ -35,8 +25,7 @@ To use the Deno Language Server with TypeScript and TSX files, you will likely w
         "!typescript-language-server",
         "!vtsls",
         "!eslint"
-      ],
-      "formatter": "language_server"
+      ]
     }
   }
 }

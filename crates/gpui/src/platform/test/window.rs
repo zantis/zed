@@ -1,8 +1,8 @@
 use crate::{
-    AnyWindowHandle, AtlasKey, AtlasTextureId, AtlasTile, Bounds, DispatchEventResult, GpuSpecs,
+    AnyWindowHandle, AtlasKey, AtlasTextureId, AtlasTile, Bounds, DispatchEventResult, GPUSpecs,
     Pixels, PlatformAtlas, PlatformDisplay, PlatformInput, PlatformInputHandler, PlatformWindow,
-    Point, RequestFrameOptions, ScaledPixels, Size, TestPlatform, TileId, WindowAppearance,
-    WindowBackgroundAppearance, WindowBounds, WindowParams,
+    Point, Size, TestPlatform, TileId, WindowAppearance, WindowBackgroundAppearance, WindowBounds,
+    WindowParams,
 };
 use collections::HashMap;
 use parking_lot::Mutex;
@@ -126,11 +126,6 @@ impl PlatformWindow for TestWindow {
         self.bounds().size
     }
 
-    fn resize(&mut self, size: Size<Pixels>) {
-        let mut lock = self.0.lock();
-        lock.bounds.size = size;
-    }
-
     fn scale_factor(&self) -> f32 {
         2.0
     }
@@ -164,7 +159,7 @@ impl PlatformWindow for TestWindow {
         _level: crate::PromptLevel,
         msg: &str,
         detail: Option<&str>,
-        answers: &[&str],
+        _answers: &[&str],
     ) -> Option<futures::channel::oneshot::Receiver<usize>> {
         Some(
             self.0
@@ -172,7 +167,7 @@ impl PlatformWindow for TestWindow {
                 .platform
                 .upgrade()
                 .expect("platform dropped")
-                .prompt(msg, detail, answers),
+                .prompt(msg, detail),
         )
     }
 
@@ -226,7 +221,7 @@ impl PlatformWindow for TestWindow {
         self.0.lock().is_fullscreen
     }
 
-    fn on_request_frame(&self, _callback: Box<dyn FnMut(RequestFrameOptions)>) {}
+    fn on_request_frame(&self, _callback: Box<dyn FnMut()>) {}
 
     fn on_input(&self, callback: Box<dyn FnMut(crate::PlatformInput) -> DispatchEventResult>) {
         self.0.lock().input_callback = Some(callback)
@@ -279,9 +274,9 @@ impl PlatformWindow for TestWindow {
         unimplemented!()
     }
 
-    fn update_ime_position(&self, _bounds: Bounds<ScaledPixels>) {}
+    fn update_ime_position(&self, _bounds: Bounds<Pixels>) {}
 
-    fn gpu_specs(&self) -> Option<GpuSpecs> {
+    fn gpu_specs(&self) -> Option<GPUSpecs> {
         None
     }
 }
@@ -343,10 +338,5 @@ impl PlatformAtlas for TestAtlas {
         );
 
         Ok(Some(state.tiles[key].clone()))
-    }
-
-    fn remove(&self, key: &AtlasKey) {
-        let mut state = self.0.lock();
-        state.tiles.remove(key);
     }
 }

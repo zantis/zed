@@ -12,20 +12,18 @@ env:
 jobs:
   publish:
     name: Publish zed-extension CLI
-    if: github.repository_owner == 'zed-industries'
     runs-on:
       - ubuntu-latest
     steps:
       - name: Checkout repo
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4
         with:
           clean: false
 
       - name: Cache dependencies
-        uses: swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2
+        uses: swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 # v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-          cache-provider: "github"
 
       - name: Configure linux
         shell: bash -euxo pipefail {0}

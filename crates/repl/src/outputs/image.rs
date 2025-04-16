@@ -1,11 +1,8 @@
 use anyhow::Result;
-use base64::{
-    Engine as _, alphabet,
-    engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig},
-};
-use gpui::{App, ClipboardItem, Image, ImageFormat, Pixels, RenderImage, Window, img};
+use base64::prelude::*;
+use gpui::{img, ClipboardItem, Image, ImageFormat, Pixels, RenderImage, WindowContext};
 use std::sync::Arc;
-use ui::{IntoElement, Styled, div, prelude::*};
+use ui::{div, prelude::*, IntoElement, Styled};
 
 use crate::outputs::OutputContent;
 
@@ -17,21 +14,11 @@ pub struct ImageView {
     image: Arc<RenderImage>,
 }
 
-pub const STANDARD_INDIFFERENT: GeneralPurpose = GeneralPurpose::new(
-    &alphabet::STANDARD,
-    GeneralPurposeConfig::new()
-        .with_encode_padding(false)
-        .with_decode_padding_mode(DecodePaddingMode::Indifferent),
-);
-
 impl ImageView {
     pub fn from(base64_encoded_data: &str) -> Result<Self> {
-        let filtered =
-            base64_encoded_data.replace(&[' ', '\n', '\t', '\r', '\x0b', '\x0c'][..], "");
-        let bytes = STANDARD_INDIFFERENT.decode(filtered)?;
+        let bytes = BASE64_STANDARD.decode(base64_encoded_data)?;
 
         let format = image::guess_format(&bytes)?;
-
         let mut data = image::load_from_memory_with_format(&bytes, format)?.into_rgba8();
 
         // Convert from RGBA to BGRA.
@@ -73,8 +60,8 @@ impl ImageView {
 }
 
 impl Render for ImageView {
-    fn render(&mut self, window: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        let line_height = window.line_height();
+    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
+        let line_height = cx.line_height();
 
         let (height, width) = if self.height as f32 / line_height.0 == u8::MAX as f32 {
             let height = u8::MAX as f32 * line_height.0;
@@ -91,11 +78,11 @@ impl Render for ImageView {
 }
 
 impl OutputContent for ImageView {
-    fn clipboard_content(&self, _window: &Window, _cx: &App) -> Option<ClipboardItem> {
+    fn clipboard_content(&self, _cx: &WindowContext) -> Option<ClipboardItem> {
         Some(ClipboardItem::new_image(self.clipboard_image.as_ref()))
     }
 
-    fn has_clipboard_content(&self, _window: &Window, _cx: &App) -> bool {
+    fn has_clipboard_content(&self, _cx: &WindowContext) -> bool {
         true
     }
 }

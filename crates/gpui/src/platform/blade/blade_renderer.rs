@@ -1,24 +1,84 @@
 // Doing `if let` gives you nice scoping with passes/encoders
 #![allow(irrefutable_let_patterns)]
 
-use super::{BladeAtlas, BladeContext, PATH_TEXTURE_FORMAT};
+use super::{BladeAtlas, PATH_TEXTURE_FORMAT};
 use crate::{
-    AtlasTextureKind, AtlasTile, Background, Bounds, ContentMask, DevicePixels, GpuSpecs,
+    AtlasTextureKind, AtlasTile, Bounds, ContentMask, DevicePixels, GPUSpecs, Hsla,
     MonochromeSprite, Path, PathId, PathVertex, PolychromeSprite, PrimitiveBatch, Quad,
     ScaledPixels, Scene, Shadow, Size, Underline,
 };
-use blade_graphics as gpu;
-use blade_util::{BufferBelt, BufferBeltDescriptor};
 use bytemuck::{Pod, Zeroable};
 use collections::HashMap;
 #[cfg(target_os = "macos")]
 use media::core_video::CVMetalTextureCache;
+#[cfg(target_os = "macos")]
+use std::{ffi::c_void, ptr::NonNull};
+
+use blade_graphics as gpu;
+use blade_util::{BufferBelt, BufferBeltDescriptor};
 use std::{mem, sync::Arc};
 
 const MAX_FRAME_TIME_MS: u32 = 10000;
-// Use 4x MSAA, all devices support it.
-// https://developer.apple.com/documentation/metal/mtldevice/1433355-supportstexturesamplecount
-const DEFAULT_PATH_SAMPLE_COUNT: u32 = 4;
+
+#[cfg(target_os = "macos")]
+#[derive(Clone, Default)]
+pub struct Context {}
+#[cfg(target_os = "macos")]
+pub type Renderer = BladeRenderer;
+
+#[cfg(target_os = "macos")]
+pub unsafe fn new_renderer(
+    _context: self::Context,
+    _native_window: *mut c_void,
+    native_view: *mut c_void,
+    bounds: crate::Size<f32>,
+    transparent: bool,
+) -> Renderer {
+    use raw_window_handle as rwh;
+    struct RawWindow {
+        view: *mut c_void,
+    }
+
+    impl rwh::HasWindowHandle for RawWindow {
+        fn window_handle(&self) -> Result<rwh::WindowHandle, rwh::HandleError> {
+            let view = NonNull::new(self.view).unwrap();
+            let handle = rwh::AppKitWindowHandle::new(view);
+            Ok(unsafe { rwh::WindowHandle::borrow_raw(handle.into()) })
+        }
+    }
+    impl rwh::HasDisplayHandle for RawWindow {
+        fn display_handle(&self) -> Result<rwh::DisplayHandle, rwh::HandleError> {
+            let handle = rwh::AppKitDisplayHandle::new();
+            Ok(unsafe { rwh::DisplayHandle::borrow_raw(handle.into()) })
+        }
+    }
+
+    let gpu = Arc::new(
+        gpu::Context::init_windowed(
+            &RawWindow {
+                view: native_view as *mut _,
+            },
+            gpu::ContextDesc {
+                validation: cfg!(debug_assertions),
+                capture: false,
+                overlay: false,
+            },
+        )
+        .unwrap(),
+    );
+
+    BladeRenderer::new(
+        gpu,
+        BladeSurfaceConfig {
+            size: gpu::Extent {
+                width: bounds.width as u32,
+                height: bounds.height as u32,
+                depth: 1,
+            },
+            transparent,
+        },
+    )
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -114,7 +174,7 @@ struct ShaderSurfacesData {
 #[repr(C)]
 struct PathSprite {
     bounds: Bounds<ScaledPixels>,
-    color: Background,
+    color: Hsla,
     tile: AtlasTile,
 }
 
@@ -130,7 +190,7 @@ struct BladePipelines {
 }
 
 impl BladePipelines {
-    fn new(gpu: &gpu::Context, surface_info: gpu::SurfaceInfo, path_sample_count: u32) -> Self {
+    fn new(gpu: &gpu::Context, surface_info: gpu::SurfaceInfo) -> Self {
         use gpu::ShaderData as _;
 
         log::info!(
@@ -176,9 +236,8 @@ impl BladePipelines {
                     ..Default::default()
                 },
                 depth_stencil: None,
-                fragment: Some(shader.at("fs_quad")),
+                fragment: shader.at("fs_quad"),
                 color_targets,
-                multisample_state: gpu::MultisampleState::default(),
             }),
             shadows: gpu.create_render_pipeline(gpu::RenderPipelineDesc {
                 name: "shadows",
@@ -190,9 +249,8 @@ impl BladePipelines {
                     ..Default::default()
                 },
                 depth_stencil: None,
-                fragment: Some(shader.at("fs_shadow")),
+                fragment: shader.at("fs_shadow"),
                 color_targets,
-                multisample_state: gpu::MultisampleState::default(),
             }),
             path_rasterization: gpu.create_render_pipeline(gpu::RenderPipelineDesc {
                 name: "path_rasterization",
@@ -204,16 +262,12 @@ impl BladePipelines {
                     ..Default::default()
                 },
                 depth_stencil: None,
-                fragment: Some(shader.at("fs_path_rasterization")),
+                fragment: shader.at("fs_path_rasterization"),
                 color_targets: &[gpu::ColorTargetState {
                     format: PATH_TEXTURE_FORMAT,
                     blend: Some(gpu::BlendState::ADDITIVE),
                     write_mask: gpu::ColorWrites::default(),
                 }],
-                multisample_state: gpu::MultisampleState {
-                    sample_count: path_sample_count,
-                    ..Default::default()
-                },
             }),
             paths: gpu.create_render_pipeline(gpu::RenderPipelineDesc {
                 name: "paths",
@@ -225,9 +279,8 @@ impl BladePipelines {
                     ..Default::default()
                 },
                 depth_stencil: None,
-                fragment: Some(shader.at("fs_path")),
+                fragment: shader.at("fs_path"),
                 color_targets,
-                multisample_state: gpu::MultisampleState::default(),
             }),
             underlines: gpu.create_render_pipeline(gpu::RenderPipelineDesc {
                 name: "underlines",
@@ -239,9 +292,8 @@ impl BladePipelines {
                     ..Default::default()
                 },
                 depth_stencil: None,
-                fragment: Some(shader.at("fs_underline")),
+                fragment: shader.at("fs_underline"),
                 color_targets,
-                multisample_state: gpu::MultisampleState::default(),
             }),
             mono_sprites: gpu.create_render_pipeline(gpu::RenderPipelineDesc {
                 name: "mono-sprites",
@@ -253,9 +305,8 @@ impl BladePipelines {
                     ..Default::default()
                 },
                 depth_stencil: None,
-                fragment: Some(shader.at("fs_mono_sprite")),
+                fragment: shader.at("fs_mono_sprite"),
                 color_targets,
-                multisample_state: gpu::MultisampleState::default(),
             }),
             poly_sprites: gpu.create_render_pipeline(gpu::RenderPipelineDesc {
                 name: "poly-sprites",
@@ -267,9 +318,8 @@ impl BladePipelines {
                     ..Default::default()
                 },
                 depth_stencil: None,
-                fragment: Some(shader.at("fs_poly_sprite")),
+                fragment: shader.at("fs_poly_sprite"),
                 color_targets,
-                multisample_state: gpu::MultisampleState::default(),
             }),
             surfaces: gpu.create_render_pipeline(gpu::RenderPipelineDesc {
                 name: "surfaces",
@@ -281,9 +331,8 @@ impl BladePipelines {
                     ..Default::default()
                 },
                 depth_stencil: None,
-                fragment: Some(shader.at("fs_surface")),
+                fragment: shader.at("fs_surface"),
                 color_targets,
-                multisample_state: gpu::MultisampleState::default(),
             }),
         }
     }
@@ -305,14 +354,10 @@ pub struct BladeSurfaceConfig {
     pub transparent: bool,
 }
 
-//Note: we could see some of these fields moved into `BladeContext`
-// so that they are shared between windows. E.g. `pipelines`.
-// But that is complicated by the fact that pipelines depend on
-// the format and alpha mode.
 pub struct BladeRenderer {
     gpu: Arc<gpu::Context>,
-    surface: gpu::Surface,
     surface_config: gpu::SurfaceConfig,
+    alpha_mode: gpu::AlphaMode,
     command_encoder: gpu::CommandEncoder,
     last_sync_point: Option<gpu::SyncPoint>,
     pipelines: BladePipelines,
@@ -322,15 +367,10 @@ pub struct BladeRenderer {
     atlas_sampler: gpu::Sampler,
     #[cfg(target_os = "macos")]
     core_video_texture_cache: CVMetalTextureCache,
-    path_sample_count: u32,
 }
 
 impl BladeRenderer {
-    pub fn new<I: raw_window_handle::HasWindowHandle + raw_window_handle::HasDisplayHandle>(
-        context: &BladeContext,
-        window: &I,
-        config: BladeSurfaceConfig,
-    ) -> anyhow::Result<Self> {
+    pub fn new(gpu: Arc<gpu::Context>, config: BladeSurfaceConfig) -> Self {
         let surface_config = gpu::SurfaceConfig {
             size: config.size,
             usage: gpu::TextureUsage::TARGET,
@@ -339,28 +379,20 @@ impl BladeRenderer {
             allow_exclusive_full_screen: false,
             transparent: config.transparent,
         };
-        let surface = context
-            .gpu
-            .create_surface_configured(window, surface_config)
-            .unwrap();
+        let surface_info = gpu.resize(surface_config);
 
-        let command_encoder = context.gpu.create_command_encoder(gpu::CommandEncoderDesc {
+        let command_encoder = gpu.create_command_encoder(gpu::CommandEncoderDesc {
             name: "main",
             buffer_count: 2,
         });
-        // workaround for https://github.com/zed-industries/zed/issues/26143
-        let path_sample_count = std::env::var("ZED_PATH_SAMPLE_COUNT")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(DEFAULT_PATH_SAMPLE_COUNT);
-        let pipelines = BladePipelines::new(&context.gpu, surface.info(), path_sample_count);
+        let pipelines = BladePipelines::new(&gpu, surface_info);
         let instance_belt = BufferBelt::new(BufferBeltDescriptor {
             memory: gpu::Memory::Shared,
             min_chunk_size: 0x1000,
             alignment: 0x40, // Vulkan `minStorageBufferOffsetAlignment` on Intel Xe
         });
-        let atlas = Arc::new(BladeAtlas::new(&context.gpu, path_sample_count));
-        let atlas_sampler = context.gpu.create_sampler(gpu::SamplerDesc {
+        let atlas = Arc::new(BladeAtlas::new(&gpu));
+        let atlas_sampler = gpu.create_sampler(gpu::SamplerDesc {
             name: "atlas",
             mag_filter: gpu::FilterMode::Linear,
             min_filter: gpu::FilterMode::Linear,
@@ -369,16 +401,14 @@ impl BladeRenderer {
 
         #[cfg(target_os = "macos")]
         let core_video_texture_cache = unsafe {
-            CVMetalTextureCache::new(
-                objc2::rc::Retained::as_ptr(&context.gpu.metal_device()) as *mut _
-            )
-            .unwrap()
+            use foreign_types::ForeignType as _;
+            CVMetalTextureCache::new(gpu.metal_device().as_ptr()).unwrap()
         };
 
-        Ok(Self {
-            gpu: Arc::clone(&context.gpu),
-            surface,
+        Self {
+            gpu,
             surface_config,
+            alpha_mode: surface_info.alpha,
             command_encoder,
             last_sync_point: None,
             pipelines,
@@ -388,56 +418,29 @@ impl BladeRenderer {
             atlas_sampler,
             #[cfg(target_os = "macos")]
             core_video_texture_cache,
-            path_sample_count,
-        })
+        }
     }
 
     fn wait_for_gpu(&mut self) {
         if let Some(last_sp) = self.last_sync_point.take() {
             if !self.gpu.wait_for(&last_sp, MAX_FRAME_TIME_MS) {
                 log::error!("GPU hung");
-                #[cfg(target_os = "linux")]
-                if self.gpu.device_information().driver_name == "radv" {
-                    log::error!(
-                        "there's a known bug with amdgpu/radv, try setting ZED_PATH_SAMPLE_COUNT=0 as a workaround"
-                    );
-                    log::error!(
-                        "if that helps you're running into https://github.com/zed-industries/zed/issues/26143"
-                    );
-                }
-                log::error!(
-                    "your device information is: {:?}",
-                    self.gpu.device_information()
-                );
                 while !self.gpu.wait_for(&last_sp, MAX_FRAME_TIME_MS) {}
             }
         }
     }
 
     pub fn update_drawable_size(&mut self, size: Size<DevicePixels>) {
-        self.update_drawable_size_impl(size, false);
-    }
-
-    /// Like `update_drawable_size` but skips the check that the size has changed. This is useful in
-    /// cases like restoring a window from minimization where the size is the same but the
-    /// renderer's swap chain needs to be recreated.
-    #[cfg_attr(any(target_os = "macos", target_os = "linux"), allow(dead_code))]
-    pub fn update_drawable_size_even_if_unchanged(&mut self, size: Size<DevicePixels>) {
-        self.update_drawable_size_impl(size, true);
-    }
-
-    fn update_drawable_size_impl(&mut self, size: Size<DevicePixels>, always_resize: bool) {
         let gpu_size = gpu::Extent {
             width: size.width.0 as u32,
             height: size.height.0 as u32,
             depth: 1,
         };
 
-        if always_resize || gpu_size != self.surface_config.size {
+        if gpu_size != self.surface_config.size {
             self.wait_for_gpu();
             self.surface_config.size = gpu_size;
-            self.gpu
-                .reconfigure_surface(&mut self.surface, self.surface_config);
+            self.gpu.resize(self.surface_config);
         }
     }
 
@@ -445,15 +448,14 @@ impl BladeRenderer {
         if transparent != self.surface_config.transparent {
             self.wait_for_gpu();
             self.surface_config.transparent = transparent;
-            self.gpu
-                .reconfigure_surface(&mut self.surface, self.surface_config);
+            let surface_info = self.gpu.resize(self.surface_config);
             self.pipelines.destroy(&self.gpu);
-            self.pipelines =
-                BladePipelines::new(&self.gpu, self.surface.info(), self.path_sample_count);
+            self.pipelines = BladePipelines::new(&self.gpu, surface_info);
+            self.alpha_mode = surface_info.alpha;
         }
     }
 
-    #[cfg_attr(any(target_os = "macos", feature = "wayland"), allow(dead_code))]
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     pub fn viewport_size(&self) -> gpu::Extent {
         self.surface_config.size
     }
@@ -463,10 +465,10 @@ impl BladeRenderer {
     }
 
     #[cfg_attr(target_os = "macos", allow(dead_code))]
-    pub fn gpu_specs(&self) -> GpuSpecs {
+    pub fn gpu_specs(&self) -> GPUSpecs {
         let info = self.gpu.device_information();
 
-        GpuSpecs {
+        GPUSpecs {
             is_software_emulated: info.is_software_emulated,
             device_name: info.device_name.clone(),
             driver_name: info.driver_name.clone(),
@@ -476,12 +478,13 @@ impl BladeRenderer {
 
     #[cfg(target_os = "macos")]
     pub fn layer(&self) -> metal::MetalLayer {
-        unsafe { foreign_types::ForeignType::from_ptr(self.layer_ptr()) }
+        self.gpu.metal_layer().unwrap()
     }
 
     #[cfg(target_os = "macos")]
     pub fn layer_ptr(&self) -> *mut metal::CAMetalLayer {
-        objc2::rc::Retained::as_ptr(&self.surface.metal_layer()) as *mut _
+        use metal::foreign_types::ForeignType as _;
+        self.gpu.metal_layer().unwrap().as_ptr()
     }
 
     #[profiling::function]
@@ -523,38 +526,24 @@ impl BladeRenderer {
             };
 
             let vertex_buf = unsafe { self.instance_belt.alloc_typed(&vertices, &self.gpu) };
-            let frame_view = tex_info.raw_view;
-            let color_target = if let Some(msaa_view) = tex_info.msaa_view {
-                gpu::RenderTarget {
-                    view: msaa_view,
-                    init_op: gpu::InitOp::Clear(gpu::TextureColor::OpaqueBlack),
-                    finish_op: gpu::FinishOp::ResolveTo(frame_view),
-                }
-            } else {
-                gpu::RenderTarget {
-                    view: frame_view,
+            let mut pass = self.command_encoder.render(gpu::RenderTargetSet {
+                colors: &[gpu::RenderTarget {
+                    view: tex_info.raw_view,
                     init_op: gpu::InitOp::Clear(gpu::TextureColor::OpaqueBlack),
                     finish_op: gpu::FinishOp::Store,
-                }
-            };
+                }],
+                depth_stencil: None,
+            });
 
-            if let mut pass = self.command_encoder.render(
-                "paths",
-                gpu::RenderTargetSet {
-                    colors: &[color_target],
-                    depth_stencil: None,
+            let mut encoder = pass.with(&self.pipelines.path_rasterization);
+            encoder.bind(
+                0,
+                &ShaderPathRasterizationData {
+                    globals,
+                    b_path_vertices: vertex_buf,
                 },
-            ) {
-                let mut encoder = pass.with(&self.pipelines.path_rasterization);
-                encoder.bind(
-                    0,
-                    &ShaderPathRasterizationData {
-                        globals,
-                        b_path_vertices: vertex_buf,
-                    },
-                );
-                encoder.draw(0, vertices.len() as u32, 0, 1);
-            }
+            );
+            encoder.draw(0, vertices.len() as u32, 0, 1);
         }
     }
 
@@ -565,7 +554,6 @@ impl BladeRenderer {
         self.instance_belt.destroy(&self.gpu);
         self.gpu.destroy_command_encoder(&mut self.command_encoder);
         self.pipelines.destroy(&self.gpu);
-        self.gpu.destroy_surface(&mut self.surface);
     }
 
     pub fn draw(&mut self, scene: &Scene) {
@@ -575,7 +563,7 @@ impl BladeRenderer {
 
         let frame = {
             profiling::scope!("acquire frame");
-            self.surface.acquire_frame()
+            self.gpu.acquire_frame()
         };
         self.command_encoder.init_texture(frame.texture());
 
@@ -584,24 +572,21 @@ impl BladeRenderer {
                 self.surface_config.size.width as f32,
                 self.surface_config.size.height as f32,
             ],
-            premultiplied_alpha: match self.surface.info().alpha {
+            premultiplied_alpha: match self.alpha_mode {
                 gpu::AlphaMode::Ignored | gpu::AlphaMode::PostMultiplied => 0,
                 gpu::AlphaMode::PreMultiplied => 1,
             },
             pad: 0,
         };
 
-        if let mut pass = self.command_encoder.render(
-            "main",
-            gpu::RenderTargetSet {
-                colors: &[gpu::RenderTarget {
-                    view: frame.texture_view(),
-                    init_op: gpu::InitOp::Clear(gpu::TextureColor::TransparentBlack),
-                    finish_op: gpu::FinishOp::Store,
-                }],
-                depth_stencil: None,
-            },
-        ) {
+        if let mut pass = self.command_encoder.render(gpu::RenderTargetSet {
+            colors: &[gpu::RenderTarget {
+                view: frame.texture_view(),
+                init_op: gpu::InitOp::Clear(gpu::TextureColor::TransparentBlack),
+                finish_op: gpu::FinishOp::Store,
+            }],
+            depth_stencil: None,
+        }) {
             profiling::scope!("render pass");
             for batch in scene.batches() {
                 match batch {
@@ -724,59 +709,45 @@ impl BladeRenderer {
 
                             #[cfg(target_os = "macos")]
                             {
-                                let (t_y, t_cb_cr) = unsafe {
+                                let (t_y, t_cb_cr) = {
                                     use core_foundation::base::TCFType as _;
                                     use std::ptr;
 
                                     assert_eq!(
-                                        surface.image_buffer.get_pixel_format(),
-                                        core_video::pixel_buffer::kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
-                                    );
+                                    surface.image_buffer.pixel_format_type(),
+                                    media::core_video::kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+                                );
 
-                                    let y_texture = self
-                                        .core_video_texture_cache
-                                        .create_texture_from_image(
-                                            surface.image_buffer.as_concrete_TypeRef(),
-                                            ptr::null(),
-                                            metal::MTLPixelFormat::R8Unorm,
-                                            surface.image_buffer.get_width_of_plane(0),
-                                            surface.image_buffer.get_height_of_plane(0),
-                                            0,
-                                        )
-                                        .unwrap();
-                                    let cb_cr_texture = self
-                                        .core_video_texture_cache
-                                        .create_texture_from_image(
-                                            surface.image_buffer.as_concrete_TypeRef(),
-                                            ptr::null(),
-                                            metal::MTLPixelFormat::RG8Unorm,
-                                            surface.image_buffer.get_width_of_plane(1),
-                                            surface.image_buffer.get_height_of_plane(1),
-                                            1,
-                                        )
-                                        .unwrap();
+                                    let y_texture = unsafe {
+                                        self.core_video_texture_cache
+                                            .create_texture_from_image(
+                                                surface.image_buffer.as_concrete_TypeRef(),
+                                                ptr::null(),
+                                                metal::MTLPixelFormat::R8Unorm,
+                                                surface.image_buffer.plane_width(0),
+                                                surface.image_buffer.plane_height(0),
+                                                0,
+                                            )
+                                            .unwrap()
+                                    };
+                                    let cb_cr_texture = unsafe {
+                                        self.core_video_texture_cache
+                                            .create_texture_from_image(
+                                                surface.image_buffer.as_concrete_TypeRef(),
+                                                ptr::null(),
+                                                metal::MTLPixelFormat::RG8Unorm,
+                                                surface.image_buffer.plane_width(1),
+                                                surface.image_buffer.plane_height(1),
+                                                1,
+                                            )
+                                            .unwrap()
+                                    };
                                     (
                                         gpu::TextureView::from_metal_texture(
-                                            &objc2::rc::Retained::retain(
-                                                foreign_types::ForeignTypeRef::as_ptr(
-                                                    y_texture.as_texture_ref(),
-                                                )
-                                                    as *mut objc2::runtime::ProtocolObject<
-                                                        dyn objc2_metal::MTLTexture,
-                                                    >,
-                                            )
-                                            .unwrap(),
+                                            y_texture.as_texture_ref(),
                                         ),
                                         gpu::TextureView::from_metal_texture(
-                                            &objc2::rc::Retained::retain(
-                                                foreign_types::ForeignTypeRef::as_ptr(
-                                                    cb_cr_texture.as_texture_ref(),
-                                                )
-                                                    as *mut objc2::runtime::ProtocolObject<
-                                                        dyn objc2_metal::MTLTexture,
-                                                    >,
-                                            )
-                                            .unwrap(),
+                                            cb_cr_texture.as_texture_ref(),
                                         ),
                                     )
                                 };

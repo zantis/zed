@@ -2,7 +2,7 @@
 
 Rust support is available natively in Zed.
 
-- Tree-sitter: [tree-sitter/tree-sitter-rust](https://github.com/tree-sitter/tree-sitter-rust)
+- Tree Sitter: [tree-sitter/tree-sitter-rust](https://github.com/tree-sitter/tree-sitter-rust)
 - Language Server: [rust-lang/rust-analyzer](https://github.com/rust-lang/rust-analyzer)
 
 <!--
@@ -13,30 +13,38 @@ TBD: Provide explicit examples not just `....`
 
 ## Inlay Hints
 
-The following configuration can be used to change the inlay hint settings for `rust-analyzer` in Rust:
+The following configuration can be used to enable inlay hints for rust:
 
 ```json
-{
-  "lsp": {
-    "rust-analyzer": {
-      "initialization_options": {
-        "inlayHints": {
-          "maxLength": null,
-          "lifetimeElisionHints": {
-            "enable": "skip_trivial",
-            "useParameterNames": true
-          },
-          "closureReturnTypeHints": {
-            "enable": "always"
-          }
-        }
-      }
+"inlayHints": {
+  "maxLength": null,
+  "lifetimeElisionHints": {
+  "useParameterNames": true,
+    "enable": "skip_trivial"
+  },
+  "closureReturnTypeHints": {
+    "enable": "always"
+  }
+}
+```
+
+to make the language server send back inlay hints when Zed has them enabled in the settings.
+
+Use
+
+```json
+"lsp": {
+  "rust-analyzer": {
+    "initialization_options": {
+      ....
     }
   }
 }
 ```
 
-See [Inlay Hints](https://rust-analyzer.github.io/book/features.html#inlay-hints) in the Rust Analyzer Manual for more information.
+to override these settings.
+
+See [Inlay Hints](https://rust-analyzer.github.io/manual.html#inlay-hints) in the Rust Analyzer Manual for more information.
 
 ## Target directory
 
@@ -62,23 +70,7 @@ A `true` setting will set the target directory to `target/rust-analyzer`. You ca
 
 You can configure which `rust-analyzer` binary Zed should use.
 
-By default, Zed will try to find a `rust-analyzer` in your `$PATH` and try to use that. If that binary successfully executes `rust-analyzer --help`, it's used. Otherwise, Zed will fall back to installing its own `rust-analyzer` version and using that.
-
-If you want to disable Zed looking for a `rust-analyzer` binary, you can set `ignore_system_version` to `true` in your `settings.json`:
-
-```json
-{
-  "lsp": {
-    "rust-analyzer": {
-      "binary": {
-        "ignore_system_version": true
-      }
-    }
-  }
-}
-```
-
-If you want to use a binary in a custom location, you can specify a `path` and optional `args`:
+To use a binary in a custom location, add the following to your `settings.json`:
 
 ```json
 {
@@ -93,7 +85,19 @@ If you want to use a binary in a custom location, you can specify a `path` and o
 }
 ```
 
-This `"path"` has to be an absolute path.
+To use a binary that is on your `$PATH`, add the following to your `settings.json`:
+
+```json
+{
+  "lsp": {
+    "rust-analyzer": {
+      "binary": {
+        "path_lookup": true
+      }
+    }
+  }
+}
+```
 
 ## More server configuration
 
@@ -101,7 +105,7 @@ This `"path"` has to be an absolute path.
 TBD: Is it possible to specify RUSTFLAGS? https://github.com/zed-industries/zed/issues/14334
 -->
 
-Rust-analyzer [manual](https://rust-analyzer.github.io/book/) describes various features and configuration options for rust-analyzer language server.
+Rust-analyzer [manual](https://rust-analyzer.github.io/manual.html) describes various features and configuration options for rust-analyzer language server.
 Rust-analyzer in Zed runs with the default parameters.
 
 ### Large projects and performance
@@ -129,54 +133,35 @@ While that works fine on small projects, it does not scale well.
 
 The alternatives would be to use [tasks](../tasks.md), as Zed already provides a `cargo check --workspace --all-targets` task and the ability to cmd/ctrl-click on the terminal output to navigate to the error, and limit or turn off the check on save feature entirely.
 
-Check on save feature is responsible for returning part of the diagnostics based on cargo check output, so turning it off will limit rust-analyzer with its own [diagnostics](https://rust-analyzer.github.io/book/diagnostics.html).
+Check on save feature is responsible for returning part of the diagnostics based on cargo check output, so turning it off will limit rust-analyzer with its own [diagnostics](https://rust-analyzer.github.io/manual.html#diagnostics).
 
 Consider more `rust-analyzer.cargo.` and `rust-analyzer.check.` and `rust-analyzer.diagnostics.` settings from the manual for more fine-grained configuration.
 Here's a snippet for Zed settings.json (the language server will restart automatically after the `lsp.rust-analyzer` section is edited and saved):
 
-```json
-{
-  "lsp": {
+```json5
+"lsp": {
     "rust-analyzer": {
-      "initialization_options": {
-        // get more cargo-less diagnostics from rust-analyzer,
-        // which might include false-positives (those can be turned off by their names)
-        "diagnostics": {
-          "experimental": {
-            "enable": true
-          }
-        },
-        // To disable the checking entirely
-        // (ignores all cargo and check settings below)
-        "checkOnSave": false,
-        // To check the `lib` target only.
-        "cargo": {
-          "allTargets": false
-        },
-        // Use `-p` instead of `--workspace` for cargo check
-        "check": {
-          "workspace": false
+        "initialization_options": {
+            // get more cargo-less diagnostics from rust-analyzer,
+            // which might include false-positives (those can be turned off by their names)
+            "diagnostics": {
+                "experimental": {
+                    "enable": true
+                }
+            },
+            // To disable the checking entirely
+            // (ignores all cargo and check settings below)
+            "checkOnSave": false,
+            // To check the `lib` target only.
+            "cargo": {
+                "allTargets": false
+            },
+            // Use `-p` instead of `--workspace` for cargo check
+            "check": {
+              "workspace": false
+            }
         }
-      }
     }
-  }
-}
-```
-
-### Multi-project workspaces
-
-If you want rust-analyzer to analyze multiple Rust projects in the same folder that are not listed in `[members]` in the Cargo workspace,
-you can list them in `linkedProjects` in the local project settings:
-
-```json
-{
-  "lsp": {
-    "rust-analyzer": {
-      "initialization_options": {
-        "linkedProjects": ["./path/to/a/Cargo.toml", "./path/to/b/Cargo.toml"]
-      }
-    }
-  }
 }
 ```
 
@@ -185,52 +170,50 @@ you can list them in `linkedProjects` in the local project settings:
 There's a way get custom completion items from rust-analyzer, that will transform the code according to the snippet body:
 
 ```json
-{
-  "lsp": {
+"lsp": {
     "rust-analyzer": {
-      "initialization_options": {
-        "completion": {
-          "snippets": {
-            "custom": {
-              "Arc::new": {
-                "postfix": "arc",
-                "body": ["Arc::new(${receiver})"],
-                "requires": "std::sync::Arc",
-                "scope": "expr"
-              },
-              "Some": {
-                "postfix": "some",
-                "body": ["Some(${receiver})"],
-                "scope": "expr"
-              },
-              "Ok": {
-                "postfix": "ok",
-                "body": ["Ok(${receiver})"],
-                "scope": "expr"
-              },
-              "Rc::new": {
-                "postfix": "rc",
-                "body": ["Rc::new(${receiver})"],
-                "requires": "std::rc::Rc",
-                "scope": "expr"
-              },
-              "Box::pin": {
-                "postfix": "boxpin",
-                "body": ["Box::pin(${receiver})"],
-                "requires": "std::boxed::Box",
-                "scope": "expr"
-              },
-              "vec!": {
-                "postfix": "vec",
-                "body": ["vec![${receiver}]"],
-                "description": "vec![]",
-                "scope": "expr"
-              }
+        "initialization_options": {
+            "completion": {
+                "snippets": {
+                    "custom": {
+                        "Arc::new": {
+                            "postfix": "arc",
+                            "body": ["Arc::new(${receiver})"],
+                            "requires": "std::sync::Arc",
+                            "scope": "expr"
+                        },
+                        "Some": {
+                            "postfix": "some",
+                            "body": ["Some(${receiver})"],
+                            "scope": "expr"
+                        },
+                        "Ok": {
+                            "postfix": "ok",
+                            "body": ["Ok(${receiver})"],
+                            "scope": "expr"
+                        },
+                        "Rc::new": {
+                            "postfix": "rc",
+                            "body": ["Rc::new(${receiver})"],
+                            "requires": "std::rc::Rc",
+                            "scope": "expr"
+                        },
+                        "Box::pin": {
+                            "postfix": "boxpin",
+                            "body": ["Box::pin(${receiver})"],
+                            "requires": "std::boxed::Box",
+                            "scope": "expr"
+                        },
+                        "vec!": {
+                            "postfix": "vec",
+                            "body": ["vec![${receiver}]"],
+                            "description": "vec![]",
+                            "scope": "expr"
+                        }
+                    }
+                }
             }
-          }
         }
-      }
     }
-  }
 }
 ```

@@ -1,11 +1,6 @@
-use std::str::FromStr;
-
 use url::Url;
 
-use git::{
-    BuildCommitPermalinkParams, BuildPermalinkParams, GitHostingProvider, ParsedGitRemote,
-    RemoteUrl,
-};
+use git::{BuildCommitPermalinkParams, BuildPermalinkParams, GitHostingProvider, ParsedGitRemote};
 
 pub struct Gitee;
 
@@ -30,22 +25,19 @@ impl GitHostingProvider for Gitee {
         format!("L{start_line}-{end_line}")
     }
 
-    fn parse_remote_url(&self, url: &str) -> Option<ParsedGitRemote> {
-        let url = RemoteUrl::from_str(url).ok()?;
+    fn parse_remote_url<'a>(&self, url: &'a str) -> Option<ParsedGitRemote<'a>> {
+        if url.starts_with("git@gitee.com:") || url.starts_with("https://gitee.com/") {
+            let repo_with_owner = url
+                .trim_start_matches("git@gitee.com:")
+                .trim_start_matches("https://gitee.com/")
+                .trim_end_matches(".git");
 
-        let host = url.host_str()?;
-        if host != "gitee.com" {
-            return None;
+            let (owner, repo) = repo_with_owner.split_once('/')?;
+
+            return Some(ParsedGitRemote { owner, repo });
         }
 
-        let mut path_segments = url.path_segments()?;
-        let owner = path_segments.next()?;
-        let repo = path_segments.next()?.trim_end_matches(".git");
-
-        Some(ParsedGitRemote {
-            owner: owner.into(),
-            repo: repo.into(),
-        })
+        None
     }
 
     fn build_commit_permalink(
@@ -84,47 +76,16 @@ impl GitHostingProvider for Gitee {
 
 #[cfg(test)]
 mod tests {
-    use pretty_assertions::assert_eq;
-
     use super::*;
 
     #[test]
-    fn test_parse_remote_url_given_ssh_url() {
-        let parsed_remote = Gitee
-            .parse_remote_url("git@gitee.com:zed-industries/zed.git")
-            .unwrap();
-
-        assert_eq!(
-            parsed_remote,
-            ParsedGitRemote {
-                owner: "zed-industries".into(),
-                repo: "zed".into(),
-            }
-        );
-    }
-
-    #[test]
-    fn test_parse_remote_url_given_https_url() {
-        let parsed_remote = Gitee
-            .parse_remote_url("https://gitee.com/zed-industries/zed.git")
-            .unwrap();
-
-        assert_eq!(
-            parsed_remote,
-            ParsedGitRemote {
-                owner: "zed-industries".into(),
-                repo: "zed".into(),
-            }
-        );
-    }
-
-    #[test]
-    fn test_build_gitee_permalink() {
+    fn test_build_gitee_permalink_from_ssh_url() {
+        let remote = ParsedGitRemote {
+            owner: "libkitten",
+            repo: "zed",
+        };
         let permalink = Gitee.build_permalink(
-            ParsedGitRemote {
-                owner: "zed-industries".into(),
-                repo: "zed".into(),
-            },
+            remote,
             BuildPermalinkParams {
                 sha: "e5fe811d7ad0fc26934edd76f891d20bdc3bb194",
                 path: "crates/editor/src/git/permalink.rs",
@@ -132,17 +93,18 @@ mod tests {
             },
         );
 
-        let expected_url = "https://gitee.com/zed-industries/zed/blob/e5fe811d7ad0fc26934edd76f891d20bdc3bb194/crates/editor/src/git/permalink.rs";
+        let expected_url = "https://gitee.com/libkitten/zed/blob/e5fe811d7ad0fc26934edd76f891d20bdc3bb194/crates/editor/src/git/permalink.rs";
         assert_eq!(permalink.to_string(), expected_url.to_string())
     }
 
     #[test]
-    fn test_build_gitee_permalink_with_single_line_selection() {
+    fn test_build_gitee_permalink_from_ssh_url_single_line_selection() {
+        let remote = ParsedGitRemote {
+            owner: "libkitten",
+            repo: "zed",
+        };
         let permalink = Gitee.build_permalink(
-            ParsedGitRemote {
-                owner: "zed-industries".into(),
-                repo: "zed".into(),
-            },
+            remote,
             BuildPermalinkParams {
                 sha: "e5fe811d7ad0fc26934edd76f891d20bdc3bb194",
                 path: "crates/editor/src/git/permalink.rs",
@@ -150,17 +112,18 @@ mod tests {
             },
         );
 
-        let expected_url = "https://gitee.com/zed-industries/zed/blob/e5fe811d7ad0fc26934edd76f891d20bdc3bb194/crates/editor/src/git/permalink.rs#L7";
+        let expected_url = "https://gitee.com/libkitten/zed/blob/e5fe811d7ad0fc26934edd76f891d20bdc3bb194/crates/editor/src/git/permalink.rs#L7";
         assert_eq!(permalink.to_string(), expected_url.to_string())
     }
 
     #[test]
-    fn test_build_gitee_permalink_with_multi_line_selection() {
+    fn test_build_gitee_permalink_from_ssh_url_multi_line_selection() {
+        let remote = ParsedGitRemote {
+            owner: "libkitten",
+            repo: "zed",
+        };
         let permalink = Gitee.build_permalink(
-            ParsedGitRemote {
-                owner: "zed-industries".into(),
-                repo: "zed".into(),
-            },
+            remote,
             BuildPermalinkParams {
                 sha: "e5fe811d7ad0fc26934edd76f891d20bdc3bb194",
                 path: "crates/editor/src/git/permalink.rs",
@@ -168,7 +131,64 @@ mod tests {
             },
         );
 
-        let expected_url = "https://gitee.com/zed-industries/zed/blob/e5fe811d7ad0fc26934edd76f891d20bdc3bb194/crates/editor/src/git/permalink.rs#L24-48";
+        let expected_url = "https://gitee.com/libkitten/zed/blob/e5fe811d7ad0fc26934edd76f891d20bdc3bb194/crates/editor/src/git/permalink.rs#L24-48";
+        assert_eq!(permalink.to_string(), expected_url.to_string())
+    }
+
+    #[test]
+    fn test_build_gitee_permalink_from_https_url() {
+        let remote = ParsedGitRemote {
+            owner: "libkitten",
+            repo: "zed",
+        };
+        let permalink = Gitee.build_permalink(
+            remote,
+            BuildPermalinkParams {
+                sha: "e5fe811d7ad0fc26934edd76f891d20bdc3bb194",
+                path: "crates/zed/src/main.rs",
+                selection: None,
+            },
+        );
+
+        let expected_url = "https://gitee.com/libkitten/zed/blob/e5fe811d7ad0fc26934edd76f891d20bdc3bb194/crates/zed/src/main.rs";
+        assert_eq!(permalink.to_string(), expected_url.to_string())
+    }
+
+    #[test]
+    fn test_build_gitee_permalink_from_https_url_single_line_selection() {
+        let remote = ParsedGitRemote {
+            owner: "libkitten",
+            repo: "zed",
+        };
+        let permalink = Gitee.build_permalink(
+            remote,
+            BuildPermalinkParams {
+                sha: "e5fe811d7ad0fc26934edd76f891d20bdc3bb194",
+                path: "crates/zed/src/main.rs",
+                selection: Some(6..6),
+            },
+        );
+
+        let expected_url = "https://gitee.com/libkitten/zed/blob/e5fe811d7ad0fc26934edd76f891d20bdc3bb194/crates/zed/src/main.rs#L7";
+        assert_eq!(permalink.to_string(), expected_url.to_string())
+    }
+
+    #[test]
+    fn test_build_gitee_permalink_from_https_url_multi_line_selection() {
+        let remote = ParsedGitRemote {
+            owner: "libkitten",
+            repo: "zed",
+        };
+        let permalink = Gitee.build_permalink(
+            remote,
+            BuildPermalinkParams {
+                sha: "e5fe811d7ad0fc26934edd76f891d20bdc3bb194",
+                path: "crates/zed/src/main.rs",
+                selection: Some(23..47),
+            },
+        );
+
+        let expected_url = "https://gitee.com/libkitten/zed/blob/e5fe811d7ad0fc26934edd76f891d20bdc3bb194/crates/zed/src/main.rs#L24-48";
         assert_eq!(permalink.to_string(), expected_url.to_string())
     }
 }

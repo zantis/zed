@@ -7,13 +7,6 @@
   (#set! tag go-test)
 )
 
-; `go:generate` comments
-(
-    ((comment) @_comment @run
-    (#match? @_comment "^//go:generate"))
-    (#set! tag go-generate)
-)
-
 ; `t.Run`
 (
   (
@@ -57,15 +50,6 @@
       (#match? @_name "^Benchmark.+"))
   ) @_
   (#set! tag go-benchmark)
-)
-
-; Functions names start with `Fuzz`
-(
-  (
-    (function_declaration name: (_) @run @_name
-      (#match? @_name "^Fuzz"))
-  ) @_
-  (#set! tag go-fuzz)
 )
 
 ; go run

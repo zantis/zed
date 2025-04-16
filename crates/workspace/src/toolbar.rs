@@ -1,7 +1,7 @@
 use crate::ItemHandle;
 use gpui::{
-    AnyView, App, Context, Entity, EntityId, EventEmitter, ParentElement as _, Render, Styled,
-    Window,
+    AnyView, Entity, EntityId, EventEmitter, ParentElement as _, Render, Styled, View, ViewContext,
+    WindowContext,
 };
 use ui::prelude::*;
 use ui::{h_flex, v_flex};
@@ -14,17 +14,10 @@ pub trait ToolbarItemView: Render + EventEmitter<ToolbarItemEvent> {
     fn set_active_pane_item(
         &mut self,
         active_pane_item: Option<&dyn crate::ItemHandle>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &mut ViewContext<Self>,
     ) -> ToolbarItemLocation;
 
-    fn pane_focus_update(
-        &mut self,
-        _pane_focused: bool,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) {
-    }
+    fn pane_focus_update(&mut self, _pane_focused: bool, _cx: &mut ViewContext<Self>) {}
 }
 
 trait ToolbarItemViewHandle: Send {
@@ -33,10 +26,9 @@ trait ToolbarItemViewHandle: Send {
     fn set_active_pane_item(
         &self,
         active_pane_item: Option<&dyn ItemHandle>,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> ToolbarItemLocation;
-    fn focus_changed(&mut self, pane_focused: bool, window: &mut Window, cx: &mut App);
+    fn focus_changed(&mut self, pane_focused: bool, cx: &mut WindowContext);
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -82,7 +74,7 @@ impl Toolbar {
     }
 
     fn secondary_items(&self) -> impl Iterator<Item = &dyn ToolbarItemViewHandle> {
-        self.items.iter().rev().filter_map(|(item, location)| {
+        self.items.iter().filter_map(|(item, location)| {
             if *location == ToolbarItemLocation::Secondary {
                 Some(item.as_ref())
             } else {
@@ -93,59 +85,57 @@ impl Toolbar {
 }
 
 impl Render for Toolbar {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         if !self.has_any_visible_items() {
             return div();
         }
 
-        let secondary_items = self.secondary_items().map(|item| item.to_any());
+        let secondary_item = self.secondary_items().next().map(|item| item.to_any());
 
         let has_left_items = self.left_items().count() > 0;
         let has_right_items = self.right_items().count() > 0;
 
         v_flex()
             .group("toolbar")
-            .p(DynamicSpacing::Base08.rems(cx))
+            .p(Spacing::Large.rems(cx))
             .when(has_left_items || has_right_items, |this| {
-                this.gap(DynamicSpacing::Base08.rems(cx))
+                this.gap(Spacing::Large.rems(cx))
             })
             .border_b_1()
             .border_color(cx.theme().colors().border_variant)
             .bg(cx.theme().colors().toolbar_background)
-            .when(has_left_items || has_right_items, |this| {
-                this.child(
-                    h_flex()
-                        .min_h(rems_from_px(24.))
-                        .justify_between()
-                        .gap(DynamicSpacing::Base08.rems(cx))
-                        .when(has_left_items, |this| {
-                            this.child(
-                                h_flex()
-                                    .flex_auto()
-                                    .justify_start()
-                                    .overflow_x_hidden()
-                                    .children(self.left_items().map(|item| item.to_any())),
-                            )
-                        })
-                        .when(has_right_items, |this| {
-                            this.child(
-                                h_flex()
-                                    .map(|el| {
-                                        if has_left_items {
-                                            // We're using `flex_none` here to prevent some flickering that can occur when the
-                                            // size of the left items container changes.
-                                            el.flex_none()
-                                        } else {
-                                            el.flex_auto()
-                                        }
-                                    })
-                                    .justify_end()
-                                    .children(self.right_items().map(|item| item.to_any())),
-                            )
-                        }),
-                )
-            })
-            .children(secondary_items)
+            .child(
+                h_flex()
+                    .min_h(rems_from_px(24.))
+                    .justify_between()
+                    .gap(Spacing::Large.rems(cx))
+                    .when(has_left_items, |this| {
+                        this.child(
+                            h_flex()
+                                .flex_auto()
+                                .justify_start()
+                                .overflow_x_hidden()
+                                .children(self.left_items().map(|item| item.to_any())),
+                        )
+                    })
+                    .when(has_right_items, |this| {
+                        this.child(
+                            h_flex()
+                                .map(|el| {
+                                    if has_left_items {
+                                        // We're using `flex_none` here to prevent some flickering that can occur when the
+                                        // size of the left items container changes.
+                                        el.flex_none()
+                                    } else {
+                                        el.flex_auto()
+                                    }
+                                })
+                                .justify_end()
+                                .children(self.right_items().map(|item| item.to_any())),
+                        )
+                    }),
+            )
+            .children(secondary_item)
     }
 }
 
@@ -165,16 +155,16 @@ impl Toolbar {
         }
     }
 
-    pub fn set_can_navigate(&mut self, can_navigate: bool, cx: &mut Context<Self>) {
+    pub fn set_can_navigate(&mut self, can_navigate: bool, cx: &mut ViewContext<Self>) {
         self.can_navigate = can_navigate;
         cx.notify();
     }
 
-    pub fn add_item<T>(&mut self, item: Entity<T>, window: &mut Window, cx: &mut Context<Self>)
+    pub fn add_item<T>(&mut self, item: View<T>, cx: &mut ViewContext<Self>)
     where
         T: 'static + ToolbarItemView,
     {
-        let location = item.set_active_pane_item(self.active_item.as_deref(), window, cx);
+        let location = item.set_active_pane_item(self.active_item.as_deref(), cx);
         cx.subscribe(&item, |this, item, event, cx| {
             if let Some((_, current_location)) = this
                 .items
@@ -196,12 +186,7 @@ impl Toolbar {
         cx.notify();
     }
 
-    pub fn set_active_item(
-        &mut self,
-        item: Option<&dyn ItemHandle>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn set_active_item(&mut self, item: Option<&dyn ItemHandle>, cx: &mut ViewContext<Self>) {
         self.active_item = item.map(|item| item.boxed_clone());
         self.hidden = self
             .active_item
@@ -210,7 +195,7 @@ impl Toolbar {
             .unwrap_or(false);
 
         for (toolbar_item, current_location) in self.items.iter_mut() {
-            let new_location = toolbar_item.set_active_pane_item(item, window, cx);
+            let new_location = toolbar_item.set_active_pane_item(item, cx);
             if new_location != *current_location {
                 *current_location = new_location;
                 cx.notify();
@@ -218,13 +203,13 @@ impl Toolbar {
         }
     }
 
-    pub fn focus_changed(&mut self, focused: bool, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn focus_changed(&mut self, focused: bool, cx: &mut ViewContext<Self>) {
         for (toolbar_item, _) in self.items.iter_mut() {
-            toolbar_item.focus_changed(focused, window, cx);
+            toolbar_item.focus_changed(focused, cx);
         }
     }
 
-    pub fn item_of_type<T: ToolbarItemView>(&self) -> Option<Entity<T>> {
+    pub fn item_of_type<T: ToolbarItemView>(&self) -> Option<View<T>> {
         self.items
             .iter()
             .find_map(|(item, _)| item.to_any().downcast().ok())
@@ -235,7 +220,7 @@ impl Toolbar {
     }
 }
 
-impl<T: ToolbarItemView> ToolbarItemViewHandle for Entity<T> {
+impl<T: ToolbarItemView> ToolbarItemViewHandle for View<T> {
     fn id(&self) -> EntityId {
         self.entity_id()
     }
@@ -247,17 +232,16 @@ impl<T: ToolbarItemView> ToolbarItemViewHandle for Entity<T> {
     fn set_active_pane_item(
         &self,
         active_pane_item: Option<&dyn ItemHandle>,
-        window: &mut Window,
-        cx: &mut App,
+        cx: &mut WindowContext,
     ) -> ToolbarItemLocation {
         self.update(cx, |this, cx| {
-            this.set_active_pane_item(active_pane_item, window, cx)
+            this.set_active_pane_item(active_pane_item, cx)
         })
     }
 
-    fn focus_changed(&mut self, pane_focused: bool, window: &mut Window, cx: &mut App) {
+    fn focus_changed(&mut self, pane_focused: bool, cx: &mut WindowContext) {
         self.update(cx, |this, cx| {
-            this.pane_focus_update(pane_focused, window, cx);
+            this.pane_focus_update(pane_focused, cx);
             cx.notify();
         });
     }

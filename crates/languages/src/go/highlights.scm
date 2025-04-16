@@ -1,8 +1,5 @@
-(identifier) @variable
-
 (type_identifier) @type
 (field_identifier) @variable.member
-(package_identifier) @namespace
 
 (keyed_element
   .
@@ -21,15 +18,6 @@
 
 (method_declaration
   name: (field_identifier) @function.method)
-(method_elem
-  name: (field_identifier) @function.method)
-
-[
-  ";"
-  "."
-  ","
-  ":"
-] @punctuation.delimiter
 
 [
   "("
@@ -114,7 +102,7 @@
   (rune_literal)
 ] @string
 
-(escape_sequence) @string.escape
+(escape_sequence) @escape
 
 [
   (int_literal)
@@ -128,9 +116,6 @@
 [
   (true)
   (false)
-] @boolean
-
-[
   (nil)
   (iota)
 ] @constant.builtin

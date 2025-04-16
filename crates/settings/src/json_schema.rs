@@ -1,14 +1,13 @@
-use schemars::schema::{
-    ArrayValidation, InstanceType, RootSchema, Schema, SchemaObject, SingleOrVec,
-};
+use schemars::schema::{ArrayValidation, InstanceType, RootSchema, Schema, SchemaObject};
 use serde_json::Value;
 
 pub struct SettingsJsonSchemaParams<'a> {
+    pub staff_mode: bool,
     pub language_names: &'a [String],
     pub font_names: &'a [String],
 }
 
-impl SettingsJsonSchemaParams<'_> {
+impl<'a> SettingsJsonSchemaParams<'a> {
     pub fn font_family_schema(&self) -> Schema {
         let available_fonts: Vec<_> = self.font_names.iter().cloned().map(Value::String).collect();
 
@@ -22,10 +21,7 @@ impl SettingsJsonSchemaParams<'_> {
 
     pub fn font_fallback_schema(&self) -> Schema {
         SchemaObject {
-            instance_type: Some(SingleOrVec::Vec(vec![
-                InstanceType::Array,
-                InstanceType::Null,
-            ])),
+            instance_type: Some(InstanceType::Array.into()),
             array: Some(Box::new(ArrayValidation {
                 items: Some(schemars::schema::SingleOrVec::Single(Box::new(
                     self.font_family_schema(),

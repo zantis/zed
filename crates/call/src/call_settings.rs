@@ -1,5 +1,5 @@
 use anyhow::Result;
-use gpui::App;
+use gpui::AppContext;
 use schemars::JsonSchema;
 use serde_derive::{Deserialize, Serialize};
 use settings::{Settings, SettingsSources};
@@ -20,7 +20,7 @@ pub struct CallSettingsContent {
 
     /// Whether your current project should be shared when joining an empty channel.
     ///
-    /// Default: false
+    /// Default: true
     pub share_on_join: Option<bool>,
 }
 
@@ -29,7 +29,7 @@ impl Settings for CallSettings {
 
     type FileContent = CallSettingsContent;
 
-    fn load(sources: SettingsSources<Self::FileContent>, _: &mut App) -> Result<Self> {
+    fn load(sources: SettingsSources<Self::FileContent>, _: &mut AppContext) -> Result<Self> {
         sources.json_merge()
     }
 }

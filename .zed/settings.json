@@ -14,12 +14,12 @@
     },
     "JSON": {
       "tab_size": 2,
-      "preferred_line_length": 120,
+      "preferred_line_length": 100,
       "formatter": "prettier"
     },
     "JSONC": {
       "tab_size": 2,
-      "preferred_line_length": 120,
+      "preferred_line_length": 100,
       "formatter": "prettier"
     },
     "JavaScript": {
@@ -37,10 +37,6 @@
         }
       }
     }
-  },
-  "file_types": {
-    "Dockerfile": ["Dockerfile*[!dockerignore]"],
-    "Git Ignore": ["dockerignore"]
   },
   "hard_tabs": false,
   "formatter": "auto",

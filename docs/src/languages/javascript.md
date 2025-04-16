@@ -2,7 +2,7 @@
 
 JavaScript support is available natively in Zed.
 
-- Tree-sitter: [tree-sitter/tree-sitter-javascript](https://github.com/tree-sitter/tree-sitter-javascript)
+- Tree Sitter: [tree-sitter/tree-sitter-javascript](https://github.com/tree-sitter/tree-sitter-javascript)
 - Language Server: [typescript-language-server/typescript-language-server](https://github.com/typescript-language-server/typescript-language-server)
 
 ## Code formatting
@@ -28,13 +28,13 @@ For example, if you have Prettier installed and on your `PATH`, you can use it t
 
 ## JSX
 
-Zed supports JSX syntax highlighting out of the box.
-
-In JSX strings, the [`tailwindcss-language-server`](./tailwindcss.md) is used provide autocompletion for Tailwind CSS classes.
+TBD: Mention JSX
 
 ## JSDoc
 
-Zed supports JSDoc syntax in JavaScript and TypeScript comments that match the JSDoc syntax. Zed uses [tree-sitter/tree-sitter-jsdoc](https://github.com/tree-sitter/tree-sitter-jsdoc) for parsing and highlighting JSDoc.
+TBD: Document JSDoc support in Zed.
+
+- Tree Sitter: [tree-sitter/tree-sitter-jsdoc](https://github.com/tree-sitter/tree-sitter-jsdoc)
 
 ## ESLint
 
@@ -147,24 +147,6 @@ You can configure ESLint's `rulesCustomizations` setting:
           // set all eslint errors/warnings to show as warnings
           { "rule": "*", "severity": "warn" }
         ]
-      }
-    }
-  }
-}
-```
-
-### Configure ESLint's `workingDirectory`:
-
-You can configure ESLint's `workingDirectory` setting:
-
-```json
-{
-  "lsp": {
-    "eslint": {
-      "settings": {
-        "workingDirectory": {
-          "mode": "auto"
-        }
       }
     }
   }

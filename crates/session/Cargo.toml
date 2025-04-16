@@ -1,8 +1,8 @@
 [package]
 name = "session"
 version = "0.1.0"
-edition.workspace = true
-publish.workspace = true
+edition = "2021"
+publish = false
 license = "GPL-3.0-or-later"
 
 [lints]
@@ -23,4 +23,3 @@ gpui.workspace = true
 uuid.workspace = true
 util.workspace = true
 serde_json.workspace = true
-workspace-hack.workspace = true

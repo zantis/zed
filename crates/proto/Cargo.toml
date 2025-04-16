@@ -1,9 +1,9 @@
 [package]
 description = "Shared protocol for communication between the Zed app and the zed.dev server"
-edition.workspace = true
+edition = "2021"
 name = "proto"
 version = "0.1.0"
-publish.workspace = true
+publish = false
 license = "GPL-3.0-or-later"
 
 [features]
@@ -18,9 +18,12 @@ doctest = false
 
 [dependencies]
 anyhow.workspace = true
+collections.workspace = true
+futures.workspace = true
+parking_lot.workspace = true
 prost.workspace = true
 serde.workspace = true
-workspace-hack.workspace = true
+gpui.workspace = true
 
 [build-dependencies]
 prost-build.workspace = true

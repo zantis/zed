@@ -6,7 +6,7 @@ use std::{
     ptr,
 };
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use libsqlite3_sys::*;
 
 pub struct Connection {
@@ -128,10 +128,10 @@ impl Connection {
                             &mut remaining_sql_ptr,
                         );
 
-                        #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+                        #[cfg(not(target_os = "linux"))]
                         let offset = sqlite3_error_offset(temp_connection.sqlite3);
 
-                        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+                        #[cfg(target_os = "linux")]
                         let offset = 0;
 
                         (
@@ -149,10 +149,10 @@ impl Connection {
                             &mut remaining_sql_ptr,
                         );
 
-                        #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+                        #[cfg(not(target_os = "linux"))]
                         let offset = sqlite3_error_offset(self.sqlite3);
 
-                        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+                        #[cfg(target_os = "linux")]
                         let offset = 0;
 
                         (
@@ -408,7 +408,7 @@ mod test {
         );
     }
 
-    #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+    #[cfg(not(target_os = "linux"))]
     #[test]
     fn test_sql_has_syntax_errors() {
         let connection = Connection::open_memory(Some("test_sql_has_syntax_errors"));
@@ -429,16 +429,12 @@ mod test {
     fn test_alter_table_syntax() {
         let connection = Connection::open_memory(Some("test_alter_table_syntax"));
 
-        assert!(
-            connection
-                .sql_has_syntax_error("ALTER TABLE test ADD x TEXT")
-                .is_none()
-        );
+        assert!(connection
+            .sql_has_syntax_error("ALTER TABLE test ADD x TEXT")
+            .is_none());
 
-        assert!(
-            connection
-                .sql_has_syntax_error("ALTER TABLE test AAD x TEXT")
-                .is_some()
-        );
+        assert!(connection
+            .sql_has_syntax_error("ALTER TABLE test AAD x TEXT")
+            .is_some());
     }
 }

@@ -232,7 +232,7 @@
               "$comment": "The value of 'null' is UNDOCUMENTED (https://github.com/microsoft/TypeScript/pull/18058).",
               "description": "Enable importing files with any extension, provided a declaration file is present.",
               "type": ["boolean", "null"],
-              "markdownDescription": "Enable importing files with any extension, provided a declaration file is present.\n\nSee more: https://www.typescriptlang.org/tsconfig#allowArbitraryExtensions"
+              "markdownDescription": "Enable importing files with any extension, provided a declaration file is present.\n\nSee more: https://www.typescriptlang.org/tsconfig#allowImportingTsExtensions"
             },
             "allowImportingTsExtensions": {
               "$comment": "The value of 'null' is UNDOCUMENTED (https://github.com/microsoft/TypeScript/pull/18058).",
@@ -426,17 +426,17 @@
               "anyOf": [
                 {
                   "enum": [
-                    "classic",
-                    "node",
-                    "node10",
-                    "node16",
-                    "nodenext",
-                    "bundler"
+                    "Classic",
+                    "Node",
+                    "Node10",
+                    "Node16",
+                    "NodeNext",
+                    "Bundler"
                   ],
                   "markdownEnumDescriptions": [
-                    "It’s recommended to use `\"node16\"` instead",
-                    "Deprecated, use `\"node10\"` in TypeScript 5.0+ instead",
-                    "It’s recommended to use `\"node16\"` instead",
+                    "It’s recommended to use `\"Node16\"` instead",
+                    "Deprecated, use `\"Node10\"` in TypeScript 5.0+ instead",
+                    "It’s recommended to use `\"Node16\"` instead",
                     "This is the recommended setting for libraries and Node.js applications",
                     "This is the recommended setting for libraries and Node.js applications",
                     "This is the recommended setting in TypeScript 5.0+ for applications that use a bundler"
@@ -452,7 +452,6 @@
               "$comment": "The value of 'null' is UNDOCUMENTED (https://github.com/microsoft/TypeScript/pull/18058).",
               "description": "Set the newline character for emitting files.",
               "type": ["string", "null"],
-              "default": "lf",
               "anyOf": [
                 {
                   "enum": ["crlf", "lf"]
@@ -498,10 +497,10 @@
             },
             "noUnusedLocals": {
               "$comment": "The value of 'null' is UNDOCUMENTED (https://github.com/microsoft/TypeScript/pull/18058).",
-              "description": "Enable error reporting when a local variable isn't read.",
+              "description": "Enable error reporting when a local variables aren't read.",
               "type": ["boolean", "null"],
               "default": false,
-              "markdownDescription": "Enable error reporting when a local variable isn't read.\n\nSee more: https://www.typescriptlang.org/tsconfig#noUnusedLocals"
+              "markdownDescription": "Enable error reporting when a local variables aren't read.\n\nSee more: https://www.typescriptlang.org/tsconfig#noUnusedLocals"
             },
             "noUnusedParameters": {
               "$comment": "The value of 'null' is UNDOCUMENTED (https://github.com/microsoft/TypeScript/pull/18058).",
@@ -664,12 +663,11 @@
                     "ES2021",
                     "ES2022",
                     "ES2023",
-                    "ES2024",
                     "ESNext"
                   ]
                 },
                 {
-                  "pattern": "^([Ee][Ss]([356]|(20(1[56789]|2[01234]))|[Nn][Ee][Xx][Tt]))$"
+                  "pattern": "^([Ee][Ss]([356]|(20(1[56789]|2[0123]))|[Nn][Ee][Xx][Tt]))$"
                 }
               ],
               "markdownDescription": "Set the JavaScript language version for emitted JavaScript and include compatible library declarations.\n\nSee more: https://www.typescriptlang.org/tsconfig#target"
@@ -774,7 +772,7 @@
               "$comment": "The value of 'null' is UNDOCUMENTED (https://github.com/microsoft/TypeScript/pull/18058).",
               "description": "Ensure that casing is correct in imports.",
               "type": ["boolean", "null"],
-              "default": true,
+              "default": false,
               "markdownDescription": "Ensure that casing is correct in imports.\n\nSee more: https://www.typescriptlang.org/tsconfig#forceConsistentCasingInFileNames"
             },
             "generateCpuProfile": {
@@ -930,7 +928,6 @@
                       "ES2017.SharedMemory",
                       "ES2017.String",
                       "ES2017.TypedArrays",
-                      "ES2017.ArrayBuffer",
                       "ES2018",
                       "ES2018.AsyncGenerator",
                       "ES2018.AsyncIterable",
@@ -952,19 +949,14 @@
                       "ESNext.Array",
                       "ESNext.AsyncIterable",
                       "ESNext.BigInt",
-                      "ESNext.Collection",
                       "ESNext.Intl",
-                      "ESNext.Object",
                       "ESNext.Promise",
-                      "ESNext.Regexp",
                       "ESNext.String",
                       "ESNext.Symbol",
                       "DOM",
-                      "DOM.AsyncIterable",
                       "DOM.Iterable",
                       "ScriptHost",
                       "WebWorker",
-                      "WebWorker.AsyncIterable",
                       "WebWorker.ImportScripts",
                       "Webworker.Iterable",
                       "ES7",
@@ -988,14 +980,6 @@
                       "ES2022.RegExp",
                       "ES2023",
                       "ES2023.Array",
-                      "ES2024",
-                      "ES2024.ArrayBuffer",
-                      "ES2024.Collection",
-                      "ES2024.Object",
-                      "ES2024.Promise",
-                      "ES2024.Regexp",
-                      "ES2024.SharedMemory",
-                      "ES2024.String",
                       "Decorators",
                       "Decorators.Legacy",
                       "ES2017.Date",
@@ -1014,7 +998,7 @@
                     "pattern": "^[Ee][Ss]2016(\\.[Aa][Rr][Rr][Aa][Yy]\\.[Ii][Nn][Cc][Ll][Uu][Dd][Ee])?$"
                   },
                   {
-                    "pattern": "^[Ee][Ss]2017(\\.([Ii][Nn][Tt][Ll]|[Oo][Bb][Jj][Ee][Cc][Tt]|[Ss][Hh][Aa][Rr][Ee][Dd][Mm][Ee][Mm][Oo][Rr][Yy]|[Ss][Tt][Rr][Ii][Nn][Gg]|[Tt][Yy][Pp][Ee][Dd][Aa][Rr][Rr][Aa][Yy][Ss]|[Dd][Aa][Tt][Ee]|[Aa][Rr][Rr][Aa][Yy][Bb][Uu][Ff][Ff][Ee][Rr]))?$"
+                    "pattern": "^[Ee][Ss]2017(\\.([Ii][Nn][Tt][Ll]|[Oo][Bb][Jj][Ee][Cc][Tt]|[Ss][Hh][Aa][Rr][Ee][Dd][Mm][Ee][Mm][Oo][Rr][Yy]|[Ss][Tt][Rr][Ii][Nn][Gg]|[Tt][Yy][Pp][Ee][Dd][Aa][Rr][Rr][Aa][Yy][Ss]|[Dd][Aa][Tt][Ee]))?$"
                   },
                   {
                     "pattern": "^[Ee][Ss]2018(\\.([Aa][Ss][Yy][Nn][Cc][Gg][Ee][Nn][Ee][Rr][Aa][Tt][Oo][Rr]|[Aa][Ss][Yy][Nn][Cc][Ii][Tt][Ee][Rr][Aa][Bb][Ll][Ee]|[Ii][Nn][Tt][Ll]|[Pp][Rr][Oo][Mm][Ii][Ss][Ee]|[Rr][Ee][Gg][Ee][Xx][Pp]))?$"
@@ -1035,19 +1019,16 @@
                     "pattern": "^[Ee][Ss]2023(\\.([Aa][Rr][Rr][Aa][Yy]|[Cc][Oo][Ll][Ll][Ee][Cc][Tt][Ii][Oo][Nn]))?$"
                   },
                   {
-                    "pattern": "^[Ee][Ss]2024(\\.([Aa][Rr][Rr][Aa][Yy][Bb][Uu][Ff][Ff][Ee][Rr]|[Cc][Oo][Ll][Ll][Ee][Cc][Tt][Ii][Oo][Nn]|[Oo][Bb][Jj][Ee][Cc][Tt]|[Pp][Rr][Oo][Mm][Ii][Ss][Ee]|[Rr][Ee][Gg][Ee][Xx][Pp]|[Ss][Hh][Aa][Rr][Ee][Dd][Mm][Ee][Mm][Oo][Rr][Yy]|[Ss][Tt][Rr][Ii][Nn][Gg]))?$"
-                  },
-                  {
                     "pattern": "^[Ee][Ss][Nn][Ee][Xx][Tt](\\.([Aa][Rr][Rr][Aa][Yy]|[Aa][Ss][Yy][Nn][Cc][Ii][Tt][Ee][Rr][Aa][Bb][Ll][Ee]|[Bb][Ii][Gg][Ii][Nn][Tt]|[Ii][Nn][Tt][Ll]|[Pp][Rr][Oo][Mm][Ii][Ss][Ee]|[Ss][Tt][Rr][Ii][Nn][Gg]|[Ss][Yy][Mm][Bb][Oo][Ll]|[Ww][Ee][Aa][Kk][Rr][Ee][Ff]|[Dd][Ee][Cc][Oo][Rr][Aa][Tt][Oo][Rr][Ss]|[Dd][Ii][Ss][Pp][Oo][Ss][Aa][Bb][Ll][Ee]))?$"
                   },
                   {
-                    "pattern": "^[Dd][Oo][Mm](\\.([Aa][Ss][Yy][Nn][Cc])?[Ii][Tt][Ee][Rr][Aa][Bb][Ll][Ee])?$"
+                    "pattern": "^[Dd][Oo][Mm](\\.[Ii][Tt][Ee][Rr][Aa][Bb][Ll][Ee])?$"
                   },
                   {
                     "pattern": "^[Ss][Cc][Rr][Ii][Pp][Tt][Hh][Oo][Ss][Tt]$"
                   },
                   {
-                    "pattern": "^[Ww][Ee][Bb][Ww][Oo][Rr][Kk][Ee][Rr](\\.([Ii][Mm][Pp][Oo][Rr][Tt][Ss][Cc][Rr][Ii][Pp][Tt][Ss]|([Aa][Ss][Yy][Nn][Cc])?[Ii][Tt][Ee][Rr][Aa][Bb][Ll][Ee]))?$"
+                    "pattern": "^[Ww][Ee][Bb][Ww][Oo][Rr][Kk][Ee][Rr](\\.([Ii][Mm][Pp][Oo][Rr][Tt][Ss][Cc][Rr][Ii][Pp][Tt][Ss]|[Ii][Tt][Ee][Rr][Aa][Bb][Ll][Ee]))?$"
                   },
                   {
                     "pattern": "^[Dd][Ee][Cc][Oo][Rr][Aa][Tt][Oo][Rr][Ss](\\.([Ll][Ee][Gg][Aa][Cc][Yy]))?$"
@@ -1222,34 +1203,6 @@
               "description": "Do not transform or elide any imports or exports not marked as type-only, ensuring they are written in the output file's format based on the 'module' setting.",
               "type": ["boolean", "null"],
               "markdownDescription": "Do not transform or elide any imports or exports not marked as type-only, ensuring they are written in the output file's format based on the 'module' setting.\n\nSee more: https://www.typescriptlang.org/tsconfig#verbatimModuleSyntax"
-            },
-            "noCheck": {
-              "$comment": "The value of 'null' is UNDOCUMENTED (https://github.com/microsoft/TypeScript/pull/18058).",
-              "description": "Disable full type checking (only critical parse and emit errors will be reported)",
-              "type": ["boolean", "null"],
-              "default": false,
-              "markdownDescription": "Disable full type checking (only critical parse and emit errors will be reported)\n\nSee more: https://www.typescriptlang.org/tsconfig#noCheck"
-            },
-            "isolatedDeclarations": {
-              "$comment": "The value of 'null' is UNDOCUMENTED (https://github.com/microsoft/TypeScript/pull/18058).",
-              "description": "Require sufficient annotation on exports so other tools can trivially generate declaration files.",
-              "type": ["boolean", "null"],
-              "default": false,
-              "markdownDescription": "Require sufficient annotation on exports so other tools can trivially generate declaration files.\n\nSee more: https://www.typescriptlang.org/tsconfig#isolatedDeclarations"
-            },
-            "noUncheckedSideEffectImports": {
-              "$comment": "The value of 'null' is UNDOCUMENTED (https://github.com/microsoft/TypeScript/pull/18058).",
-              "description": "Check side effect imports.",
-              "type": ["boolean", "null"],
-              "default": false,
-              "markdownDescription": "Check side effect imports.\n\nSee more: https://www.typescriptlang.org/tsconfig#noUncheckedSideEffectImports"
-            },
-            "strictBuiltinIteratorReturn": {
-              "$comment": "The value of 'null' is UNDOCUMENTED (https://github.com/microsoft/TypeScript/pull/18058).",
-              "description": "Built-in iterators are instantiated with a 'TReturn' type of 'undefined' instead of 'any'.",
-              "type": ["boolean", "null"],
-              "default": false,
-              "markdownDescription": "Built-in iterators are instantiated with a 'TReturn' type of 'undefined' instead of 'any'.\n\nSee more: https://www.typescriptlang.org/tsconfig#strictBuiltinIteratorReturn"
             }
           }
         }
@@ -1470,3 +1423,4 @@
   "title": "JSON schema for the TypeScript compiler's configuration file",
   "type": "object"
 }
+

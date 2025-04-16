@@ -1,6 +1,7 @@
+use std::sync::Arc;
 use std::time;
-use std::{sync::Arc, time::Instant};
 
+use chrono::{DateTime, Duration, Utc};
 use clock::SystemClock;
 
 const COALESCE_TIMEOUT: time::Duration = time::Duration::from_secs(20);
@@ -9,8 +10,8 @@ const SIMULATED_DURATION_FOR_SINGLE_EVENT: time::Duration = time::Duration::from
 #[derive(Debug, PartialEq)]
 struct PeriodData {
     environment: &'static str,
-    start: Instant,
-    end: Option<Instant>,
+    start: DateTime<Utc>,
+    end: Option<DateTime<Utc>>,
 }
 
 pub struct EventCoalescer {
@@ -26,8 +27,9 @@ impl EventCoalescer {
     pub fn log_event(
         &mut self,
         environment: &'static str,
-    ) -> Option<(Instant, Instant, &'static str)> {
+    ) -> Option<(DateTime<Utc>, DateTime<Utc>, &'static str)> {
         let log_time = self.clock.utc_now();
+        let coalesce_timeout = Duration::from_std(COALESCE_TIMEOUT).unwrap();
 
         let Some(state) = &mut self.state else {
             self.state = Some(PeriodData {
@@ -41,7 +43,7 @@ impl EventCoalescer {
         let period_end = state
             .end
             .unwrap_or(state.start + SIMULATED_DURATION_FOR_SINGLE_EVENT);
-        let within_timeout = log_time - period_end < COALESCE_TIMEOUT;
+        let within_timeout = log_time - period_end < coalesce_timeout;
         let environment_is_same = state.environment == environment;
         let should_coaelesce = !within_timeout || !environment_is_same;
 
@@ -68,13 +70,16 @@ impl EventCoalescer {
 
 #[cfg(test)]
 mod tests {
+    use chrono::TimeZone;
     use clock::FakeSystemClock;
 
     use super::*;
 
     #[test]
     fn test_same_context_exceeding_timeout() {
-        let clock = Arc::new(FakeSystemClock::new());
+        let clock = Arc::new(FakeSystemClock::new(
+            Utc.with_ymd_and_hms(1990, 4, 12, 0, 0, 0).unwrap(),
+        ));
         let environment_1 = "environment_1";
         let mut event_coalescer = EventCoalescer::new(clock.clone());
 
@@ -93,7 +98,7 @@ mod tests {
             })
         );
 
-        let within_timeout_adjustment = COALESCE_TIMEOUT / 2;
+        let within_timeout_adjustment = Duration::from_std(COALESCE_TIMEOUT / 2).unwrap();
 
         // Ensure that many calls within the timeout don't start a new period
         for _ in 0..100 {
@@ -113,7 +118,7 @@ mod tests {
         }
 
         let period_end = clock.utc_now();
-        let exceed_timeout_adjustment = COALESCE_TIMEOUT * 2;
+        let exceed_timeout_adjustment = Duration::from_std(COALESCE_TIMEOUT * 2).unwrap();
         // Logging an event exceeding the timeout should start a new period
         clock.advance(exceed_timeout_adjustment);
         let new_period_start = clock.utc_now();
@@ -132,7 +137,9 @@ mod tests {
 
     #[test]
     fn test_different_environment_under_timeout() {
-        let clock = Arc::new(FakeSystemClock::new());
+        let clock = Arc::new(FakeSystemClock::new(
+            Utc.with_ymd_and_hms(1990, 4, 12, 0, 0, 0).unwrap(),
+        ));
         let environment_1 = "environment_1";
         let mut event_coalescer = EventCoalescer::new(clock.clone());
 
@@ -151,7 +158,7 @@ mod tests {
             })
         );
 
-        let within_timeout_adjustment = COALESCE_TIMEOUT / 2;
+        let within_timeout_adjustment = Duration::from_std(COALESCE_TIMEOUT / 2).unwrap();
         clock.advance(within_timeout_adjustment);
         let period_end = clock.utc_now();
         let period_data = event_coalescer.log_event(environment_1);
@@ -186,7 +193,9 @@ mod tests {
 
     #[test]
     fn test_switching_environment_while_within_timeout() {
-        let clock = Arc::new(FakeSystemClock::new());
+        let clock = Arc::new(FakeSystemClock::new(
+            Utc.with_ymd_and_hms(1990, 4, 12, 0, 0, 0).unwrap(),
+        ));
         let environment_1 = "environment_1";
         let mut event_coalescer = EventCoalescer::new(clock.clone());
 
@@ -205,7 +214,7 @@ mod tests {
             })
         );
 
-        let within_timeout_adjustment = COALESCE_TIMEOUT / 2;
+        let within_timeout_adjustment = Duration::from_std(COALESCE_TIMEOUT / 2).unwrap();
         clock.advance(within_timeout_adjustment);
         let period_end = clock.utc_now();
         let environment_2 = "environment_2";
@@ -231,7 +240,9 @@ mod tests {
 
     #[test]
     fn test_switching_environment_while_exceeding_timeout() {
-        let clock = Arc::new(FakeSystemClock::new());
+        let clock = Arc::new(FakeSystemClock::new(
+            Utc.with_ymd_and_hms(1990, 4, 12, 0, 0, 0).unwrap(),
+        ));
         let environment_1 = "environment_1";
         let mut event_coalescer = EventCoalescer::new(clock.clone());
 
@@ -250,7 +261,7 @@ mod tests {
             })
         );
 
-        let exceed_timeout_adjustment = COALESCE_TIMEOUT * 2;
+        let exceed_timeout_adjustment = Duration::from_std(COALESCE_TIMEOUT * 2).unwrap();
         clock.advance(exceed_timeout_adjustment);
         let period_end = clock.utc_now();
         let environment_2 = "environment_2";

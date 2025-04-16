@@ -1,8 +1,7 @@
 use crate::{
-    AnyWindowHandle, BackgroundExecutor, ClipboardItem, CursorStyle, DevicePixels,
-    ForegroundExecutor, Keymap, NoopTextSystem, Platform, PlatformDisplay, PlatformTextSystem,
-    ScreenCaptureFrame, ScreenCaptureSource, ScreenCaptureStream, Size, Task, TestDisplay,
-    TestWindow, WindowAppearance, WindowParams, size,
+    AnyWindowHandle, BackgroundExecutor, ClipboardItem, CursorStyle, ForegroundExecutor, Keymap,
+    Platform, PlatformDisplay, PlatformTextSystem, Task, TestDisplay, TestWindow, WindowAppearance,
+    WindowParams,
 };
 use anyhow::Result;
 use collections::VecDeque;
@@ -17,7 +16,7 @@ use std::{
 #[cfg(target_os = "windows")]
 use windows::Win32::{
     Graphics::Imaging::{CLSID_WICImagingFactory, IWICImagingFactory},
-    System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance},
+    System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER},
 };
 
 /// TestPlatform implements the Platform trait for use in tests.
@@ -29,10 +28,9 @@ pub(crate) struct TestPlatform {
     active_display: Rc<dyn PlatformDisplay>,
     active_cursor: Mutex<CursorStyle>,
     current_clipboard_item: Mutex<Option<ClipboardItem>>,
-    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    #[cfg(target_os = "linux")]
     current_primary_item: Mutex<Option<ClipboardItem>>,
     pub(crate) prompts: RefCell<TestPrompts>,
-    screen_capture_sources: RefCell<Vec<TestScreenCaptureSource>>,
     pub opened_url: RefCell<Option<String>>,
     pub text_system: Arc<dyn PlatformTextSystem>,
     #[cfg(target_os = "windows")]
@@ -40,42 +38,9 @@ pub(crate) struct TestPlatform {
     weak: Weak<Self>,
 }
 
-#[derive(Clone)]
-/// A fake screen capture source, used for testing.
-pub struct TestScreenCaptureSource {}
-
-pub struct TestScreenCaptureStream {}
-
-impl ScreenCaptureSource for TestScreenCaptureSource {
-    fn resolution(&self) -> Result<Size<DevicePixels>> {
-        Ok(size(DevicePixels(1), DevicePixels(1)))
-    }
-
-    fn stream(
-        &self,
-        _foreground_executor: &ForegroundExecutor,
-        _frame_callback: Box<dyn Fn(ScreenCaptureFrame) + Send>,
-    ) -> oneshot::Receiver<Result<Box<dyn ScreenCaptureStream>>> {
-        let (mut tx, rx) = oneshot::channel();
-        let stream = TestScreenCaptureStream {};
-        tx.send(Ok(Box::new(stream) as Box<dyn ScreenCaptureStream>))
-            .ok();
-        rx
-    }
-}
-
-impl ScreenCaptureStream for TestScreenCaptureStream {}
-
-struct TestPrompt {
-    msg: String,
-    detail: Option<String>,
-    answers: Vec<String>,
-    tx: oneshot::Sender<usize>,
-}
-
 #[derive(Default)]
 pub(crate) struct TestPrompts {
-    multiple_choice: VecDeque<TestPrompt>,
+    multiple_choice: VecDeque<oneshot::Sender<usize>>,
     new_path: VecDeque<(PathBuf, oneshot::Sender<Result<Option<PathBuf>>>)>,
 }
 
@@ -91,18 +56,27 @@ impl TestPlatform {
             )
         };
 
-        let text_system = Arc::new(NoopTextSystem);
+        #[cfg(target_os = "macos")]
+        let text_system = Arc::new(crate::platform::mac::MacTextSystem::new());
+
+        #[cfg(target_os = "linux")]
+        let text_system = Arc::new(crate::platform::linux::CosmicTextSystem::new());
+
+        #[cfg(target_os = "windows")]
+        let text_system = Arc::new(
+            crate::platform::windows::DirectWriteTextSystem::new(&bitmap_factory)
+                .expect("Unable to initialize direct write."),
+        );
 
         Rc::new_cyclic(|weak| TestPlatform {
             background_executor: executor,
             foreground_executor,
             prompts: Default::default(),
-            screen_capture_sources: Default::default(),
             active_cursor: Default::default(),
             active_display: Rc::new(TestDisplay::new()),
             active_window: Default::default(),
             current_clipboard_item: Mutex::new(None),
-            #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+            #[cfg(target_os = "linux")]
             current_primary_item: Mutex::new(None),
             weak: weak.clone(),
             opened_url: Default::default(),
@@ -122,64 +96,29 @@ impl TestPlatform {
             .new_path
             .pop_front()
             .expect("no pending new path prompt");
-        self.background_executor().set_waiting_hint(None);
         tx.send(Ok(select_path(&path))).ok();
     }
 
-    #[track_caller]
-    pub(crate) fn simulate_prompt_answer(&self, response: &str) {
-        let prompt = self
+    pub(crate) fn simulate_prompt_answer(&self, response_ix: usize) {
+        let tx = self
             .prompts
             .borrow_mut()
             .multiple_choice
             .pop_front()
             .expect("no pending multiple choice prompt");
         self.background_executor().set_waiting_hint(None);
-        let Some(ix) = prompt.answers.iter().position(|a| a == response) else {
-            panic!(
-                "PROMPT: {}\n{:?}\n{:?}\nCannot respond with {}",
-                prompt.msg, prompt.detail, prompt.answers, response
-            )
-        };
-        prompt.tx.send(ix).ok();
+        tx.send(response_ix).ok();
     }
 
     pub(crate) fn has_pending_prompt(&self) -> bool {
         !self.prompts.borrow().multiple_choice.is_empty()
     }
 
-    pub(crate) fn pending_prompt(&self) -> Option<(String, String)> {
-        let prompts = self.prompts.borrow();
-        let prompt = prompts.multiple_choice.front()?;
-        Some((
-            prompt.msg.clone(),
-            prompt.detail.clone().unwrap_or_default(),
-        ))
-    }
-
-    pub(crate) fn set_screen_capture_sources(&self, sources: Vec<TestScreenCaptureSource>) {
-        *self.screen_capture_sources.borrow_mut() = sources;
-    }
-
-    pub(crate) fn prompt(
-        &self,
-        msg: &str,
-        detail: Option<&str>,
-        answers: &[&str],
-    ) -> oneshot::Receiver<usize> {
+    pub(crate) fn prompt(&self, msg: &str, detail: Option<&str>) -> oneshot::Receiver<usize> {
         let (tx, rx) = oneshot::channel();
-        let answers: Vec<String> = answers.iter().map(|&s| s.to_string()).collect();
         self.background_executor()
             .set_waiting_hint(Some(format!("PROMPT: {:?} {:?}", msg, detail)));
-        self.prompts
-            .borrow_mut()
-            .multiple_choice
-            .push_back(TestPrompt {
-                msg: msg.to_string(),
-                detail: detail.map(|s| s.to_string()),
-                answers: answers.clone(),
-                tx,
-            });
+        self.prompts.borrow_mut().multiple_choice.push_back(tx);
         rx
     }
 
@@ -223,12 +162,6 @@ impl Platform for TestPlatform {
         self.text_system.clone()
     }
 
-    fn keyboard_layout(&self) -> String {
-        "zed.keyboard.example".to_string()
-    }
-
-    fn on_keyboard_layout_change(&self, _: Box<dyn FnMut()>) {}
-
     fn run(&self, _on_finish_launching: Box<dyn FnOnce()>) {
         unimplemented!()
     }
@@ -261,24 +194,6 @@ impl Platform for TestPlatform {
 
     fn primary_display(&self) -> Option<std::rc::Rc<dyn crate::PlatformDisplay>> {
         Some(self.active_display.clone())
-    }
-
-    fn is_screen_capture_supported(&self) -> bool {
-        true
-    }
-
-    fn screen_capture_sources(
-        &self,
-    ) -> oneshot::Receiver<Result<Vec<Box<dyn ScreenCaptureSource>>>> {
-        let (mut tx, rx) = oneshot::channel();
-        tx.send(Ok(self
-            .screen_capture_sources
-            .borrow()
-            .iter()
-            .map(|source| Box::new(source.clone()) as Box<dyn ScreenCaptureSource>)
-            .collect()))
-            .ok();
-        rx
     }
 
     fn active_window(&self) -> Option<crate::AnyWindowHandle> {
@@ -326,17 +241,11 @@ impl Platform for TestPlatform {
         directory: &std::path::Path,
     ) -> oneshot::Receiver<Result<Option<std::path::PathBuf>>> {
         let (tx, rx) = oneshot::channel();
-        self.background_executor()
-            .set_waiting_hint(Some(format!("PROMPT FOR PATH: {:?}", directory)));
         self.prompts
             .borrow_mut()
             .new_path
             .push_back((directory.to_path_buf(), tx));
         rx
-    }
-
-    fn can_select_mixed_files_and_dirs(&self) -> bool {
-        true
     }
 
     fn reveal_path(&self, _path: &std::path::Path) {
@@ -376,7 +285,7 @@ impl Platform for TestPlatform {
         false
     }
 
-    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    #[cfg(target_os = "linux")]
     fn write_to_primary(&self, item: ClipboardItem) {
         *self.current_primary_item.lock() = Some(item);
     }
@@ -385,7 +294,7 @@ impl Platform for TestPlatform {
         *self.current_clipboard_item.lock() = Some(item);
     }
 
-    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    #[cfg(target_os = "linux")]
     fn read_from_primary(&self) -> Option<ClipboardItem> {
         self.current_primary_item.lock().clone()
     }
@@ -412,13 +321,6 @@ impl Platform for TestPlatform {
 
     fn open_with_system(&self, _path: &Path) {
         unimplemented!()
-    }
-}
-
-impl TestScreenCaptureSource {
-    /// Create a fake screen capture source, for testing.
-    pub fn new() -> Self {
-        Self {}
     }
 }
 

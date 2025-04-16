@@ -1,5 +1,5 @@
 use crate::HttpClient;
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{anyhow, bail, Context, Result};
 use futures::AsyncReadExt;
 use serde::Deserialize;
 use std::sync::Arc;
@@ -34,7 +34,7 @@ pub async fn latest_github_release(
 ) -> Result<GithubRelease, anyhow::Error> {
     let mut response = http
         .get(
-            format!("https://api.github.com/repos/{repo_name_with_owner}/releases").as_str(),
+            &format!("https://api.github.com/repos/{repo_name_with_owner}/releases"),
             Default::default(),
             true,
         )
@@ -91,14 +91,13 @@ pub async fn get_release_by_tag_name(
         .context("error fetching latest release")?;
 
     let mut body = Vec::new();
-    let status = response.status();
     response
         .body_mut()
         .read_to_end(&mut body)
         .await
         .context("error reading latest release")?;
 
-    if status.is_client_error() {
+    if response.status().is_client_error() {
         let text = String::from_utf8_lossy(body.as_slice());
         bail!(
             "status error {}, response: {text:?}",
@@ -121,7 +120,6 @@ pub async fn get_release_by_tag_name(
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum AssetKind {
     TarGz,
-    Gz,
     Zip,
 }
 
@@ -135,7 +133,6 @@ pub fn build_asset_url(repo_name_with_owner: &str, tag: &str, kind: AssetKind) -
         "{tag}.{extension}",
         extension = match kind {
             AssetKind::TarGz => "tar.gz",
-            AssetKind::Gz => "gz",
             AssetKind::Zip => "zip",
         }
     );
@@ -147,7 +144,7 @@ pub fn build_asset_url(repo_name_with_owner: &str, tag: &str, kind: AssetKind) -
 
 #[cfg(test)]
 mod tests {
-    use crate::github::{AssetKind, build_asset_url};
+    use crate::github::{build_asset_url, AssetKind};
 
     #[test]
     fn test_build_asset_url() {

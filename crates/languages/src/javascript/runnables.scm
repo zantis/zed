@@ -2,20 +2,13 @@
 ; Function expression that has `it`, `test` or `describe` as the function name
 (
     (call_expression
-        function: [
-            (identifier) @_name
-            (member_expression
-                object: [
-                    (identifier) @_name
-                    (member_expression object: (identifier) @_name)
-                ]
-            )
-        ]
-        (#any-of? @_name "it" "test" "describe" "context" "suite")
+        function: (_) @_name
+        (#any-of? @_name "it" "test" "describe")
         arguments: (
-            arguments . (string (string_fragment) @run)
+            arguments . (string
+                (string_fragment) @run
+            )
         )
-    ) @_js-test
-
+    ) @js-test
     (#set! tag js-test)
 )

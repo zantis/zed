@@ -1,25 +1,17 @@
 [
   {
     "bindings": {
-      "ctrl-alt-s": "zed::OpenSettings",
-      "ctrl-{": "pane::ActivatePreviousItem",
-      "ctrl-}": "pane::ActivateNextItem",
-      "ctrl-f2": "debugger::Stop",
-      "f6": "debugger::Pause",
-      "f7": "debugger::StepInto",
-      "f8": "debugger::StepOver",
-      "shift-f8": "debugger::StepOut",
-      "f9": "debugger::Continue",
-      "alt-shift-f9": "debugger::Start"
+      "ctrl-shift-[": "pane::ActivatePrevItem",
+      "ctrl-shift-]": "pane::ActivateNextItem"
     }
   },
   {
     "context": "Editor",
     "bindings": {
-      "ctrl->": ["zed::IncreaseBufferFontSize", { "persist": true }],
-      "ctrl-<": ["zed::DecreaseBufferFontSize", { "persist": true }],
+      "ctrl->": "zed::IncreaseBufferFontSize",
+      "ctrl-<": "zed::DecreaseBufferFontSize",
       "ctrl-shift-j": "editor::JoinLines",
-      "ctrl-d": "editor::DuplicateSelection",
+      "ctrl-d": "editor::DuplicateLineDown",
       "ctrl-y": "editor::DeleteLine",
       "ctrl-m": "editor::ScrollCursorCenter",
       "ctrl-pagedown": "editor::MovePageDown",
@@ -33,12 +25,11 @@
       "alt-j": ["editor::SelectNext", { "replace_newest": false }],
       "alt-shift-j": ["editor::SelectPrevious", { "replace_newest": false }],
       "ctrl-/": ["editor::ToggleComments", { "advance_downwards": true }],
-      "ctrl-w": "editor::SelectLargerSyntaxNode",
-      "ctrl-shift-w": "editor::SelectSmallerSyntaxNode",
+      "alt-up": "editor::SelectLargerSyntaxNode",
+      "alt-down": "editor::SelectSmallerSyntaxNode",
       "shift-alt-up": "editor::MoveLineUp",
       "shift-alt-down": "editor::MoveLineDown",
       "ctrl-alt-l": "editor::Format",
-      "ctrl-alt-o": "editor::OrganizeImports",
       "shift-f6": "editor::Rename",
       "ctrl-alt-left": "pane::GoBack",
       "ctrl-alt-right": "pane::GoForward",
@@ -49,17 +40,13 @@
       "ctrl-shift-b": "editor::GoToTypeDefinition",
       "ctrl-alt-shift-b": "editor::GoToTypeDefinitionSplit",
       "f2": "editor::GoToDiagnostic",
-      "shift-f2": "editor::GoToPreviousDiagnostic",
+      "shift-f2": "editor::GoToPrevDiagnostic",
       "ctrl-alt-shift-down": "editor::GoToHunk",
-      "ctrl-alt-shift-up": "editor::GoToPreviousHunk",
-      "ctrl-alt-z": "git::Restore",
+      "ctrl-alt-shift-up": "editor::GoToPrevHunk",
       "ctrl-home": "editor::MoveToBeginning",
       "ctrl-end": "editor::MoveToEnd",
       "ctrl-shift-home": "editor::SelectToBeginning",
-      "ctrl-shift-end": "editor::SelectToEnd",
-      "ctrl-f8": "editor::ToggleBreakpoint",
-      "ctrl-shift-f8": "editor::EditLogBreakpoint",
-      "ctrl-shift-u": "editor::ToggleCase"
+      "ctrl-shift-end": "editor::SelectToEnd"
     }
   },
   {

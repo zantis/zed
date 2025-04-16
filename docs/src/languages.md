@@ -1,25 +1,20 @@
 # Language Support in Zed
 
-Zed supports hundreds of programming languages and text formats.
-Some work out-of-the box and others rely on 3rd party extensions.
-
-> The ones included out-of-the-box, natively built into Zed, are marked with \*.
+Zed supports hundreds of programming languages and text formats. Some work out-of-the box and others rely on 3rd party extensions.
 
 ## Languages with Documentation
 
-- [Ansible](./languages/ansible.md)
 - [AsciiDoc](./languages/asciidoc.md)
 - [Astro](./languages/astro.md)
 - [Bash](./languages/bash.md)
 - [Biome](./languages/biome.md)
-- [C](./languages/c.md) \*
-- [C++](./languages/cpp.md) \*
+- [C](./languages/c.md)
+- [C++](./languages/cpp.md)
 - [C#](./languages/csharp.md)
 - [Clojure](./languages/clojure.md)
-- [CSS](./languages/css.md) \*
+- [CSS](./languages/css.md)
 - [Dart](./languages/dart.md)
 - [Deno](./languages/deno.md)
-- [Diff](./languages/diff.md) \*
 - [Docker](./languages/docker.md)
 - [Elixir](./languages/elixir.md)
 - [Elm](./languages/elm.md)
@@ -29,49 +24,43 @@ Some work out-of-the box and others rely on 3rd party extensions.
 - [GDScript](./languages/gdscript.md)
 - [Gleam](./languages/gleam.md)
 - [GLSL](./languages/glsl.md)
-- [Go](./languages/go.md) \*
+- [Go](./languages/go.md)
 - [Groovy](./languages/groovy.md)
 - [Haskell](./languages/haskell.md)
-- [Helm](./languages/helm.md)
 - [HTML](./languages/html.md)
 - [Java](./languages/java.md)
-- [JavaScript](./languages/javascript.md) \*
+- [JavaScript](./languages/javascript.md)
 - [Julia](./languages/julia.md)
-- [JSON](./languages/json.md) \*
-- [Jsonnet](./languages/jsonnet.md)
+- [JSON](./languages/json.md)
 - [Kotlin](./languages/kotlin.md)
 - [Lua](./languages/lua.md)
 - [Luau](./languages/luau.md)
 - [Makefile](./languages/makefile.md)
-- [Markdown](./languages/markdown.md) \*
+- [Markdown](./languages/markdown.md)
 - [Nim](./languages/nim.md)
 - [OCaml](./languages/ocaml.md)
 - [PHP](./languages/php.md)
 - [Prisma](./languages/prisma.md)
 - [Proto](./languages/proto.md)
 - [PureScript](./languages/purescript.md)
-- [Python](./languages/python.md) \*
+- [Python](./languages/python.md)
 - [R](./languages/r.md)
-- [Rego](./languages/rego.md)
 - [ReStructuredText](./languages/rst.md)
 - [Racket](./languages/racket.md)
 - [Roc](./languages/roc.md)
 - [Ruby](./languages/ruby.md)
-- [Rust](./languages/rust.md) \* (Zed's written in Rust)
+- [Rust](./languages/rust.md)
 - [Scala](./languages/scala.md)
 - [Scheme](./languages/scheme.md)
-- [Shell Script](./languages/sh.md)
 - [Svelte](./languages/svelte.md)
 - [Swift](./languages/swift.md)
-- [Tailwind CSS](./languages/tailwindcss.md) \*
+- [TailwindCSS](./languages/tailwindcss.md)
 - [Terraform](./languages/terraform.md)
 - [TOML](./languages/toml.md)
-- [TypeScript](./languages/typescript.md) \*
+- [TypeScript](./languages/typescript.md)
 - [Uiua](./languages/uiua.md)
 - [Vue](./languages/vue.md)
-- [XML](./languages/xml.md)
-- [YAML](./languages/yaml.md) \*
-- [Yara](./languages/yarn.md)
+- [YAML](./languages/yaml.md)
 - [Yarn](./languages/yarn.md)
 - [Zig](./languages/zig.md)
 
@@ -113,6 +102,7 @@ Some work out-of-the box and others rely on 3rd party extensions.
 - [Groq](https://github.com/juice49/zed-groq)
 - [INI](https://github.com/bajrangCoder/zed-ini)
 - [Java](https://github.com/zed-extensions/java)
+- [Jsonnet](https://github.com/narqo/zed-jsonnet)
 - [Justfiles](https://github.com/jackTabsCode/zed-just)
 - [LaTeX](https://github.com/rzukic/zed-latex)
 - [Ledger](https://github.com/mrkstwrt/zed-ledger)
@@ -132,7 +122,7 @@ Some work out-of-the box and others rely on 3rd party extensions.
 - [Nix](https://github.com/zed-extensions/nix)
 - [Noir](https://github.com/shuklaayush/zed-noir)
 - [Nu](https://github.com/zed-extensions/nu)
-- [Odin](https://github.com/rxptr/zed-odin)
+- [Odin](https://github.com/clseibold/zed-odin)
 - [Pact](https://github.com/kadena-community/pact-zed)
 - [Pest](https://github.com/pest-parser/zed-pest)
 - [PICA200 assembly](https://github.com/Squareheron942/zed-pica200)
@@ -166,3 +156,4 @@ Some work out-of-the box and others rely on 3rd party extensions.
 - [VHS](https://github.com/eth0net/zed-vhs)
 - [Wgsl](https://github.com/luan/zed-wgsl)
 - [WIT](https://github.com/valentinegb/zed-wit)
+- [XML](https://github.com/sweetppro/zed-xml)

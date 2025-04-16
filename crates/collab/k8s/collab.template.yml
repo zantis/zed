@@ -109,17 +109,17 @@ spec:
                 secretKeyRef:
                   name: zed-client
                   key: checksum-seed
-            - name: LIVEKIT_SERVER
+            - name: LIVE_KIT_SERVER
               valueFrom:
                 secretKeyRef:
                   name: livekit
                   key: server
-            - name: LIVEKIT_KEY
+            - name: LIVE_KIT_KEY
               valueFrom:
                 secretKeyRef:
                   name: livekit
                   key: key
-            - name: LIVEKIT_SECRET
+            - name: LIVE_KIT_SECRET
               valueFrom:
                 secretKeyRef:
                   name: livekit
@@ -149,21 +149,16 @@ spec:
                 secretKeyRef:
                   name: google-ai
                   key: api_key
-            - name: PREDICTION_API_URL
+            - name: QWEN2_7B_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: prediction
-                  key: api_url
-            - name: PREDICTION_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: prediction
+                  name: hugging-face
                   key: api_key
-            - name: PREDICTION_MODEL
+            - name: QWEN2_7B_API_URL
               valueFrom:
                 secretKeyRef:
-                  name: prediction
-                  key: model
+                  name: hugging-face
+                  key: qwen2_api_url
             - name: BLOB_STORE_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
@@ -189,42 +184,31 @@ spec:
                 secretKeyRef:
                   name: blob-store
                   key: bucket
-            - name: KINESIS_ACCESS_KEY
+            - name: CLICKHOUSE_URL
               valueFrom:
                 secretKeyRef:
-                  name: kinesis
-                  key: access_key
-            - name: KINESIS_SECRET_KEY
+                  name: clickhouse
+                  key: url
+            - name: CLICKHOUSE_USER
               valueFrom:
                 secretKeyRef:
-                  name: kinesis
-                  key: secret_key
-            - name: KINESIS_STREAM
+                  name: clickhouse
+                  key: user
+            - name: CLICKHOUSE_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: kinesis
-                  key: stream
-            - name: KINESIS_REGION
+                  name: clickhouse
+                  key: password
+            - name: CLICKHOUSE_DATABASE
               valueFrom:
                 secretKeyRef:
-                  name: kinesis
-                  key: region
-            - name: BLOB_STORE_BUCKET
-              valueFrom:
-                secretKeyRef:
-                  name: blob-store
-                  key: bucket
+                  name: clickhouse
+                  key: database
             - name: SLACK_PANICS_WEBHOOK
               valueFrom:
                 secretKeyRef:
                   name: slack
                   key: panics_webhook
-            - name: STRIPE_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: stripe
-                  key: api_key
-                  optional: true
             - name: COMPLETE_WITH_LANGUAGE_MODEL_RATE_LIMIT_PER_HOUR
               value: "1000"
             - name: SUPERMAVEN_ADMIN_API_KEY
@@ -252,7 +236,7 @@ spec:
               value: "${AUTO_JOIN_CHANNEL_ID}"
           securityContext:
             capabilities:
-              # TODO - Switch to the more restrictive `PERFMON` capability.
+              # FIXME - Switch to the more restrictive `PERFMON` capability.
               # This capability isn't yet available in a stable version of Debian.
               add: ["SYS_ADMIN"]
       terminationGracePeriodSeconds: 10

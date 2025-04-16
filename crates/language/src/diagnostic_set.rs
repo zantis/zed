@@ -1,8 +1,6 @@
-use crate::{Diagnostic, range_to_lsp};
-use anyhow::Result;
+use crate::{range_to_lsp, Diagnostic};
 use collections::HashMap;
 use lsp::LanguageServerId;
-use serde::Serialize;
 use std::{
     cmp::{Ordering, Reverse},
     iter,
@@ -17,7 +15,7 @@ use text::{Anchor, FromAnchor, PointUtf16, ToOffset};
 /// The diagnostics are stored in a [`SumTree`], which allows this struct
 /// to be cheaply copied, and allows for efficient retrieval of the
 /// diagnostics that intersect a given range of the buffer.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct DiagnosticSet {
     diagnostics: SumTree<DiagnosticEntry<Anchor>>,
 }
@@ -26,7 +24,7 @@ pub struct DiagnosticSet {
 /// the diagnostics are stored internally as [`Anchor`]s, but can be
 /// resolved to different coordinates types like [`usize`] byte offsets or
 /// [`Point`](gpui::Point)s.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DiagnosticEntry<T> {
     /// The range of the buffer where the diagnostic applies.
     pub range: Range<T>,
@@ -36,26 +34,12 @@ pub struct DiagnosticEntry<T> {
 
 /// A group of related diagnostics, ordered by their start position
 /// in the buffer.
-#[derive(Debug, Serialize)]
+#[derive(Debug)]
 pub struct DiagnosticGroup<T> {
     /// The diagnostics.
     pub entries: Vec<DiagnosticEntry<T>>,
     /// The index into `entries` where the primary diagnostic is stored.
     pub primary_ix: usize,
-}
-
-impl DiagnosticGroup<Anchor> {
-    /// Converts the entries in this [`DiagnosticGroup`] to a different buffer coordinate type.
-    pub fn resolve<O: FromAnchor>(&self, buffer: &text::BufferSnapshot) -> DiagnosticGroup<O> {
-        DiagnosticGroup {
-            entries: self
-                .entries
-                .iter()
-                .map(|entry| entry.resolve(buffer))
-                .collect(),
-            primary_ix: self.primary_ix,
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -68,20 +52,26 @@ pub struct Summary {
 }
 
 impl DiagnosticEntry<PointUtf16> {
-    /// Returns a raw LSP diagnostic used to provide diagnostic context to LSP
+    /// Returns a raw LSP diagnostic ssed to provide diagnostic context to LSP
     /// codeAction request
-    pub fn to_lsp_diagnostic_stub(&self) -> Result<lsp::Diagnostic> {
-        let range = range_to_lsp(self.range.clone())?;
+    pub fn to_lsp_diagnostic_stub(&self) -> lsp::Diagnostic {
+        let code = self
+            .diagnostic
+            .code
+            .clone()
+            .map(lsp::NumberOrString::String);
 
-        Ok(lsp::Diagnostic {
+        let range = range_to_lsp(self.range.clone());
+
+        lsp::Diagnostic {
+            code,
             range,
-            code: self.diagnostic.code.clone(),
             severity: Some(self.diagnostic.severity),
             source: self.diagnostic.source.clone(),
             message: self.diagnostic.message.clone(),
             data: self.diagnostic.data.clone(),
             ..Default::default()
-        })
+        }
     }
 }
 
@@ -145,7 +135,7 @@ impl DiagnosticSet {
     {
         let end_bias = if inclusive { Bias::Right } else { Bias::Left };
         let range = buffer.anchor_before(range.start)..buffer.anchor_at(range.end, end_bias);
-        let mut cursor = self.diagnostics.filter::<_, ()>(buffer, {
+        let mut cursor = self.diagnostics.filter::<_, ()>({
             move |summary: &Summary| {
                 let start_cmp = range.start.cmp(&summary.max_end, buffer);
                 let end_cmp = range.end.cmp(&summary.min_start, buffer);
@@ -234,7 +224,7 @@ impl DiagnosticSet {
 impl sum_tree::Item for DiagnosticEntry<Anchor> {
     type Summary = Summary;
 
-    fn summary(&self, _cx: &text::BufferSnapshot) -> Self::Summary {
+    fn summary(&self) -> Self::Summary {
         Summary {
             start: self.range.start,
             end: self.range.end,
@@ -270,10 +260,6 @@ impl Default for Summary {
 
 impl sum_tree::Summary for Summary {
     type Context = text::BufferSnapshot;
-
-    fn zero(_cx: &Self::Context) -> Self {
-        Default::default()
-    }
 
     fn add_summary(&mut self, other: &Self, buffer: &Self::Context) {
         if other.min_start.cmp(&self.min_start, buffer).is_lt() {

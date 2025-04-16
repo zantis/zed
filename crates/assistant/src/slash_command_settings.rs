@@ -1,5 +1,5 @@
 use anyhow::Result;
-use gpui::App;
+use gpui::AppContext;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use settings::{Settings, SettingsSources};
@@ -10,9 +10,9 @@ pub struct SlashCommandSettings {
     /// Settings for the `/docs` slash command.
     #[serde(default)]
     pub docs: DocsCommandSettings,
-    /// Settings for the `/cargo-workspace` slash command.
+    /// Settings for the `/project` slash command.
     #[serde(default)]
-    pub cargo_workspace: CargoWorkspaceCommandSettings,
+    pub project: ProjectCommandSettings,
 }
 
 /// Settings for the `/docs` slash command.
@@ -23,10 +23,10 @@ pub struct DocsCommandSettings {
     pub enabled: bool,
 }
 
-/// Settings for the `/cargo-workspace` slash command.
+/// Settings for the `/project` slash command.
 #[derive(Deserialize, Serialize, Debug, Default, Clone, JsonSchema)]
-pub struct CargoWorkspaceCommandSettings {
-    /// Whether `/cargo-workspace` is enabled.
+pub struct ProjectCommandSettings {
+    /// Whether `/project` is enabled.
     #[serde(default)]
     pub enabled: bool,
 }
@@ -36,12 +36,9 @@ impl Settings for SlashCommandSettings {
 
     type FileContent = Self;
 
-    fn load(sources: SettingsSources<Self::FileContent>, _cx: &mut App) -> Result<Self> {
+    fn load(sources: SettingsSources<Self::FileContent>, _cx: &mut AppContext) -> Result<Self> {
         SettingsSources::<Self::FileContent>::json_merge_with(
-            [sources.default]
-                .into_iter()
-                .chain(sources.user)
-                .chain(sources.server),
+            [sources.default].into_iter().chain(sources.user),
         )
     }
 }

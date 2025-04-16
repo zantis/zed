@@ -65,7 +65,6 @@ impl Database {
         github_login: &str,
         github_user_id: i32,
         github_email: Option<&str>,
-        github_name: Option<&str>,
         github_user_created_at: DateTimeUtc,
         initial_channel_id: Option<ChannelId>,
     ) -> Result<()> {
@@ -75,7 +74,6 @@ impl Database {
                     github_login,
                     github_user_id,
                     github_email,
-                    github_name,
                     github_user_created_at.naive_utc(),
                     initial_channel_id,
                     &tx,

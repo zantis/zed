@@ -1,20 +1,20 @@
 use crate::{
-    AppState, Error, Result,
-    db::{self, AccessTokenId, Database, UserId},
+    db::{self, dev_server, AccessTokenId, Database, DevServerId, UserId},
     rpc::Principal,
+    AppState, Error, Result,
 };
-use anyhow::{Context as _, anyhow};
+use anyhow::{anyhow, Context};
 use axum::{
     http::{self, Request, StatusCode},
     middleware::Next,
     response::IntoResponse,
 };
 use base64::prelude::*;
-use prometheus::{Histogram, exponential_buckets, register_histogram};
+use prometheus::{exponential_buckets, register_histogram, Histogram};
 pub use rpc::auth::random_token;
 use scrypt::{
-    Scrypt,
     password_hash::{PasswordHash, PasswordVerifier},
+    Scrypt,
 };
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
@@ -44,10 +44,19 @@ pub async fn validate_header<B>(mut req: Request<B>, next: Next<B>) -> impl Into
 
     let first = auth_header.next().unwrap_or("");
     if first == "dev-server-token" {
-        Err(Error::http(
-            StatusCode::UNAUTHORIZED,
-            "Dev servers were removed in Zed 0.157 please upgrade to SSH remoting".to_string(),
-        ))?;
+        let dev_server_token = auth_header.next().ok_or_else(|| {
+            Error::http(
+                StatusCode::BAD_REQUEST,
+                "missing dev-server-token token in authorization header".to_string(),
+            )
+        })?;
+        let dev_server = verify_dev_server_token(dev_server_token, &state.db)
+            .await
+            .map_err(|e| Error::http(StatusCode::UNAUTHORIZED, format!("{}", e)))?;
+
+        req.extensions_mut()
+            .insert(Principal::DevServer(dev_server));
+        return Ok::<_, Error>(next.run(req).await);
     }
 
     let user_id = UserId(first.parse().map_err(|_| {
@@ -156,7 +165,13 @@ pub fn encrypt_access_token(access_token: &str, public_key: String) -> Result<St
     use rpc::auth::EncryptionFormat;
 
     /// The encryption format to use for the access token.
-    const ENCRYPTION_FORMAT: EncryptionFormat = EncryptionFormat::V1;
+    ///
+    /// Currently we're using the original encryption format to avoid
+    /// breaking compatibility with older clients.
+    ///
+    /// Once enough clients are capable of decrypting the newer encryption
+    /// format we can start encrypting with `EncryptionFormat::V1`.
+    const ENCRYPTION_FORMAT: EncryptionFormat = EncryptionFormat::V0;
 
     let native_app_public_key =
         rpc::auth::PublicKey::try_from(public_key).context("failed to parse app public key")?;
@@ -225,6 +240,41 @@ pub async fn verify_access_token(
     })
 }
 
+pub fn generate_dev_server_token(id: usize, access_token: String) -> String {
+    format!("{}.{}", id, access_token)
+}
+
+pub async fn verify_dev_server_token(
+    dev_server_token: &str,
+    db: &Arc<Database>,
+) -> anyhow::Result<dev_server::Model> {
+    let (id, token) = split_dev_server_token(dev_server_token)?;
+    let token_hash = hash_access_token(token);
+    let server = db.get_dev_server(id).await?;
+
+    if server
+        .hashed_token
+        .as_bytes()
+        .ct_eq(token_hash.as_ref())
+        .into()
+    {
+        Ok(server)
+    } else {
+        Err(anyhow!("wrong token for dev server"))
+    }
+}
+
+// a dev_server_token has the format <id>.<base64>. This is to make them
+// relatively easy to copy/paste around.
+pub fn split_dev_server_token(dev_server_token: &str) -> anyhow::Result<(DevServerId, &str)> {
+    let mut parts = dev_server_token.splitn(2, '.');
+    let id = DevServerId(parts.next().unwrap_or_default().parse()?);
+    let token = parts
+        .next()
+        .ok_or_else(|| anyhow!("invalid dev server token format"))?;
+    Ok((id, token))
+}
+
 #[cfg(test)]
 mod test {
     use rand::thread_rng;
@@ -232,7 +282,7 @@ mod test {
     use sea_orm::EntityTrait;
 
     use super::*;
-    use crate::db::{NewUserParams, access_token};
+    use crate::db::{access_token, NewUserParams};
 
     #[gpui::test]
     async fn test_verify_access_token(cx: &mut gpui::TestAppContext) {
@@ -242,7 +292,6 @@ mod test {
         let user = db
             .create_user(
                 "example@example.com",
-                None,
                 false,
                 NewUserParams {
                     github_login: "example".into(),

@@ -17,7 +17,6 @@ async fn test_get_users(db: &Arc<Database>) {
         let user = db
             .create_user(
                 &format!("user{i}@example.com"),
-                None,
                 false,
                 NewUserParams {
                     github_login: format!("user{i}"),
@@ -80,7 +79,6 @@ test_both_dbs!(
 async fn test_get_or_create_user_by_github_account(db: &Arc<Database>) {
     db.create_user(
         "user1@example.com",
-        None,
         false,
         NewUserParams {
             github_login: "login1".into(),
@@ -92,7 +90,6 @@ async fn test_get_or_create_user_by_github_account(db: &Arc<Database>) {
     let user_id2 = db
         .create_user(
             "user2@example.com",
-            None,
             false,
             NewUserParams {
                 github_login: "login2".into(),
@@ -104,7 +101,7 @@ async fn test_get_or_create_user_by_github_account(db: &Arc<Database>) {
         .user_id;
 
     let user = db
-        .get_or_create_user_by_github_account("the-new-login2", 102, None, None, Utc::now(), None)
+        .get_or_create_user_by_github_account("the-new-login2", 102, None, Utc::now(), None)
         .await
         .unwrap();
     assert_eq!(user.id, user_id2);
@@ -116,7 +113,6 @@ async fn test_get_or_create_user_by_github_account(db: &Arc<Database>) {
             "login3",
             103,
             Some("user3@example.com"),
-            None,
             Utc::now(),
             None,
         )
@@ -137,7 +133,6 @@ async fn test_create_access_tokens(db: &Arc<Database>) {
     let user_1 = db
         .create_user(
             "u1@example.com",
-            None,
             false,
             NewUserParams {
                 github_login: "u1".into(),
@@ -150,7 +145,6 @@ async fn test_create_access_tokens(db: &Arc<Database>) {
     let user_2 = db
         .create_user(
             "u2@example.com",
-            None,
             false,
             NewUserParams {
                 github_login: "u2".into(),
@@ -302,7 +296,6 @@ async fn test_add_contacts(db: &Arc<Database>) {
         user_ids.push(
             db.create_user(
                 &format!("user{i}@example.com"),
-                None,
                 false,
                 NewUserParams {
                     github_login: format!("user{i}"),
@@ -464,7 +457,6 @@ async fn test_metrics_id(db: &Arc<Database>) {
     } = db
         .create_user(
             "person1@example.com",
-            None,
             false,
             NewUserParams {
                 github_login: "person1".into(),
@@ -480,7 +472,6 @@ async fn test_metrics_id(db: &Arc<Database>) {
     } = db
         .create_user(
             "person2@example.com",
-            None,
             false,
             NewUserParams {
                 github_login: "person2".into(),
@@ -509,7 +500,6 @@ async fn test_project_count(db: &Arc<Database>) {
     let user1 = db
         .create_user(
             "admin@example.com",
-            None,
             true,
             NewUserParams {
                 github_login: "admin".into(),
@@ -521,7 +511,6 @@ async fn test_project_count(db: &Arc<Database>) {
     let user2 = db
         .create_user(
             "user@example.com",
-            None,
             false,
             NewUserParams {
                 github_login: "user".into(),
@@ -551,18 +540,18 @@ async fn test_project_count(db: &Arc<Database>) {
         .unwrap();
     assert_eq!(db.project_count_excluding_admins().await.unwrap(), 0);
 
-    db.share_project(room_id, ConnectionId { owner_id, id: 1 }, &[], false)
+    db.share_project(room_id, ConnectionId { owner_id, id: 1 }, &[], None)
         .await
         .unwrap();
     assert_eq!(db.project_count_excluding_admins().await.unwrap(), 1);
 
-    db.share_project(room_id, ConnectionId { owner_id, id: 1 }, &[], false)
+    db.share_project(room_id, ConnectionId { owner_id, id: 1 }, &[], None)
         .await
         .unwrap();
     assert_eq!(db.project_count_excluding_admins().await.unwrap(), 2);
 
     // Projects shared by admins aren't counted.
-    db.share_project(room_id, ConnectionId { owner_id, id: 0 }, &[], false)
+    db.share_project(room_id, ConnectionId { owner_id, id: 0 }, &[], None)
         .await
         .unwrap();
     assert_eq!(db.project_count_excluding_admins().await.unwrap(), 2);
@@ -599,7 +588,6 @@ async fn test_fuzzy_search_users(cx: &mut gpui::TestAppContext) {
     {
         db.create_user(
             &format!("{github_login}@example.com"),
-            None,
             false,
             NewUserParams {
                 github_login: github_login.into(),

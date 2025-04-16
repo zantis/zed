@@ -1,13 +1,7 @@
 use crate::{AssetSource, DevicePixels, IsZero, Result, SharedString, Size};
 use anyhow::anyhow;
 use resvg::tiny_skia::Pixmap;
-use std::{
-    hash::Hash,
-    sync::{Arc, LazyLock},
-};
-
-/// When rendering SVGs, we render them at twice the size to get a higher-quality result.
-pub const SMOOTH_SVG_SCALE_FACTOR: f32 = 2.;
+use std::{hash::Hash, sync::Arc};
 
 #[derive(Clone, PartialEq, Hash, Eq)]
 pub(crate) struct RenderSvgParams {
@@ -16,9 +10,8 @@ pub(crate) struct RenderSvgParams {
 }
 
 #[derive(Clone)]
-pub struct SvgRenderer {
+pub(crate) struct SvgRenderer {
     asset_source: Arc<dyn AssetSource>,
-    usvg_options: Arc<usvg::Options<'static>>,
 }
 
 pub enum SvgSize {
@@ -28,34 +21,10 @@ pub enum SvgSize {
 
 impl SvgRenderer {
     pub fn new(asset_source: Arc<dyn AssetSource>) -> Self {
-        let font_db = LazyLock::new(|| {
-            let mut db = usvg::fontdb::Database::new();
-            db.load_system_fonts();
-            Arc::new(db)
-        });
-        let default_font_resolver = usvg::FontResolver::default_font_selector();
-        let font_resolver = Box::new(
-            move |font: &usvg::Font, db: &mut Arc<usvg::fontdb::Database>| {
-                if db.is_empty() {
-                    *db = font_db.clone();
-                }
-                default_font_resolver(font, db)
-            },
-        );
-        let options = usvg::Options {
-            font_resolver: usvg::FontResolver {
-                select_font: font_resolver,
-                select_fallback: usvg::FontResolver::default_fallback_selector(),
-            },
-            ..Default::default()
-        };
-        Self {
-            asset_source,
-            usvg_options: Arc::new(options),
-        }
+        Self { asset_source }
     }
 
-    pub(crate) fn render(&self, params: &RenderSvgParams) -> Result<Option<Vec<u8>>> {
+    pub fn render(&self, params: &RenderSvgParams) -> Result<Option<Vec<u8>>> {
         if params.size.is_zero() {
             return Err(anyhow!("can't render at a zero size"));
         }
@@ -77,7 +46,7 @@ impl SvgRenderer {
     }
 
     pub fn render_pixmap(&self, bytes: &[u8], size: SvgSize) -> Result<Pixmap, usvg::Error> {
-        let tree = usvg::Tree::from_data(bytes, &self.usvg_options)?;
+        let tree = usvg::Tree::from_data(bytes, &usvg::Options::default())?;
 
         let size = match size {
             SvgSize::Size(size) => size,
@@ -91,8 +60,10 @@ impl SvgRenderer {
         let mut pixmap = resvg::tiny_skia::Pixmap::new(size.width.into(), size.height.into())
             .ok_or(usvg::Error::InvalidSize)?;
 
-        let scale = size.width.0 as f32 / tree.size().width();
-        let transform = resvg::tiny_skia::Transform::from_scale(scale, scale);
+        let transform = tree.view_box().to_transform(
+            resvg::tiny_skia::Size::from_wh(size.width.0 as f32, size.height.0 as f32)
+                .ok_or(usvg::Error::InvalidSize)?,
+        );
 
         resvg::render(&tree, transform, &mut pixmap.as_mut());
 

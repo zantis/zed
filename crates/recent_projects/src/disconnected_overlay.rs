@@ -1,172 +1,116 @@
-use std::path::PathBuf;
-
-use gpui::{ClickEvent, DismissEvent, EventEmitter, FocusHandle, Focusable, Render, WeakEntity};
-use project::project_settings::ProjectSettings;
-use remote::SshConnectionOptions;
-use settings::Settings;
+use dev_server_projects::DevServer;
+use gpui::{ClickEvent, DismissEvent, EventEmitter, FocusHandle, FocusableView, Render, WeakView};
 use ui::{
-    Button, ButtonCommon, ButtonStyle, Clickable, Context, ElevationIndex, FluentBuilder, Headline,
-    HeadlineSize, IconName, IconPosition, InteractiveElement, IntoElement, Label, Modal,
-    ModalFooter, ModalHeader, ParentElement, Section, Styled, StyledExt, Window, div, h_flex, rems,
+    div, h_flex, rems, Button, ButtonCommon, ButtonStyle, Clickable, ElevationIndex, FluentBuilder,
+    Headline, HeadlineSize, IconName, IconPosition, InteractiveElement, IntoElement, Label, Modal,
+    ModalFooter, ModalHeader, ParentElement, Section, Styled, StyledExt, ViewContext,
 };
-use workspace::{ModalView, OpenOptions, Workspace, notifications::DetachAndPromptErr};
+use workspace::{notifications::DetachAndPromptErr, ModalView, Workspace};
 
-use crate::open_ssh_project;
-
-enum Host {
-    RemoteProject,
-    SshRemoteProject(SshConnectionOptions),
-}
+use crate::{
+    dev_servers::reconnect_to_dev_server_project, open_dev_server_project, DevServerProjects,
+};
 
 pub struct DisconnectedOverlay {
-    workspace: WeakEntity<Workspace>,
-    host: Host,
+    workspace: WeakView<Workspace>,
+    dev_server: Option<DevServer>,
     focus_handle: FocusHandle,
-    finished: bool,
 }
 
 impl EventEmitter<DismissEvent> for DisconnectedOverlay {}
-impl Focusable for DisconnectedOverlay {
-    fn focus_handle(&self, _cx: &gpui::App) -> gpui::FocusHandle {
+impl FocusableView for DisconnectedOverlay {
+    fn focus_handle(&self, _cx: &gpui::AppContext) -> gpui::FocusHandle {
         self.focus_handle.clone()
     }
 }
 impl ModalView for DisconnectedOverlay {
-    fn on_before_dismiss(
-        &mut self,
-        _window: &mut Window,
-        _: &mut Context<Self>,
-    ) -> workspace::DismissDecision {
-        return workspace::DismissDecision::Dismiss(self.finished);
-    }
     fn fade_out_background(&self) -> bool {
         true
     }
 }
 
 impl DisconnectedOverlay {
-    pub fn register(
-        workspace: &mut Workspace,
-        window: Option<&mut Window>,
-        cx: &mut Context<Workspace>,
-    ) {
-        let Some(window) = window else {
-            return;
-        };
-        cx.subscribe_in(
-            workspace.project(),
-            window,
-            |workspace, project, event, window, cx| {
-                if !matches!(
-                    event,
-                    project::Event::DisconnectedFromHost
-                        | project::Event::DisconnectedFromSshRemote
-                ) {
-                    return;
-                }
-                let handle = cx.entity().downgrade();
-
-                let ssh_connection_options = project.read(cx).ssh_connection_options(cx);
-                let host = if let Some(ssh_connection_options) = ssh_connection_options {
-                    Host::SshRemoteProject(ssh_connection_options)
-                } else {
-                    Host::RemoteProject
-                };
-
-                workspace.toggle_modal(window, cx, |_, cx| DisconnectedOverlay {
-                    finished: false,
-                    workspace: handle,
-                    host,
-                    focus_handle: cx.focus_handle(),
-                });
-            },
-        )
+    pub fn register(workspace: &mut Workspace, cx: &mut ViewContext<Workspace>) {
+        cx.subscribe(workspace.project(), |workspace, project, event, cx| {
+            if !matches!(event, project::Event::DisconnectedFromHost) {
+                return;
+            }
+            let handle = cx.view().downgrade();
+            let dev_server = project
+                .read(cx)
+                .dev_server_project_id()
+                .and_then(|id| {
+                    dev_server_projects::Store::global(cx)
+                        .read(cx)
+                        .dev_server_for_project(id)
+                })
+                .cloned();
+            workspace.toggle_modal(cx, |cx| DisconnectedOverlay {
+                workspace: handle,
+                dev_server,
+                focus_handle: cx.focus_handle(),
+            });
+        })
         .detach();
     }
 
-    fn handle_reconnect(&mut self, _: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
-        self.finished = true;
+    fn handle_reconnect(&mut self, _: &ClickEvent, cx: &mut ViewContext<Self>) {
         cx.emit(DismissEvent);
-
-        match &self.host {
-            Host::SshRemoteProject(ssh_connection_options) => {
-                self.reconnect_to_ssh_remote(ssh_connection_options.clone(), window, cx);
-            }
-            _ => {}
-        }
-    }
-
-    fn reconnect_to_ssh_remote(
-        &self,
-        connection_options: SshConnectionOptions,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
         let Some(workspace) = self.workspace.upgrade() else {
             return;
         };
-
-        let Some(ssh_project) = workspace.read(cx).serialized_ssh_project() else {
+        let Some(dev_server) = self.dev_server.clone() else {
+            return;
+        };
+        let Some(dev_server_project_id) = workspace
+            .read(cx)
+            .project()
+            .read(cx)
+            .dev_server_project_id()
+        else {
             return;
         };
 
-        let Some(window_handle) = window.window_handle().downcast::<Workspace>() else {
-            return;
-        };
+        if let Some(project_id) = dev_server_projects::Store::global(cx)
+            .read(cx)
+            .dev_server_project(dev_server_project_id)
+            .and_then(|project| project.project_id)
+        {
+            return workspace.update(cx, move |_, cx| {
+                open_dev_server_project(true, dev_server_project_id, project_id, cx)
+                    .detach_and_prompt_err("Failed to reconnect", cx, |_, _| None)
+            });
+        }
 
-        let app_state = workspace.read(cx).app_state().clone();
+        if dev_server.ssh_connection_string.is_some() {
+            let task = workspace.update(cx, |_, cx| {
+                reconnect_to_dev_server_project(
+                    cx.view().clone(),
+                    dev_server,
+                    dev_server_project_id,
+                    true,
+                    cx,
+                )
+            });
 
-        let paths = ssh_project.paths.iter().map(PathBuf::from).collect();
-
-        cx.spawn_in(window, async move |_, cx| {
-            open_ssh_project(
-                connection_options,
-                paths,
-                app_state,
-                OpenOptions {
-                    replace_window: Some(window_handle),
-                    ..Default::default()
-                },
-                cx,
-            )
-            .await?;
-            Ok(())
-        })
-        .detach_and_prompt_err("Failed to reconnect", window, cx, |_, _, _| None);
+            task.detach_and_prompt_err("Failed to reconnect", cx, |_, _| None);
+        } else {
+            return workspace.update(cx, |workspace, cx| {
+                let handle = cx.view().downgrade();
+                workspace.toggle_modal(cx, |cx| DevServerProjects::new(cx, handle))
+            });
+        }
     }
 
-    fn cancel(&mut self, _: &menu::Cancel, _: &mut Window, cx: &mut Context<Self>) {
-        self.finished = true;
+    fn cancel(&mut self, _: &menu::Cancel, cx: &mut ViewContext<Self>) {
         cx.emit(DismissEvent)
     }
 }
 
 impl Render for DisconnectedOverlay {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let can_reconnect = matches!(self.host, Host::SshRemoteProject(_));
-
-        let message = match &self.host {
-            Host::RemoteProject => {
-                "Your connection to the remote project has been lost.".to_string()
-            }
-            Host::SshRemoteProject(options) => {
-                let autosave = if ProjectSettings::get_global(cx)
-                    .session
-                    .restore_unsaved_buffers
-                {
-                    "\nUnsaved changes are stored locally."
-                } else {
-                    ""
-                };
-                format!(
-                    "Your connection to {} has been lost.{}",
-                    options.host, autosave
-                )
-            }
-        };
-
+    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         div()
-            .track_focus(&self.focus_handle(cx))
+            .track_focus(&self.focus_handle)
             .elevation_3(cx)
             .on_action(cx.listener(Self::cancel))
             .occlude()
@@ -179,7 +123,9 @@ impl Render for DisconnectedOverlay {
                             .show_dismiss_button(true)
                             .child(Headline::new("Disconnected").size(HeadlineSize::Small)),
                     )
-                    .section(Section::new().child(Label::new(message)))
+                    .section(Section::new().child(Label::new(
+                        "Your connection to the remote project has been lost.",
+                    )))
                     .footer(
                         ModalFooter::new().end_slot(
                             h_flex()
@@ -188,11 +134,11 @@ impl Render for DisconnectedOverlay {
                                     Button::new("close-window", "Close Window")
                                         .style(ButtonStyle::Filled)
                                         .layer(ElevationIndex::ModalSurface)
-                                        .on_click(cx.listener(move |_, _, window, _| {
-                                            window.remove_window();
+                                        .on_click(cx.listener(move |_, _, cx| {
+                                            cx.remove_window();
                                         })),
                                 )
-                                .when(can_reconnect, |el| {
+                                .when_some(self.dev_server.clone(), |el, _| {
                                     el.child(
                                         Button::new("reconnect", "Reconnect")
                                             .style(ButtonStyle::Filled)

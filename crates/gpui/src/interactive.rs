@@ -1,6 +1,6 @@
 use crate::{
-    Context, Empty, IntoElement, Keystroke, Modifiers, Pixels, Point, Render, Window, point,
-    seal::Sealed,
+    point, seal::Sealed, Empty, IntoElement, Keystroke, Modifiers, Pixels, Point, Render,
+    ViewContext,
 };
 use smallvec::SmallVec;
 use std::{any::Any, fmt::Debug, ops::Deref, path::PathBuf};
@@ -145,20 +145,6 @@ pub struct ClickEvent {
 
     /// The mouse event when the button was released.
     pub up: MouseUpEvent,
-}
-
-impl ClickEvent {
-    /// Returns the modifiers that were held down during both the
-    /// mouse down and mouse up events
-    pub fn modifiers(&self) -> Modifiers {
-        Modifiers {
-            control: self.up.modifiers.control && self.down.modifiers.control,
-            alt: self.up.modifiers.alt && self.down.modifiers.alt,
-            shift: self.up.modifiers.shift && self.down.modifiers.shift,
-            platform: self.up.modifiers.platform && self.down.modifiers.platform,
-            function: self.up.modifiers.function && self.down.modifiers.function,
-        }
-    }
 }
 
 /// An enum representing the mouse button that was pressed.
@@ -311,13 +297,13 @@ impl ScrollDelta {
     pub fn coalesce(self, other: ScrollDelta) -> ScrollDelta {
         match (self, other) {
             (ScrollDelta::Pixels(a), ScrollDelta::Pixels(b)) => {
-                let x = if a.x.signum() == b.x.signum() {
+                let x = if a.x.signum() * b.x.signum() >= 0. {
                     a.x + b.x
                 } else {
                     b.x
                 };
 
-                let y = if a.y.signum() == b.y.signum() {
+                let y = if a.y.signum() * b.y.signum() >= 0. {
                     a.y + b.y
                 } else {
                     b.y
@@ -327,13 +313,13 @@ impl ScrollDelta {
             }
 
             (ScrollDelta::Lines(a), ScrollDelta::Lines(b)) => {
-                let x = if a.x.signum() == b.x.signum() {
+                let x = if a.x.signum() * b.x.signum() >= 0. {
                     a.x + b.x
                 } else {
                     b.x
                 };
 
-                let y = if a.y.signum() == b.y.signum() {
+                let y = if a.y.signum() * b.y.signum() >= 0. {
                     a.y + b.y
                 } else {
                     b.y
@@ -386,7 +372,7 @@ impl ExternalPaths {
 }
 
 impl Render for ExternalPaths {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut ViewContext<Self>) -> impl IntoElement {
         // the platform will render icons for the dragged files
         Empty
     }
@@ -481,8 +467,8 @@ impl PlatformInput {
 mod test {
 
     use crate::{
-        self as gpui, AppContext as _, Context, FocusHandle, InteractiveElement, IntoElement,
-        KeyBinding, Keystroke, ParentElement, Render, TestAppContext, Window, div,
+        self as gpui, div, FocusHandle, InteractiveElement, IntoElement, KeyBinding, Keystroke,
+        ParentElement, Render, TestAppContext, VisualContext,
     };
 
     struct TestView {
@@ -494,17 +480,19 @@ mod test {
     actions!(test, [TestAction]);
 
     impl Render for TestView {
-        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        fn render(&mut self, cx: &mut gpui::ViewContext<Self>) -> impl IntoElement {
             div().id("testview").child(
                 div()
                     .key_context("parent")
-                    .on_key_down(cx.listener(|this, _, _, cx| {
+                    .on_key_down(cx.listener(|this, _, cx| {
                         cx.stop_propagation();
                         this.saw_key_down = true
                     }))
-                    .on_action(cx.listener(|this: &mut TestView, _: &TestAction, _, _| {
-                        this.saw_action = true
-                    }))
+                    .on_action(
+                        cx.listener(|this: &mut TestView, _: &TestAction, _| {
+                            this.saw_action = true
+                        }),
+                    )
                     .child(
                         div()
                             .key_context("nested")
@@ -518,8 +506,8 @@ mod test {
     #[gpui::test]
     fn test_on_events(cx: &mut TestAppContext) {
         let window = cx.update(|cx| {
-            cx.open_window(Default::default(), |_, cx| {
-                cx.new(|cx| TestView {
+            cx.open_window(Default::default(), |cx| {
+                cx.new_view(|cx| TestView {
                     saw_key_down: false,
                     saw_action: false,
                     focus_handle: cx.focus_handle(),
@@ -533,16 +521,14 @@ mod test {
         });
 
         window
-            .update(cx, |test_view, window, _cx| {
-                window.focus(&test_view.focus_handle)
-            })
+            .update(cx, |test_view, cx| cx.focus(&test_view.focus_handle))
             .unwrap();
 
         cx.dispatch_keystroke(*window, Keystroke::parse("a").unwrap());
         cx.dispatch_keystroke(*window, Keystroke::parse("ctrl-g").unwrap());
 
         window
-            .update(cx, |test_view, _, _| {
+            .update(cx, |test_view, _| {
                 assert!(test_view.saw_key_down || test_view.saw_action);
                 assert!(test_view.saw_key_down);
                 assert!(test_view.saw_action);

@@ -1,18 +1,16 @@
-use std::{ops::Range, time::Duration};
+use std::time::Duration;
 
 use crate::{
-    Vim, VimSettings,
-    motion::{Motion, MotionKind},
+    motion::Motion,
     object::Object,
     state::{Mode, Register},
+    Vim,
 };
 use collections::HashMap;
 use editor::{ClipboardSelection, Editor};
-use gpui::Context;
-use gpui::Window;
+use gpui::ViewContext;
 use language::Point;
 use multi_buffer::MultiBufferRow;
-use settings::Settings;
 
 struct HighlightOnYank;
 
@@ -21,37 +19,22 @@ impl Vim {
         &mut self,
         motion: Motion,
         times: Option<usize>,
-        forced_motion: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &mut ViewContext<Self>,
     ) {
-        self.update_editor(window, cx, |vim, editor, window, cx| {
-            let text_layout_details = editor.text_layout_details(window);
-            editor.transact(window, cx, |editor, window, cx| {
+        self.update_editor(cx, |vim, editor, cx| {
+            let text_layout_details = editor.text_layout_details(cx);
+            editor.transact(cx, |editor, cx| {
                 editor.set_clip_at_line_ends(false, cx);
                 let mut original_positions: HashMap<_, _> = Default::default();
-                let mut kind = None;
-                editor.change_selections(None, window, cx, |s| {
+                editor.change_selections(None, cx, |s| {
                     s.move_with(|map, selection| {
                         let original_position = (selection.head(), selection.goal);
-                        kind = motion.expand_selection(
-                            map,
-                            selection,
-                            times,
-                            &text_layout_details,
-                            forced_motion,
-                        );
-                        if kind == Some(MotionKind::Exclusive) {
-                            original_positions
-                                .insert(selection.id, (selection.start, selection.goal));
-                        } else {
-                            original_positions.insert(selection.id, original_position);
-                        }
-                    })
+                        original_positions.insert(selection.id, original_position);
+                        motion.expand_selection(map, selection, times, true, &text_layout_details);
+                    });
                 });
-                let Some(kind) = kind else { return };
-                vim.yank_selections_content(editor, kind, window, cx);
-                editor.change_selections(None, window, cx, |s| {
+                vim.yank_selections_content(editor, motion.linewise(), cx);
+                editor.change_selections(None, cx, |s| {
                     s.move_with(|_, selection| {
                         let (head, goal) = original_positions.remove(&selection.id).unwrap();
                         selection.collapse_to(head, goal);
@@ -59,122 +42,81 @@ impl Vim {
                 });
             });
         });
-        self.exit_temporary_normal(window, cx);
     }
 
-    pub fn yank_object(
-        &mut self,
-        object: Object,
-        around: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.update_editor(window, cx, |vim, editor, window, cx| {
-            editor.transact(window, cx, |editor, window, cx| {
+    pub fn yank_object(&mut self, object: Object, around: bool, cx: &mut ViewContext<Self>) {
+        self.update_editor(cx, |vim, editor, cx| {
+            editor.transact(cx, |editor, cx| {
                 editor.set_clip_at_line_ends(false, cx);
-                let mut start_positions: HashMap<_, _> = Default::default();
-                editor.change_selections(None, window, cx, |s| {
+                let mut original_positions: HashMap<_, _> = Default::default();
+                editor.change_selections(None, cx, |s| {
                     s.move_with(|map, selection| {
+                        let original_position = (selection.head(), selection.goal);
                         object.expand_selection(map, selection, around);
-                        let start_position = (selection.start, selection.goal);
-                        start_positions.insert(selection.id, start_position);
+                        original_positions.insert(selection.id, original_position);
                     });
                 });
-                vim.yank_selections_content(editor, MotionKind::Exclusive, window, cx);
-                editor.change_selections(None, window, cx, |s| {
+                vim.yank_selections_content(editor, false, cx);
+                editor.change_selections(None, cx, |s| {
                     s.move_with(|_, selection| {
-                        let (head, goal) = start_positions.remove(&selection.id).unwrap();
+                        let (head, goal) = original_positions.remove(&selection.id).unwrap();
                         selection.collapse_to(head, goal);
                     });
                 });
             });
         });
-        self.exit_temporary_normal(window, cx);
     }
 
     pub fn yank_selections_content(
         &mut self,
         editor: &mut Editor,
-        kind: MotionKind,
-        window: &mut Window,
-        cx: &mut Context<Editor>,
+        linewise: bool,
+        cx: &mut ViewContext<Editor>,
     ) {
-        self.copy_ranges(
-            editor,
-            kind,
-            true,
-            editor
-                .selections
-                .all_adjusted(cx)
-                .iter()
-                .map(|s| s.range())
-                .collect(),
-            window,
-            cx,
-        )
+        self.copy_selections_content_internal(editor, linewise, true, cx);
     }
 
     pub fn copy_selections_content(
         &mut self,
         editor: &mut Editor,
-        kind: MotionKind,
-        window: &mut Window,
-        cx: &mut Context<Editor>,
+        linewise: bool,
+        cx: &mut ViewContext<Editor>,
     ) {
-        self.copy_ranges(
-            editor,
-            kind,
-            false,
-            editor
-                .selections
-                .all_adjusted(cx)
-                .iter()
-                .map(|s| s.range())
-                .collect(),
-            window,
-            cx,
-        )
+        self.copy_selections_content_internal(editor, linewise, false, cx);
     }
 
-    pub(crate) fn copy_ranges(
+    fn copy_selections_content_internal(
         &mut self,
         editor: &mut Editor,
-        kind: MotionKind,
+        linewise: bool,
         is_yank: bool,
-        selections: Vec<Range<Point>>,
-        window: &mut Window,
-        cx: &mut Context<Editor>,
+        cx: &mut ViewContext<Editor>,
     ) {
+        let selections = editor.selections.all_adjusted(cx);
         let buffer = editor.buffer().read(cx).snapshot(cx);
-        self.set_mark(
+        let mut text = String::new();
+        let mut clipboard_selections = Vec::with_capacity(selections.len());
+        let mut ranges_to_highlight = Vec::new();
+
+        self.marks.insert(
             "[".to_string(),
             selections
                 .iter()
                 .map(|s| buffer.anchor_before(s.start))
                 .collect(),
-            editor.buffer(),
-            window,
-            cx,
         );
-        self.set_mark(
+        self.marks.insert(
             "]".to_string(),
             selections
                 .iter()
                 .map(|s| buffer.anchor_after(s.end))
                 .collect(),
-            editor.buffer(),
-            window,
-            cx,
         );
-
-        let mut text = String::new();
-        let mut clipboard_selections = Vec::with_capacity(selections.len());
-        let mut ranges_to_highlight = Vec::new();
 
         {
             let mut is_first = true;
             for selection in selections.iter() {
-                let start = selection.start;
+                let mut start = selection.start;
                 let end = selection.end;
                 if is_first {
                     is_first = false;
@@ -183,6 +125,20 @@ impl Vim {
                 }
                 let initial_len = text.len();
 
+                // if the file does not end with \n, and our line-mode selection ends on
+                // that line, we will have expanded the start of the selection to ensure it
+                // contains a newline (so that delete works as expected). We undo that change
+                // here.
+                let is_last_line = linewise
+                    && end.row == buffer.max_buffer_row().0
+                    && buffer.max_point().column > 0
+                    && start.row < buffer.max_buffer_row().0
+                    && start == Point::new(start.row, buffer.line_len(MultiBufferRow(start.row)));
+
+                if is_last_line {
+                    start = Point::new(start.row + 1, 0);
+                }
+
                 let start_anchor = buffer.anchor_after(start);
                 let end_anchor = buffer.anchor_before(end);
                 ranges_to_highlight.push(start_anchor..end_anchor);
@@ -190,12 +146,12 @@ impl Vim {
                 for chunk in buffer.text_for_range(start..end) {
                     text.push_str(chunk);
                 }
-                if kind.linewise() {
+                if is_last_line {
                     text.push('\n');
                 }
                 clipboard_selections.push(ClipboardSelection {
                     len: text.len() - initial_len,
-                    is_entire_line: kind.linewise(),
+                    is_entire_line: linewise,
                     first_line_indent: buffer.indent_size_for_line(MultiBufferRow(start.row)).len,
                 });
             }
@@ -210,13 +166,12 @@ impl Vim {
                 },
                 selected_register,
                 is_yank,
-                kind,
+                linewise,
                 cx,
             )
         });
 
-        let highlight_duration = VimSettings::get_global(cx).highlight_on_yank_duration;
-        if !is_yank || self.mode == Mode::Visual || highlight_duration == 0 {
+        if !is_yank || self.mode == Mode::Visual {
             return;
         }
 
@@ -225,11 +180,11 @@ impl Vim {
             |colors| colors.editor_document_highlight_read_background,
             cx,
         );
-        cx.spawn(async move |this, cx| {
+        cx.spawn(|this, mut cx| async move {
             cx.background_executor()
-                .timer(Duration::from_millis(highlight_duration))
+                .timer(Duration::from_millis(200))
                 .await;
-            this.update(cx, |editor, cx| {
+            this.update(&mut cx, |editor, cx| {
                 editor.clear_background_highlights::<HighlightOnYank>(cx)
             })
             .ok();

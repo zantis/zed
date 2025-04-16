@@ -13,9 +13,3 @@
 (_ "<" ">" @end) @indent
 (_ "{" "}" @end) @indent
 (_ "(" ")" @end) @indent
-
-(jsx_opening_element ">" @end) @indent
-
-(jsx_element
-  (jsx_opening_element) @start
-  (jsx_closing_element)? @end) @indent

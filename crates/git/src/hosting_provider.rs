@@ -4,50 +4,17 @@ use anyhow::Result;
 use async_trait::async_trait;
 use collections::BTreeMap;
 use derive_more::{Deref, DerefMut};
-use gpui::{App, Global, SharedString};
+use gpui::{AppContext, Global};
 use http_client::HttpClient;
 use parking_lot::RwLock;
 use url::Url;
+
+use crate::Oid;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PullRequest {
     pub number: u32,
     pub url: Url,
-}
-
-#[derive(Clone)]
-pub struct GitRemote {
-    pub host: Arc<dyn GitHostingProvider + Send + Sync + 'static>,
-    pub owner: String,
-    pub repo: String,
-}
-
-impl std::fmt::Debug for GitRemote {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("GitRemote")
-            .field("host", &self.host.name())
-            .field("owner", &self.owner)
-            .field("repo", &self.repo)
-            .finish()
-    }
-}
-
-impl GitRemote {
-    pub fn host_supports_avatars(&self) -> bool {
-        self.host.supports_avatars()
-    }
-
-    pub async fn avatar_url(
-        &self,
-        commit: SharedString,
-        client: Arc<dyn HttpClient>,
-    ) -> Option<Url> {
-        self.host
-            .commit_author_avatar_url(&self.owner, &self.repo, commit, client)
-            .await
-            .ok()
-            .flatten()
-    }
 }
 
 pub struct BuildCommitPermalinkParams<'a> {
@@ -102,7 +69,7 @@ pub trait GitHostingProvider {
     /// Returns a formatted range of line numbers to be placed in a permalink URL.
     fn format_line_numbers(&self, start_line: u32, end_line: u32) -> String;
 
-    fn parse_remote_url(&self, url: &str) -> Option<ParsedGitRemote>;
+    fn parse_remote_url<'a>(&self, url: &'a str) -> Option<ParsedGitRemote<'a>>;
 
     fn extract_pull_request(
         &self,
@@ -116,7 +83,7 @@ pub trait GitHostingProvider {
         &self,
         _repo_owner: &str,
         _repo: &str,
-        _commit: SharedString,
+        _commit: Oid,
         _http_client: Arc<dyn HttpClient>,
     ) -> Result<Option<Url>> {
         Ok(None)
@@ -140,27 +107,21 @@ pub struct GitHostingProviderRegistry {
 
 impl GitHostingProviderRegistry {
     /// Returns the global [`GitHostingProviderRegistry`].
-    pub fn global(cx: &App) -> Arc<Self> {
+    pub fn global(cx: &AppContext) -> Arc<Self> {
         cx.global::<GlobalGitHostingProviderRegistry>().0.clone()
-    }
-
-    /// Returns the global [`GitHostingProviderRegistry`], if one is set.
-    pub fn try_global(cx: &App) -> Option<Arc<Self>> {
-        cx.try_global::<GlobalGitHostingProviderRegistry>()
-            .map(|registry| registry.0.clone())
     }
 
     /// Returns the global [`GitHostingProviderRegistry`].
     ///
     /// Inserts a default [`GitHostingProviderRegistry`] if one does not yet exist.
-    pub fn default_global(cx: &mut App) -> Arc<Self> {
+    pub fn default_global(cx: &mut AppContext) -> Arc<Self> {
         cx.default_global::<GlobalGitHostingProviderRegistry>()
             .0
             .clone()
     }
 
     /// Sets the global [`GitHostingProviderRegistry`].
-    pub fn set_global(registry: Arc<GitHostingProviderRegistry>, cx: &mut App) {
+    pub fn set_global(registry: Arc<GitHostingProviderRegistry>, cx: &mut AppContext) {
         cx.set_global(GlobalGitHostingProviderRegistry(registry));
     }
 
@@ -192,10 +153,10 @@ impl GitHostingProviderRegistry {
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub struct ParsedGitRemote {
-    pub owner: Arc<str>,
-    pub repo: Arc<str>,
+#[derive(Debug)]
+pub struct ParsedGitRemote<'a> {
+    pub owner: &'a str,
+    pub repo: &'a str,
 }
 
 pub fn parse_git_remote_url(

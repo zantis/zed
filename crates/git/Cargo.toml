@@ -1,8 +1,8 @@
 [package]
 name = "git"
 version = "0.1.0"
-edition.workspace = true
-publish.workspace = true
+edition = "2021"
+publish = false
 license = "GPL-3.0-or-later"
 
 [lints]
@@ -11,13 +11,10 @@ workspace = true
 [lib]
 path = "src/git.rs"
 
-[features]
-test-support = []
-
 [dependencies]
 anyhow.workspace = true
-askpass.workspace = true
 async-trait.workspace = true
+clock.workspace = true
 collections.workspace = true
 derive_more.workspace = true
 git2.workspace = true
@@ -25,25 +22,23 @@ gpui.workspace = true
 http_client.workspace = true
 log.workspace = true
 parking_lot.workspace = true
-regex.workspace = true
 rope.workspace = true
-schemars.workspace = true
 serde.workspace = true
 smol.workspace = true
 sum_tree.workspace = true
 text.workspace = true
-thiserror.workspace = true
 time.workspace = true
 url.workspace = true
 util.workspace = true
-uuid.workspace = true
-futures.workspace = true
-workspace-hack.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows.workspace = true
+
 
 [dev-dependencies]
-pretty_assertions.workspace = true
-serde_json.workspace = true
-text = { workspace = true, features = ["test-support"] }
 unindent.workspace = true
-gpui = { workspace = true, features = ["test-support"] }
-tempfile.workspace = true
+serde_json.workspace = true
+pretty_assertions.workspace = true
+
+[features]
+test-support = []

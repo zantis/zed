@@ -1,11 +1,7 @@
-use std::fs;
 use std::path::PathBuf;
 
-use anyhow::Result;
-use gpui::{
-    App, Application, AssetSource, Bounds, Context, SharedString, Window, WindowBounds,
-    WindowOptions, div, prelude::*, px, rgb, size, svg,
-};
+use gpui::*;
+use std::fs;
 
 struct Assets {
     base: PathBuf,
@@ -37,7 +33,7 @@ impl AssetSource for Assets {
 struct SvgExample;
 
 impl Render for SvgExample {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _cx: &mut ViewContext<Self>) -> impl IntoElement {
         div()
             .flex()
             .flex_row()
@@ -68,20 +64,19 @@ impl Render for SvgExample {
 }
 
 fn main() {
-    Application::new()
+    App::new()
         .with_assets(Assets {
-            base: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples"),
+            base: PathBuf::from("crates/gpui/examples"),
         })
-        .run(|cx: &mut App| {
+        .run(|cx: &mut AppContext| {
             let bounds = Bounds::centered(None, size(px(300.0), px(300.0)), cx);
             cx.open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     ..Default::default()
                 },
-                |_, cx| cx.new(|_| SvgExample),
+                |cx| cx.new_view(|_cx| SvgExample),
             )
             .unwrap();
-            cx.activate(true);
         });
 }

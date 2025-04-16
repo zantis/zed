@@ -5,10 +5,8 @@
     (lexical_declaration)
     (variable_declaration)
     (assignment_expression)
-    ; below handled by  `(_ "{" "}" @end) @indent`
-    ; (if_statement)
-    ; (for_statement)
-    ; (while_statement)
+    (if_statement)
+    (for_statement)
 ] @indent
 
 (_ "[" "]" @end) @indent

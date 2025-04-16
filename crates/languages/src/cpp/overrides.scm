@@ -1,2 +1,2 @@
-(comment) @comment.inclusive
+(comment) @comment
 (string_literal) @string

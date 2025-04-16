@@ -1,5 +1,5 @@
 kbd.keybinding {
-  background-color: var(--keybinding-bg);
+  background-color: #f0f0f0;
   padding: 2px 4px;
   border-radius: 3px;
   font-family: monospace;

@@ -1,15 +1,15 @@
 [package]
 name = "notifications"
 version = "0.1.0"
-edition.workspace = true
-publish.workspace = true
+edition = "2021"
+publish = false
 license = "GPL-3.0-or-later"
 
 [lints]
 workspace = true
 
 [lib]
-path = "src/notifications.rs"
+path = "src/notification_store.rs"
 doctest = false
 
 [features]
@@ -25,17 +25,12 @@ anyhow.workspace = true
 channel.workspace = true
 client.workspace = true
 collections.workspace = true
-component.workspace = true
 db.workspace = true
 gpui.workspace = true
-linkme.workspace = true
 rpc.workspace = true
 sum_tree.workspace = true
 time.workspace = true
-ui.workspace = true
 util.workspace = true
-workspace.workspace = true
-workspace-hack.workspace = true
 
 [dev-dependencies]
 client = { workspace = true, features = ["test-support"] }

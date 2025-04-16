@@ -1,13 +1,12 @@
 use gpui::{actions, impl_actions};
 use gpui_macros::register_action;
-use schemars::JsonSchema;
 use serde_derive::Deserialize;
 
 #[test]
 fn test_action_macros() {
     actions!(test, [TestAction]);
 
-    #[derive(PartialEq, Clone, Deserialize, JsonSchema)]
+    #[derive(PartialEq, Clone, Deserialize)]
     struct AnotherTestAction;
 
     impl_actions!(test, [AnotherTestAction]);
@@ -19,6 +18,10 @@ fn test_action_macros() {
 
     impl gpui::Action for RegisterableAction {
         fn boxed_clone(&self) -> Box<dyn gpui::Action> {
+            unimplemented!()
+        }
+
+        fn as_any(&self) -> &dyn std::any::Any {
             unimplemented!()
         }
 

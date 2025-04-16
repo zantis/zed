@@ -11,7 +11,7 @@ struct UndoMapEntry {
 impl sum_tree::Item for UndoMapEntry {
     type Summary = UndoMapKey;
 
-    fn summary(&self, _cx: &()) -> Self::Summary {
+    fn summary(&self) -> Self::Summary {
         self.key
     }
 }
@@ -32,10 +32,6 @@ struct UndoMapKey {
 
 impl sum_tree::Summary for UndoMapKey {
     type Context = ();
-
-    fn zero(_cx: &Self::Context) -> Self {
-        Default::default()
-    }
 
     fn add_summary(&mut self, summary: &Self, _: &Self::Context) {
         *self = cmp::max(*self, *summary);
@@ -66,8 +62,9 @@ impl UndoMap {
     pub fn is_undone(&self, edit_id: clock::Lamport) -> bool {
         self.undo_count(edit_id) % 2 == 1
     }
+
     pub fn was_undone(&self, edit_id: clock::Lamport, version: &clock::Global) -> bool {
-        let mut cursor = self.0.cursor::<UndoMapKey>(&());
+        let mut cursor = self.0.cursor::<UndoMapKey>();
         cursor.seek(
             &UndoMapKey {
                 edit_id,
@@ -92,7 +89,7 @@ impl UndoMap {
     }
 
     pub fn undo_count(&self, edit_id: clock::Lamport) -> u32 {
-        let mut cursor = self.0.cursor::<UndoMapKey>(&());
+        let mut cursor = self.0.cursor::<UndoMapKey>();
         cursor.seek(
             &UndoMapKey {
                 edit_id,

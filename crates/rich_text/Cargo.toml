@@ -1,8 +1,8 @@
 [package]
 name = "rich_text"
 version = "0.1.0"
-edition.workspace = true
-publish.workspace = true
+edition = "2021"
+publish = false
 license = "GPL-3.0-or-later"
 
 [lints]
@@ -27,4 +27,3 @@ pulldown-cmark.workspace = true
 theme.workspace = true
 ui.workspace = true
 util.workspace = true
-workspace-hack.workspace = true

@@ -1,8 +1,8 @@
 [package]
 name = "git_hosting_providers"
 version = "0.1.0"
-edition.workspace = true
-publish.workspace = true
+edition = "2021"
+publish = false
 license = "GPL-3.0-or-later"
 
 [lints]
@@ -18,16 +18,13 @@ futures.workspace = true
 git.workspace = true
 gpui.workspace = true
 http_client.workspace = true
+isahc.workspace = true
 regex.workspace = true
-schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-settings.workspace = true
 url.workspace = true
-util.workspace = true
-workspace-hack.workspace = true
 
 [dev-dependencies]
-indoc.workspace = true
+unindent.workspace = true
 serde_json.workspace = true
 pretty_assertions.workspace = true

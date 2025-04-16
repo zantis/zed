@@ -1,4 +1,4 @@
-use crate::{Database, Error, Result, db::UserId, executor::Executor};
+use crate::{db::UserId, executor::Executor, Database, Error, Result};
 use chrono::{DateTime, Duration, Utc};
 use dashmap::{DashMap, DashSet};
 use rpc::ErrorCodeExt;
@@ -189,7 +189,6 @@ mod tests {
         let user_1 = db
             .create_user(
                 "user-1@zed.dev",
-                None,
                 false,
                 NewUserParams {
                     github_login: "user-1".into(),
@@ -202,7 +201,6 @@ mod tests {
         let user_2 = db
             .create_user(
                 "user-2@zed.dev",
-                None,
                 false,
                 NewUserParams {
                     github_login: "user-2".into(),

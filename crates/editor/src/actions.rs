@@ -1,220 +1,170 @@
 //! This module contains all actions supported by [`Editor`].
 use super::*;
-use gpui::{action_as, action_with_deprecated_aliases, actions};
-use schemars::JsonSchema;
+use gpui::action_as;
 use util::serde::default_true;
 
-#[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
-#[serde(deny_unknown_fields)]
+#[derive(PartialEq, Clone, Deserialize, Default)]
 pub struct SelectNext {
     #[serde(default)]
     pub replace_newest: bool,
 }
 
-#[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
-#[serde(deny_unknown_fields)]
+#[derive(PartialEq, Clone, Deserialize, Default)]
 pub struct SelectPrevious {
     #[serde(default)]
     pub replace_newest: bool,
 }
 
-#[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
-#[serde(deny_unknown_fields)]
+#[derive(PartialEq, Clone, Deserialize, Default)]
 pub struct MoveToBeginningOfLine {
     #[serde(default = "default_true")]
-    pub stop_at_soft_wraps: bool,
-    #[serde(default)]
-    pub stop_at_indent: bool,
+    pub(super) stop_at_soft_wraps: bool,
 }
 
-#[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
-#[serde(deny_unknown_fields)]
+#[derive(PartialEq, Clone, Deserialize, Default)]
 pub struct SelectToBeginningOfLine {
     #[serde(default)]
     pub(super) stop_at_soft_wraps: bool,
-    #[serde(default)]
-    pub stop_at_indent: bool,
 }
 
-#[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct DeleteToBeginningOfLine {
-    #[serde(default)]
-    pub(super) stop_at_indent: bool,
-}
-
-#[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
-#[serde(deny_unknown_fields)]
+#[derive(PartialEq, Clone, Deserialize, Default)]
 pub struct MovePageUp {
     #[serde(default)]
     pub(super) center_cursor: bool,
 }
 
-#[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
-#[serde(deny_unknown_fields)]
+#[derive(PartialEq, Clone, Deserialize, Default)]
 pub struct MovePageDown {
     #[serde(default)]
     pub(super) center_cursor: bool,
 }
 
-#[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
-#[serde(deny_unknown_fields)]
+#[derive(PartialEq, Clone, Deserialize, Default)]
 pub struct MoveToEndOfLine {
     #[serde(default = "default_true")]
     pub stop_at_soft_wraps: bool,
 }
 
-#[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
-#[serde(deny_unknown_fields)]
+#[derive(PartialEq, Clone, Deserialize, Default)]
 pub struct SelectToEndOfLine {
     #[serde(default)]
     pub(super) stop_at_soft_wraps: bool,
 }
 
-#[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
-#[serde(deny_unknown_fields)]
+#[derive(PartialEq, Clone, Deserialize, Default)]
 pub struct ToggleCodeActions {
     // Display row from which the action was deployed.
     #[serde(default)]
-    #[serde(skip)]
     pub deployed_from_indicator: Option<DisplayRow>,
 }
 
-#[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
-#[serde(deny_unknown_fields)]
+#[derive(PartialEq, Clone, Deserialize, Default)]
 pub struct ConfirmCompletion {
     #[serde(default)]
     pub item_ix: Option<usize>,
 }
 
-#[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
-#[serde(deny_unknown_fields)]
+#[derive(PartialEq, Clone, Deserialize, Default)]
 pub struct ComposeCompletion {
     #[serde(default)]
     pub item_ix: Option<usize>,
 }
 
-#[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
-#[serde(deny_unknown_fields)]
+#[derive(PartialEq, Clone, Deserialize, Default)]
 pub struct ConfirmCodeAction {
     #[serde(default)]
     pub item_ix: Option<usize>,
-    #[serde(default)]
-    #[serde(skip)]
-    pub from_mouse_context_menu: bool,
 }
 
-#[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
-#[serde(deny_unknown_fields)]
+#[derive(PartialEq, Clone, Deserialize, Default)]
 pub struct ToggleComments {
     #[serde(default)]
     pub advance_downwards: bool,
-    #[serde(default)]
-    pub ignore_indent: bool,
 }
 
-#[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
-#[serde(deny_unknown_fields)]
+#[derive(PartialEq, Clone, Deserialize, Default)]
+pub struct FoldAt {
+    pub buffer_row: MultiBufferRow,
+}
+
+#[derive(PartialEq, Clone, Deserialize, Default)]
+pub struct UnfoldAt {
+    pub buffer_row: MultiBufferRow,
+}
+
+#[derive(PartialEq, Clone, Deserialize, Default)]
 pub struct MoveUpByLines {
     #[serde(default)]
     pub(super) lines: u32,
 }
 
-#[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
-#[serde(deny_unknown_fields)]
+#[derive(PartialEq, Clone, Deserialize, Default)]
 pub struct MoveDownByLines {
     #[serde(default)]
     pub(super) lines: u32,
 }
-
-#[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
-#[serde(deny_unknown_fields)]
+#[derive(PartialEq, Clone, Deserialize, Default)]
 pub struct SelectUpByLines {
     #[serde(default)]
     pub(super) lines: u32,
 }
 
-#[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
-#[serde(deny_unknown_fields)]
+#[derive(PartialEq, Clone, Deserialize, Default)]
 pub struct SelectDownByLines {
     #[serde(default)]
     pub(super) lines: u32,
 }
 
-#[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
-#[serde(deny_unknown_fields)]
+#[derive(PartialEq, Clone, Deserialize, Default)]
 pub struct ExpandExcerpts {
     #[serde(default)]
     pub(super) lines: u32,
 }
 
-#[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
-#[serde(deny_unknown_fields)]
+#[derive(PartialEq, Clone, Deserialize, Default)]
 pub struct ExpandExcerptsUp {
     #[serde(default)]
     pub(super) lines: u32,
 }
 
-#[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
-#[serde(deny_unknown_fields)]
+#[derive(PartialEq, Clone, Deserialize, Default)]
 pub struct ExpandExcerptsDown {
     #[serde(default)]
     pub(super) lines: u32,
 }
-
-#[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
-#[serde(deny_unknown_fields)]
+#[derive(PartialEq, Clone, Deserialize, Default)]
 pub struct ShowCompletions {
     #[serde(default)]
     pub(super) trigger: Option<String>,
 }
 
-#[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
+#[derive(PartialEq, Clone, Deserialize, Default)]
 pub struct HandleInput(pub String);
 
-#[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
-#[serde(deny_unknown_fields)]
+#[derive(PartialEq, Clone, Deserialize, Default)]
 pub struct DeleteToNextWordEnd {
     #[serde(default)]
     pub ignore_newlines: bool,
 }
 
-#[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
-#[serde(deny_unknown_fields)]
+#[derive(PartialEq, Clone, Deserialize, Default)]
 pub struct DeleteToPreviousWordStart {
     #[serde(default)]
     pub ignore_newlines: bool,
 }
 
-#[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
-pub struct FoldAtLevel(pub u32);
-
-#[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct SpawnNearestTask {
-    #[serde(default)]
-    pub reveal: task::RevealStrategy,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Deserialize, Default)]
-pub enum UuidVersion {
-    #[default]
-    V4,
-    V7,
-}
-
 impl_actions!(
     editor,
     [
-        ComposeCompletion,
         ConfirmCodeAction,
         ConfirmCompletion,
-        DeleteToBeginningOfLine,
+        ComposeCompletion,
         DeleteToNextWordEnd,
         DeleteToPreviousWordStart,
         ExpandExcerpts,
-        ExpandExcerptsDown,
         ExpandExcerptsUp,
+        ExpandExcerptsDown,
+        FoldAt,
         HandleInput,
         MoveDownByLines,
         MovePageDown,
@@ -228,34 +178,29 @@ impl_actions!(
         SelectToBeginningOfLine,
         SelectToEndOfLine,
         SelectUpByLines,
-        SpawnNearestTask,
         ShowCompletions,
         ToggleCodeActions,
         ToggleComments,
-        FoldAtLevel,
+        UnfoldAt,
     ]
 );
 
-actions!(
+gpui::actions!(
     editor,
     [
-        AcceptEditPrediction,
         AcceptPartialCopilotSuggestion,
-        AcceptPartialEditPrediction,
+        AcceptInlineCompletion,
+        AcceptPartialInlineCompletion,
         AddSelectionAbove,
         AddSelectionBelow,
-        ApplyAllDiffHunks,
-        ApplyDiffHunk,
         Backspace,
         Cancel,
         CancelLanguageServerWork,
         ConfirmRename,
-        ConfirmCompletionInsert,
-        ConfirmCompletionReplace,
         ContextMenuFirst,
         ContextMenuLast,
         ContextMenuNext,
-        ContextMenuPrevious,
+        ContextMenuPrev,
         ConvertToKebabCase,
         ConvertToLowerCamelCase,
         ConvertToLowerCase,
@@ -264,60 +209,46 @@ actions!(
         ConvertToTitleCase,
         ConvertToUpperCamelCase,
         ConvertToUpperCase,
-        ConvertToRot13,
-        ConvertToRot47,
         Copy,
-        CopyAndTrim,
-        CopyFileLocation,
         CopyHighlightJson,
-        CopyFileName,
-        CopyFileNameWithoutExtension,
+        CopyPath,
         CopyPermalinkToLine,
+        CopyFileLocation,
+        CopyRelativePath,
         Cut,
         CutToEndOfLine,
         Delete,
         DeleteLine,
+        DeleteToBeginningOfLine,
         DeleteToEndOfLine,
         DeleteToNextSubwordEnd,
         DeleteToPreviousSubwordStart,
         DisplayCursorNames,
         DuplicateLineDown,
         DuplicateLineUp,
-        DuplicateSelection,
+        ExpandAllHunkDiffs,
         ExpandMacroRecursively,
         FindAllReferences,
-        FindNextMatch,
-        FindPreviousMatch,
         Fold,
-        FoldAll,
-        FoldFunctionBodies,
-        FoldRecursive,
         FoldSelectedRanges,
-        ToggleFold,
-        ToggleFoldRecursive,
         Format,
-        FormatSelections,
-        GoToDeclaration,
-        GoToDeclarationSplit,
         GoToDefinition,
         GoToDefinitionSplit,
+        GoToDeclaration,
+        GoToDeclarationSplit,
         GoToDiagnostic,
         GoToHunk,
-        GoToPreviousHunk,
         GoToImplementation,
         GoToImplementationSplit,
-        GoToPreviousDiagnostic,
+        GoToPrevDiagnostic,
+        GoToPrevHunk,
         GoToTypeDefinition,
         GoToTypeDefinitionSplit,
         HalfPageDown,
         HalfPageUp,
         Hover,
         Indent,
-        InsertUuidV4,
-        InsertUuidV7,
         JoinLines,
-        KillRingCut,
-        KillRingYank,
         LineDown,
         LineUp,
         MoveDown,
@@ -334,31 +265,22 @@ actions!(
         MoveToPreviousSubwordStart,
         MoveToPreviousWordStart,
         MoveToStartOfParagraph,
-        MoveToStartOfExcerpt,
-        MoveToStartOfNextExcerpt,
-        MoveToEndOfExcerpt,
-        MoveToEndOfPreviousExcerpt,
         MoveUp,
         Newline,
         NewlineAbove,
         NewlineBelow,
-        NextEditPrediction,
+        NextInlineCompletion,
         NextScreen,
-        OpenContextMenu,
         OpenExcerpts,
         OpenExcerptsSplit,
-        OpenProposedChangesEditor,
-        OpenDocs,
         OpenPermalinkToLine,
-        OpenSelectionsInMultibuffer,
         OpenUrl,
-        OrganizeImports,
+        OpenFile,
         Outdent,
-        AutoIndent,
         PageDown,
         PageUp,
         Paste,
-        PreviousEditPrediction,
+        PreviousInlineCompletion,
         Redo,
         RedoSelection,
         Rename,
@@ -366,25 +288,18 @@ actions!(
         RevealInFileManager,
         ReverseLines,
         RevertFile,
-        ReloadFile,
-        Rewrap,
+        RevertSelectedHunks,
         ScrollCursorBottom,
         ScrollCursorCenter,
-        ScrollCursorCenterTopBottom,
         ScrollCursorTop,
+        ScrollCursorCenterTopBottom,
         SelectAll,
         SelectAllMatches,
-        SelectToStartOfExcerpt,
-        SelectToStartOfNextExcerpt,
-        SelectToEndOfExcerpt,
-        SelectToEndOfPreviousExcerpt,
         SelectDown,
-        SelectEnclosingSymbol,
         SelectLargerSyntaxNode,
+        SelectEnclosingSymbol,
         SelectLeft,
         SelectLine,
-        SelectPageDown,
-        SelectPageUp,
         SelectRight,
         SelectSmallerSyntaxNode,
         SelectToBeginning,
@@ -396,52 +311,39 @@ actions!(
         SelectToPreviousWordStart,
         SelectToStartOfParagraph,
         SelectUp,
+        SelectPageDown,
+        SelectPageUp,
         ShowCharacterPalette,
-        ShowEditPrediction,
+        ShowInlineCompletion,
         ShowSignatureHelp,
-        ShowWordCompletions,
         ShuffleLines,
         SortLinesCaseInsensitive,
         SortLinesCaseSensitive,
         SplitSelectionIntoLines,
-        StopLanguageServer,
         SwitchSourceHeader,
         Tab,
-        Backtab,
-        ToggleBreakpoint,
-        ToggleCase,
-        DisableBreakpoint,
-        EnableBreakpoint,
-        EditLogBreakpoint,
-        DebuggerRunToCursor,
-        DebuggerEvaluateSelectedText,
+        TabPrev,
         ToggleAutoSignatureHelp,
+        ToggleGitBlame,
         ToggleGitBlameInline,
-        OpenGitBlameCommit,
-        ToggleIndentGuides,
-        ToggleInlayHints,
-        ToggleInlineDiagnostics,
-        ToggleEditPrediction,
-        ToggleLineNumbers,
-        SwapSelectionEnds,
-        SetMark,
-        ToggleRelativeLineNumbers,
         ToggleSelectionMenu,
+        ToggleHunkDiff,
+        ToggleInlayHints,
+        ToggleInlineCompletions,
+        ToggleLineNumbers,
+        ToggleRelativeLineNumbers,
+        ToggleIndentGuides,
         ToggleSoftWrap,
         ToggleTabBar,
         Transpose,
         Undo,
         UndoSelection,
-        UnfoldAll,
         UnfoldLines,
-        UnfoldRecursive,
         UniqueLinesCaseInsensitive,
         UniqueLinesCaseSensitive,
     ]
 );
 
-action_as!(go_to_line, ToggleGoToLine as Toggle);
+action_as!(outline, ToggleOutline as Toggle);
 
-action_with_deprecated_aliases!(editor, OpenSelectedFilename, ["editor::OpenFile"]);
-action_with_deprecated_aliases!(editor, ToggleSelectedDiffHunks, ["editor::ToggleHunkDiff"]);
-action_with_deprecated_aliases!(editor, ExpandAllDiffHunks, ["editor::ExpandAllHunkDiffs"]);
+action_as!(go_to_line, ToggleGoToLine as Toggle);

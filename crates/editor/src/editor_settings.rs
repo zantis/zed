@@ -1,5 +1,4 @@
-use gpui::App;
-use language::CursorShape;
+use gpui::AppContext;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use settings::{Settings, SettingsSources};
@@ -7,20 +6,17 @@ use settings::{Settings, SettingsSources};
 #[derive(Deserialize, Clone)]
 pub struct EditorSettings {
     pub cursor_blink: bool,
-    pub cursor_shape: Option<CursorShape>,
     pub current_line_highlight: CurrentLineHighlight,
-    pub selection_highlight: bool,
-    pub selection_highlight_debounce: u64,
-    pub lsp_highlight_debounce: u64,
     pub hover_popover_enabled: bool,
-    pub hover_popover_delay: u64,
+    pub show_completions_on_input: bool,
+    pub show_completion_documentation: bool,
+    pub completion_documentation_secondary_query_debounce: u64,
+    pub use_on_type_format: bool,
     pub toolbar: Toolbar,
     pub scrollbar: Scrollbar,
     pub gutter: Gutter,
     pub scroll_beyond_last_line: ScrollBeyondLastLine,
     pub vertical_scroll_margin: f32,
-    pub autoscroll_on_clicks: bool,
-    pub horizontal_scroll_margin: f32,
     pub scroll_sensitivity: f32,
     pub relative_line_numbers: bool,
     pub seed_search_query_from_cursor: SeedQuerySetting,
@@ -36,10 +32,7 @@ pub struct EditorSettings {
     pub search: SearchSettings,
     pub auto_signature_help: bool,
     pub show_signature_help_after_edits: bool,
-    #[serde(default)]
-    pub go_to_definition_fallback: GoToDefinitionFallback,
     pub jupyter: Jupyter,
-    pub hide_mouse: Option<HideMouseMode>,
 }
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
@@ -107,12 +100,10 @@ pub struct Toolbar {
 pub struct Scrollbar {
     pub show: ShowScrollbar,
     pub git_diff: bool,
-    pub selected_text: bool,
     pub selected_symbol: bool,
     pub search_results: bool,
-    pub diagnostics: ScrollbarDiagnostics,
+    pub diagnostics: bool,
     pub cursors: bool,
-    pub axes: ScrollbarAxes,
 }
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -120,7 +111,6 @@ pub struct Gutter {
     pub line_numbers: bool,
     pub code_actions: bool,
     pub runnables: bool,
-    pub breakpoints: bool,
     pub folds: bool,
 }
 
@@ -139,39 +129,6 @@ pub enum ShowScrollbar {
     Always,
     /// Never show the scrollbar.
     Never,
-}
-
-/// Forcefully enable or disable the scrollbar for each axis
-#[derive(Copy, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub struct ScrollbarAxes {
-    /// When false, forcefully disables the horizontal scrollbar. Otherwise, obey other settings.
-    ///
-    /// Default: true
-    pub horizontal: bool,
-
-    /// When false, forcefully disables the vertical scrollbar. Otherwise, obey other settings.
-    ///
-    /// Default: true
-    pub vertical: bool,
-}
-
-/// Which diagnostic indicators to show in the scrollbar.
-///
-/// Default: all
-#[derive(Copy, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum ScrollbarDiagnostics {
-    /// Show all diagnostic levels: hint, information, warnings, error.
-    All,
-    /// Show only the following diagnostic levels: information, warning, error.
-    Information,
-    /// Show only the following diagnostic levels: warning, error.
-    Warning,
-    /// Show only the following diagnostic level: error.
-    Error,
-    /// Do not show diagnostics.
-    None,
 }
 
 /// The key to use for adding multiple cursors
@@ -214,73 +171,42 @@ pub struct SearchSettings {
     pub regex: bool,
 }
 
-/// What to do when go to definition yields no results.
-#[derive(Copy, Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum GoToDefinitionFallback {
-    /// Disables the fallback.
-    None,
-    /// Looks up references of the same symbol instead.
-    #[default]
-    FindAllReferences,
-}
-
-/// Determines when the mouse cursor should be hidden in an editor or input box.
-///
-/// Default: on_typing_and_movement
-#[derive(Copy, Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum HideMouseMode {
-    /// Never hide the mouse cursor
-    Never,
-    /// Hide only when typing
-    OnTyping,
-    /// Hide on both typing and cursor movement
-    #[default]
-    OnTypingAndMovement,
-}
-
 #[derive(Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct EditorSettingsContent {
     /// Whether the cursor blinks in the editor.
     ///
     /// Default: true
     pub cursor_blink: Option<bool>,
-    /// Cursor shape for the default editor.
-    /// Can be "bar", "block", "underline", or "hollow".
-    ///
-    /// Default: None
-    pub cursor_shape: Option<CursorShape>,
-    /// Determines when the mouse cursor should be hidden in an editor or input box.
-    ///
-    /// Default: on_typing_and_movement
-    pub hide_mouse: Option<HideMouseMode>,
     /// How to highlight the current line in the editor.
     ///
     /// Default: all
     pub current_line_highlight: Option<CurrentLineHighlight>,
-    /// Whether to highlight all occurrences of the selected text in an editor.
-    ///
-    /// Default: true
-    pub selection_highlight: Option<bool>,
-    /// The debounce delay before querying highlights based on the selected text.
-    ///
-    /// Default: 75
-    pub selection_highlight_debounce: Option<u64>,
-    /// The debounce delay before querying highlights from the language
-    /// server based on the current cursor location.
-    ///
-    /// Default: 75
-    pub lsp_highlight_debounce: Option<u64>,
     /// Whether to show the informational hover box when moving the mouse
     /// over symbols in the editor.
     ///
     /// Default: true
     pub hover_popover_enabled: Option<bool>,
-    /// Time to wait before showing the informational hover box
+
+    /// Whether to pop the completions menu while typing in an editor without
+    /// explicitly requesting it.
     ///
-    /// Default: 350
-    pub hover_popover_delay: Option<u64>,
+    /// Default: true
+    pub show_completions_on_input: Option<bool>,
+    /// Whether to display inline and alongside documentation for items in the
+    /// completions menu.
+    ///
+    /// Default: true
+    pub show_completion_documentation: Option<bool>,
+    /// The debounce delay before re-querying the language server for completion
+    /// documentation when not included in original completion list.
+    ///
+    /// Default: 300 ms
+    pub completion_documentation_secondary_query_debounce: Option<u64>,
+    /// Whether to use additional LSP queries to format (and amend) the code after
+    /// every "trigger" symbol input, defined by LSP server capabilities.
+    ///
+    /// Default: true
+    pub use_on_type_format: Option<bool>,
     /// Toolbar related settings
     pub toolbar: Option<ToolbarContent>,
     /// Scrollbar related settings
@@ -295,14 +221,6 @@ pub struct EditorSettingsContent {
     ///
     /// Default: 3.
     pub vertical_scroll_margin: Option<f32>,
-    /// Whether to scroll when clicking near the edge of the visible text area.
-    ///
-    /// Default: false
-    pub autoscroll_on_clicks: Option<bool>,
-    /// The number of characters to keep on either side when scrolling with the mouse.
-    ///
-    /// Default: 5.
-    pub horizontal_scroll_margin: Option<f32>,
     /// Scroll sensitivity multiplier. This multiplier is applied
     /// to both the horizontal and vertical delta values while scrolling.
     ///
@@ -360,15 +278,8 @@ pub struct EditorSettingsContent {
 
     /// Whether to show the signature help pop-up after completions or bracket pairs inserted.
     ///
-    /// Default: false
+    /// Default: true
     pub show_signature_help_after_edits: Option<bool>,
-
-    /// Whether to follow-up empty go to definition responses from the language server or not.
-    /// `FindAllReferences` allows to look up references of the same symbol instead.
-    /// `None` disables the fallback.
-    ///
-    /// Default: FindAllReferences
-    pub go_to_definition_fallback: Option<GoToDefinitionFallback>,
 
     /// Jupyter REPL settings.
     pub jupyter: Option<JupyterContent>,
@@ -407,38 +318,18 @@ pub struct ScrollbarContent {
     ///
     /// Default: true
     pub search_results: Option<bool>,
-    /// Whether to show selected text occurrences in the scrollbar.
-    ///
-    /// Default: true
-    pub selected_text: Option<bool>,
     /// Whether to show selected symbol occurrences in the scrollbar.
     ///
     /// Default: true
     pub selected_symbol: Option<bool>,
-    /// Which diagnostic indicators to show in the scrollbar:
+    /// Whether to show diagnostic indicators in the scrollbar.
     ///
-    /// Default: all
-    pub diagnostics: Option<ScrollbarDiagnostics>,
+    /// Default: true
+    pub diagnostics: Option<bool>,
     /// Whether to show cursor positions in the scrollbar.
     ///
     /// Default: true
     pub cursors: Option<bool>,
-    /// Forcefully enable or disable the scrollbar for each axis
-    pub axes: Option<ScrollbarAxesContent>,
-}
-
-/// Forcefully enable or disable the scrollbar for each axis
-#[derive(Copy, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
-pub struct ScrollbarAxesContent {
-    /// When false, forcefully disables the horizontal scrollbar. Otherwise, obey other settings.
-    ///
-    /// Default: true
-    horizontal: Option<bool>,
-
-    /// When false, forcefully disables the vertical scrollbar. Otherwise, obey other settings.
-    ///
-    /// Default: true
-    vertical: Option<bool>,
 }
 
 /// Gutter related settings
@@ -456,10 +347,6 @@ pub struct GutterContent {
     ///
     /// Default: true
     pub runnables: Option<bool>,
-    /// Whether to show breakpoints in the gutter.
-    ///
-    /// Default: true
-    pub breakpoints: Option<bool>,
     /// Whether to show fold buttons in the gutter.
     ///
     /// Default: true
@@ -467,7 +354,7 @@ pub struct GutterContent {
 }
 
 impl EditorSettings {
-    pub fn jupyter_enabled(cx: &App) -> bool {
+    pub fn jupyter_enabled(cx: &AppContext) -> bool {
         EditorSettings::get_global(cx).jupyter.enabled
     }
 }
@@ -477,7 +364,10 @@ impl Settings for EditorSettings {
 
     type FileContent = EditorSettingsContent;
 
-    fn load(sources: SettingsSources<Self::FileContent>, _: &mut App) -> anyhow::Result<Self> {
+    fn load(
+        sources: SettingsSources<Self::FileContent>,
+        _: &mut AppContext,
+    ) -> anyhow::Result<Self> {
         sources.json_merge()
     }
 }

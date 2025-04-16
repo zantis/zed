@@ -1,8 +1,8 @@
 use crate::{
     AtlasKey, AtlasTextureId, AtlasTextureKind, AtlasTile, Bounds, DevicePixels, PlatformAtlas,
-    Point, Size, platform::AtlasTextureList,
+    Point, Size,
 };
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use collections::FxHashMap;
 use derive_more::{Deref, DerefMut};
 use etagere::BucketedAtlasAllocator;
@@ -13,23 +13,18 @@ use std::borrow::Cow;
 pub(crate) struct MetalAtlas(Mutex<MetalAtlasState>);
 
 impl MetalAtlas {
-    pub(crate) fn new(device: Device, path_sample_count: u32) -> Self {
+    pub(crate) fn new(device: Device) -> Self {
         MetalAtlas(Mutex::new(MetalAtlasState {
             device: AssertSend(device),
             monochrome_textures: Default::default(),
             polychrome_textures: Default::default(),
             path_textures: Default::default(),
             tiles_by_key: Default::default(),
-            path_sample_count,
         }))
     }
 
     pub(crate) fn metal_texture(&self, id: AtlasTextureId) -> metal::Texture {
         self.0.lock().texture(id).metal_texture.clone()
-    }
-
-    pub(crate) fn msaa_texture(&self, id: AtlasTextureId) -> Option<metal::Texture> {
-        self.0.lock().texture(id).msaa_texture.clone()
     }
 
     pub(crate) fn allocate(
@@ -47,7 +42,7 @@ impl MetalAtlas {
             AtlasTextureKind::Polychrome => &mut lock.polychrome_textures,
             AtlasTextureKind::Path => &mut lock.path_textures,
         };
-        for texture in textures.iter_mut() {
+        for texture in textures {
             texture.clear();
         }
     }
@@ -55,11 +50,10 @@ impl MetalAtlas {
 
 struct MetalAtlasState {
     device: AssertSend<Device>,
-    monochrome_textures: AtlasTextureList<MetalAtlasTexture>,
-    polychrome_textures: AtlasTextureList<MetalAtlasTexture>,
-    path_textures: AtlasTextureList<MetalAtlasTexture>,
+    monochrome_textures: Vec<MetalAtlasTexture>,
+    polychrome_textures: Vec<MetalAtlasTexture>,
+    path_textures: Vec<MetalAtlasTexture>,
     tiles_by_key: FxHashMap<AtlasKey, AtlasTile>,
-    path_sample_count: u32,
 }
 
 impl PlatformAtlas for MetalAtlas {
@@ -84,38 +78,6 @@ impl PlatformAtlas for MetalAtlas {
             Ok(Some(tile))
         }
     }
-
-    fn remove(&self, key: &AtlasKey) {
-        let mut lock = self.0.lock();
-        let Some(id) = lock.tiles_by_key.get(key).map(|v| v.texture_id) else {
-            return;
-        };
-
-        let textures = match id.kind {
-            AtlasTextureKind::Monochrome => &mut lock.monochrome_textures,
-            AtlasTextureKind::Polychrome => &mut lock.polychrome_textures,
-            AtlasTextureKind::Path => &mut lock.polychrome_textures,
-        };
-
-        let Some(texture_slot) = textures
-            .textures
-            .iter_mut()
-            .find(|texture| texture.as_ref().is_some_and(|v| v.id == id))
-        else {
-            return;
-        };
-
-        if let Some(mut texture) = texture_slot.take() {
-            texture.decrement_ref_count();
-
-            if texture.is_unreferenced() {
-                textures.free_list.push(id.index as usize);
-                lock.tiles_by_key.remove(key);
-            } else {
-                *texture_slot = Some(texture);
-            }
-        }
-    }
 }
 
 impl MetalAtlasState {
@@ -124,24 +86,20 @@ impl MetalAtlasState {
         size: Size<DevicePixels>,
         texture_kind: AtlasTextureKind,
     ) -> Option<AtlasTile> {
-        {
-            let textures = match texture_kind {
-                AtlasTextureKind::Monochrome => &mut self.monochrome_textures,
-                AtlasTextureKind::Polychrome => &mut self.polychrome_textures,
-                AtlasTextureKind::Path => &mut self.path_textures,
-            };
+        let textures = match texture_kind {
+            AtlasTextureKind::Monochrome => &mut self.monochrome_textures,
+            AtlasTextureKind::Polychrome => &mut self.polychrome_textures,
+            AtlasTextureKind::Path => &mut self.path_textures,
+        };
 
-            if let Some(tile) = textures
-                .iter_mut()
-                .rev()
-                .find_map(|texture| texture.allocate(size))
-            {
-                return Some(tile);
-            }
-        }
-
-        let texture = self.push_texture(size, texture_kind);
-        texture.allocate(size)
+        textures
+            .iter_mut()
+            .rev()
+            .find_map(|texture| texture.allocate(size))
+            .or_else(|| {
+                let texture = self.push_texture(size, texture_kind);
+                texture.allocate(size)
+            })
     }
 
     fn push_texture(
@@ -182,44 +140,21 @@ impl MetalAtlasState {
         texture_descriptor.set_usage(usage);
         let metal_texture = self.device.new_texture(&texture_descriptor);
 
-        // We currently only enable MSAA for path textures.
-        let msaa_texture = if self.path_sample_count > 1 && kind == AtlasTextureKind::Path {
-            let mut descriptor = texture_descriptor.clone();
-            descriptor.set_texture_type(metal::MTLTextureType::D2Multisample);
-            descriptor.set_storage_mode(metal::MTLStorageMode::Private);
-            descriptor.set_sample_count(self.path_sample_count as _);
-            let msaa_texture = self.device.new_texture(&descriptor);
-            Some(msaa_texture)
-        } else {
-            None
-        };
-
-        let texture_list = match kind {
+        let textures = match kind {
             AtlasTextureKind::Monochrome => &mut self.monochrome_textures,
             AtlasTextureKind::Polychrome => &mut self.polychrome_textures,
             AtlasTextureKind::Path => &mut self.path_textures,
         };
-
-        let index = texture_list.free_list.pop();
-
         let atlas_texture = MetalAtlasTexture {
             id: AtlasTextureId {
-                index: index.unwrap_or(texture_list.textures.len()) as u32,
+                index: textures.len() as u32,
                 kind,
             },
             allocator: etagere::BucketedAtlasAllocator::new(size.into()),
             metal_texture: AssertSend(metal_texture),
-            msaa_texture: AssertSend(msaa_texture),
-            live_atlas_keys: 0,
         };
-
-        if let Some(ix) = index {
-            texture_list.textures[ix] = Some(atlas_texture);
-            texture_list.textures.get_mut(ix).unwrap().as_mut().unwrap()
-        } else {
-            texture_list.textures.push(Some(atlas_texture));
-            texture_list.textures.last_mut().unwrap().as_mut().unwrap()
-        }
+        textures.push(atlas_texture);
+        textures.last_mut().unwrap()
     }
 
     fn texture(&self, id: AtlasTextureId) -> &MetalAtlasTexture {
@@ -228,7 +163,7 @@ impl MetalAtlasState {
             crate::AtlasTextureKind::Polychrome => &self.polychrome_textures,
             crate::AtlasTextureKind::Path => &self.path_textures,
         };
-        textures[id.index as usize].as_ref().unwrap()
+        &textures[id.index as usize]
     }
 }
 
@@ -236,8 +171,6 @@ struct MetalAtlasTexture {
     id: AtlasTextureId,
     allocator: BucketedAtlasAllocator,
     metal_texture: AssertSend<metal::Texture>,
-    msaa_texture: AssertSend<Option<metal::Texture>>,
-    live_atlas_keys: u32,
 }
 
 impl MetalAtlasTexture {
@@ -256,7 +189,6 @@ impl MetalAtlasTexture {
             },
             padding: 0,
         };
-        self.live_atlas_keys += 1;
         Some(tile)
     }
 
@@ -282,14 +214,6 @@ impl MetalAtlasTexture {
             RGBA8Unorm | BGRA8Unorm => 4,
             _ => unimplemented!(),
         }
-    }
-
-    fn decrement_ref_count(&mut self) {
-        self.live_atlas_keys -= 1;
-    }
-
-    fn is_unreferenced(&mut self) -> bool {
-        self.live_atlas_keys == 0
     }
 }
 

@@ -1,33 +1,35 @@
-use crate::stdout_is_a_pty;
-use anyhow::{Context as _, Result};
+use anyhow::{Context, Result};
 use backtrace::{self, Backtrace};
 use chrono::Utc;
-use client::{TelemetrySettings, telemetry};
+use client::telemetry;
 use db::kvp::KEY_VALUE_STORE;
-use gpui::{App, AppContext as _, SemanticVersion};
-use http_client::{self, HttpClient, HttpClientWithUrl, HttpRequestExt, Method};
+use gpui::{AppContext, SemanticVersion};
+use http_client::Method;
+use isahc::config::Configurable;
+
+use http_client::{self, HttpClient, HttpClientWithUrl};
 use paths::{crashes_dir, crashes_retired_dir};
-use project::Project;
-use release_channel::{AppCommitSha, RELEASE_CHANNEL, ReleaseChannel};
+use release_channel::ReleaseChannel;
+use release_channel::RELEASE_CHANNEL;
 use settings::Settings;
 use smol::stream::StreamExt;
 use std::{
     env,
-    ffi::{OsStr, c_void},
-    sync::{Arc, atomic::Ordering},
+    ffi::OsStr,
+    sync::{atomic::Ordering, Arc},
 };
 use std::{io::Write, panic, sync::atomic::AtomicU32, thread};
-use telemetry_events::{LocationData, Panic, PanicRequest};
-use url::Url;
+use telemetry_events::LocationData;
+use telemetry_events::Panic;
+use telemetry_events::PanicRequest;
 use util::ResultExt;
 
+use crate::stdout_is_a_pty;
 static PANIC_COUNT: AtomicU32 = AtomicU32::new(0);
 
 pub fn init_panic_hook(
-    app_version: SemanticVersion,
-    app_commit_sha: Option<AppCommitSha>,
-    system_id: Option<String>,
     installation_id: Option<String>,
+    app_version: SemanticVersion,
     session_id: String,
 ) {
     let is_pty = stdout_is_a_pty();
@@ -55,55 +57,35 @@ pub fn init_panic_hook(
             let location = info.location().unwrap();
             let backtrace = Backtrace::new();
             eprintln!(
-                "Thread {:?} panicked with {:?} at {}:{}:{}\n{}{:?}",
+                "Thread {:?} panicked with {:?} at {}:{}:{}\n{:?}",
                 thread_name,
                 payload,
                 location.file(),
                 location.line(),
                 location.column(),
-                match app_commit_sha.as_ref() {
-                    Some(commit_sha) => format!(
-                        "https://github.com/zed-industries/zed/blob/{}/src/{}#L{} \
-                        (may not be uploaded, line may be incorrect if files modified)\n",
-                        commit_sha.0,
-                        location.file(),
-                        location.line()
-                    ),
-                    None => "".to_string(),
-                },
                 backtrace,
             );
             std::process::exit(-1);
         }
-        let main_module_base_address = get_main_module_base_address();
 
         let backtrace = Backtrace::new();
-        let mut symbols = backtrace
+        let mut backtrace = backtrace
             .frames()
             .iter()
             .flat_map(|frame| {
-                let base = frame
-                    .module_base_address()
-                    .unwrap_or(main_module_base_address);
-                frame.symbols().iter().map(move |symbol| {
-                    format!(
-                        "{}+{}",
-                        symbol
-                            .name()
-                            .as_ref()
-                            .map_or("<unknown>".to_owned(), <_>::to_string),
-                        (frame.ip() as isize).saturating_sub(base as isize)
-                    )
-                })
+                frame
+                    .symbols()
+                    .iter()
+                    .filter_map(|frame| Some(format!("{:#}", frame.name()?)))
             })
             .collect::<Vec<_>>();
 
         // Strip out leading stack frames for rust panic-handling.
-        if let Some(ix) = symbols
+        if let Some(ix) = backtrace
             .iter()
-            .position(|name| name == "rust_begin_unwind" || name == "_rust_begin_unwind")
+            .position(|name| name == "rust_begin_unwind")
         {
-            symbols.drain(0..=ix);
+            backtrace.drain(0..=ix);
         }
 
         let panic_data = telemetry_events::Panic {
@@ -114,15 +96,12 @@ pub fn init_panic_hook(
                 line: location.line(),
             }),
             app_version: app_version.to_string(),
-            app_commit_sha: app_commit_sha.as_ref().map(|sha| sha.0.clone()),
-            release_channel: RELEASE_CHANNEL.dev_name().into(),
-            target: env!("TARGET").to_owned().into(),
+            release_channel: RELEASE_CHANNEL.display_name().into(),
             os_name: telemetry::os_name(),
             os_version: Some(telemetry::os_version()),
             architecture: env::consts::ARCH.into(),
             panicked_on: Utc::now().timestamp_millis(),
-            backtrace: symbols,
-            system_id: system_id.clone(),
+            backtrace,
             installation_id: installation_id.clone(),
             session_id: session_id.clone(),
         };
@@ -151,100 +130,22 @@ pub fn init_panic_hook(
     }));
 }
 
-#[cfg(not(target_os = "windows"))]
-fn get_main_module_base_address() -> *mut c_void {
-    let mut dl_info = libc::Dl_info {
-        dli_fname: std::ptr::null(),
-        dli_fbase: std::ptr::null_mut(),
-        dli_sname: std::ptr::null(),
-        dli_saddr: std::ptr::null_mut(),
-    };
-    unsafe {
-        libc::dladdr(get_main_module_base_address as _, &mut dl_info);
-    }
-    dl_info.dli_fbase
-}
-
-#[cfg(target_os = "windows")]
-fn get_main_module_base_address() -> *mut c_void {
-    std::ptr::null_mut()
-}
-
 pub fn init(
     http_client: Arc<HttpClientWithUrl>,
-    system_id: Option<String>,
     installation_id: Option<String>,
-    session_id: String,
-    cx: &mut App,
+    cx: &mut AppContext,
 ) {
     #[cfg(target_os = "macos")]
     monitor_main_thread_hangs(http_client.clone(), installation_id.clone(), cx);
 
-    let Some(panic_report_url) = http_client
-        .build_zed_api_url("/telemetry/panics", &[])
-        .log_err()
-    else {
-        return;
-    };
-
-    upload_panics_and_crashes(
-        http_client.clone(),
-        panic_report_url.clone(),
-        installation_id.clone(),
-        cx,
-    );
-
-    cx.observe_new(move |project: &mut Project, _, cx| {
-        let http_client = http_client.clone();
-        let panic_report_url = panic_report_url.clone();
-        let session_id = session_id.clone();
-        let installation_id = installation_id.clone();
-        let system_id = system_id.clone();
-
-        if let Some(ssh_client) = project.ssh_client() {
-            ssh_client.update(cx, |client, cx| {
-                if TelemetrySettings::get_global(cx).diagnostics {
-                    let request = client.proto_client().request(proto::GetPanicFiles {});
-                    cx.background_spawn(async move {
-                        let panic_files = request.await?;
-                        for file in panic_files.file_contents {
-                            let panic: Option<Panic> = serde_json::from_str(&file)
-                                .log_err()
-                                .or_else(|| {
-                                    file.lines()
-                                        .next()
-                                        .and_then(|line| serde_json::from_str(line).ok())
-                                })
-                                .unwrap_or_else(|| {
-                                    log::error!("failed to deserialize panic file {:?}", file);
-                                    None
-                                });
-
-                            if let Some(mut panic) = panic {
-                                panic.session_id = session_id.clone();
-                                panic.system_id = system_id.clone();
-                                panic.installation_id = installation_id.clone();
-
-                                upload_panic(&http_client, &panic_report_url, panic, &mut None)
-                                    .await?;
-                            }
-                        }
-
-                        anyhow::Ok(())
-                    })
-                    .detach_and_log_err(cx);
-                }
-            })
-        }
-    })
-    .detach();
+    upload_panics_and_crashes(http_client, installation_id, cx)
 }
 
 #[cfg(target_os = "macos")]
 pub fn monitor_main_thread_hangs(
     http_client: Arc<HttpClientWithUrl>,
     installation_id: Option<String>,
-    cx: &App,
+    cx: &AppContext,
 ) {
     // This is too noisy to ship to stable for now.
     if !matches!(
@@ -255,9 +156,8 @@ pub fn monitor_main_thread_hangs(
     }
 
     use nix::sys::signal::{
-        SaFlags, SigAction, SigHandler, SigSet,
+        sigaction, SaFlags, SigAction, SigHandler, SigSet,
         Signal::{self, SIGUSR2},
-        sigaction,
     };
 
     use parking_lot::Mutex;
@@ -265,7 +165,7 @@ pub fn monitor_main_thread_hangs(
     use http_client::Method;
     use std::{
         ffi::c_int,
-        sync::{OnceLock, mpsc},
+        sync::{mpsc, OnceLock},
         time::Duration,
     };
     use telemetry_events::{BacktraceFrame, HangReport};
@@ -445,30 +345,29 @@ pub fn monitor_main_thread_hangs(
 
 fn upload_panics_and_crashes(
     http: Arc<HttpClientWithUrl>,
-    panic_report_url: Url,
     installation_id: Option<String>,
-    cx: &App,
+    cx: &mut AppContext,
 ) {
     let telemetry_settings = *client::TelemetrySettings::get_global(cx);
-    cx.background_spawn(async move {
-        let most_recent_panic =
-            upload_previous_panics(http.clone(), &panic_report_url, telemetry_settings)
+    cx.background_executor()
+        .spawn(async move {
+            let most_recent_panic = upload_previous_panics(http.clone(), telemetry_settings)
                 .await
                 .log_err()
                 .flatten();
-        upload_previous_crashes(http, most_recent_panic, installation_id, telemetry_settings)
-            .await
-            .log_err()
-    })
-    .detach()
+            upload_previous_crashes(http, most_recent_panic, installation_id, telemetry_settings)
+                .await
+                .log_err()
+        })
+        .detach()
 }
 
 /// Uploads panics via `zed.dev`.
 async fn upload_previous_panics(
     http: Arc<HttpClientWithUrl>,
-    panic_report_url: &Url,
     telemetry_settings: client::TelemetrySettings,
-) -> anyhow::Result<Option<(i64, String)>> {
+) -> Result<Option<(i64, String)>> {
+    let panic_report_url = http.build_zed_api_url("/telemetry/panics", &[])?;
     let mut children = smol::fs::read_dir(paths::logs_dir()).await?;
 
     let mut most_recent_panic = None;
@@ -496,7 +395,7 @@ async fn upload_previous_panics(
                 .context("error reading panic file")?;
 
             let panic: Option<Panic> = serde_json::from_str(&panic_file_content)
-                .log_err()
+                .ok()
                 .or_else(|| {
                     panic_file_content
                         .lines()
@@ -509,8 +408,26 @@ async fn upload_previous_panics(
                 });
 
             if let Some(panic) = panic {
-                if !upload_panic(&http, &panic_report_url, panic, &mut most_recent_panic).await? {
+                most_recent_panic = Some((panic.panicked_on, panic.payload.clone()));
+
+                let json_bytes = serde_json::to_vec(&PanicRequest { panic }).unwrap();
+
+                let Some(checksum) = client::telemetry::calculate_json_checksum(&json_bytes) else {
                     continue;
+                };
+
+                let Ok(request) = http_client::Request::builder()
+                    .method(Method::POST)
+                    .uri(panic_report_url.as_ref())
+                    .header("x-zed-checksum", checksum)
+                    .body(json_bytes.into())
+                else {
+                    continue;
+                };
+
+                let response = http.send(request).await.context("error sending panic")?;
+                if !response.status().is_success() {
+                    log::error!("Error uploading panic to server: {}", response.status());
                 }
             }
         }
@@ -520,40 +437,10 @@ async fn upload_previous_panics(
             .context("error removing panic")
             .log_err();
     }
-    Ok(most_recent_panic)
+    Ok::<_, anyhow::Error>(most_recent_panic)
 }
 
-async fn upload_panic(
-    http: &Arc<HttpClientWithUrl>,
-    panic_report_url: &Url,
-    panic: telemetry_events::Panic,
-    most_recent_panic: &mut Option<(i64, String)>,
-) -> Result<bool> {
-    *most_recent_panic = Some((panic.panicked_on, panic.payload.clone()));
-
-    let json_bytes = serde_json::to_vec(&PanicRequest { panic }).unwrap();
-
-    let Some(checksum) = client::telemetry::calculate_json_checksum(&json_bytes) else {
-        return Ok(false);
-    };
-
-    let Ok(request) = http_client::Request::builder()
-        .method(Method::POST)
-        .uri(panic_report_url.as_ref())
-        .header("x-zed-checksum", checksum)
-        .body(json_bytes.into())
-    else {
-        return Ok(false);
-    };
-
-    let response = http.send(request).await.context("error sending panic")?;
-    if !response.status().is_success() {
-        log::error!("Error uploading panic to server: {}", response.status());
-    }
-
-    Ok(true)
-}
-const LAST_CRASH_UPLOADED: &str = "LAST_CRASH_UPLOADED";
+static LAST_CRASH_UPLOADED: &str = "LAST_CRASH_UPLOADED";
 
 /// upload crashes from apple's diagnostic reports to our server.
 /// (only if telemetry is enabled)
@@ -602,7 +489,7 @@ async fn upload_previous_crashes(
                 .context("error reading crash file")?;
 
             let mut request = http_client::Request::post(&crash_report_url.to_string())
-                .follow_redirects(http_client::RedirectPolicy::FollowAll)
+                .redirect_policy(isahc::config::RedirectPolicy::Follow)
                 .header("Content-Type", "text/plain");
 
             if let Some((panicked_on, payload)) = most_recent_panic.as_ref() {

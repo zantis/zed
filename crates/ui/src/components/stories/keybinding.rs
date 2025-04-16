@@ -3,7 +3,7 @@ use gpui::Render;
 use itertools::Itertools;
 use story::Story;
 
-use crate::{KeyBinding, prelude::*};
+use crate::{prelude::*, KeyBinding};
 
 pub struct KeybindingStory;
 
@@ -12,22 +12,22 @@ pub fn binding(key: &str) -> gpui::KeyBinding {
 }
 
 impl Render for KeybindingStory {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _cx: &mut ViewContext<Self>) -> impl IntoElement {
         let all_modifier_permutations = ["ctrl", "alt", "cmd", "shift"].into_iter().permutations(2);
 
         Story::container()
             .child(Story::title_for::<KeyBinding>())
             .child(Story::label("Single Key"))
-            .child(KeyBinding::new(binding("Z"), cx))
+            .child(KeyBinding::new(binding("Z")))
             .child(Story::label("Single Key with Modifier"))
             .child(
                 div()
                     .flex()
                     .gap_3()
-                    .child(KeyBinding::new(binding("ctrl-c"), cx))
-                    .child(KeyBinding::new(binding("alt-c"), cx))
-                    .child(KeyBinding::new(binding("cmd-c"), cx))
-                    .child(KeyBinding::new(binding("shift-c"), cx)),
+                    .child(KeyBinding::new(binding("ctrl-c")))
+                    .child(KeyBinding::new(binding("alt-c")))
+                    .child(KeyBinding::new(binding("cmd-c")))
+                    .child(KeyBinding::new(binding("shift-c"))),
             )
             .child(Story::label("Single Key with Modifier (Permuted)"))
             .child(
@@ -41,42 +41,39 @@ impl Render for KeybindingStory {
                                 .gap_4()
                                 .py_3()
                                 .children(chunk.map(|permutation| {
-                                    KeyBinding::new(binding(&(permutation.join("-") + "-x")), cx)
+                                    KeyBinding::new(binding(&(permutation.join("-") + "-x")))
                                 }))
                         }),
                 ),
             )
             .child(Story::label("Single Key with All Modifiers"))
-            .child(KeyBinding::new(binding("ctrl-alt-cmd-shift-z"), cx))
+            .child(KeyBinding::new(binding("ctrl-alt-cmd-shift-z")))
             .child(Story::label("Chord"))
-            .child(KeyBinding::new(binding("a z"), cx))
+            .child(KeyBinding::new(binding("a z")))
             .child(Story::label("Chord with Modifier"))
-            .child(KeyBinding::new(binding("ctrl-a shift-z"), cx))
-            .child(KeyBinding::new(binding("fn-s"), cx))
+            .child(KeyBinding::new(binding("ctrl-a shift-z")))
+            .child(KeyBinding::new(binding("fn-s")))
             .child(Story::label("Single Key with All Modifiers (Linux)"))
             .child(
-                KeyBinding::new(binding("ctrl-alt-cmd-shift-z"), cx)
+                KeyBinding::new(binding("ctrl-alt-cmd-shift-z"))
                     .platform_style(PlatformStyle::Linux),
             )
             .child(Story::label("Chord (Linux)"))
-            .child(KeyBinding::new(binding("a z"), cx).platform_style(PlatformStyle::Linux))
+            .child(KeyBinding::new(binding("a z")).platform_style(PlatformStyle::Linux))
             .child(Story::label("Chord with Modifier (Linux)"))
-            .child(
-                KeyBinding::new(binding("ctrl-a shift-z"), cx).platform_style(PlatformStyle::Linux),
-            )
-            .child(KeyBinding::new(binding("fn-s"), cx).platform_style(PlatformStyle::Linux))
+            .child(KeyBinding::new(binding("ctrl-a shift-z")).platform_style(PlatformStyle::Linux))
+            .child(KeyBinding::new(binding("fn-s")).platform_style(PlatformStyle::Linux))
             .child(Story::label("Single Key with All Modifiers (Windows)"))
             .child(
-                KeyBinding::new(binding("ctrl-alt-cmd-shift-z"), cx)
+                KeyBinding::new(binding("ctrl-alt-cmd-shift-z"))
                     .platform_style(PlatformStyle::Windows),
             )
             .child(Story::label("Chord (Windows)"))
-            .child(KeyBinding::new(binding("a z"), cx).platform_style(PlatformStyle::Windows))
+            .child(KeyBinding::new(binding("a z")).platform_style(PlatformStyle::Windows))
             .child(Story::label("Chord with Modifier (Windows)"))
             .child(
-                KeyBinding::new(binding("ctrl-a shift-z"), cx)
-                    .platform_style(PlatformStyle::Windows),
+                KeyBinding::new(binding("ctrl-a shift-z")).platform_style(PlatformStyle::Windows),
             )
-            .child(KeyBinding::new(binding("fn-s"), cx).platform_style(PlatformStyle::Windows))
+            .child(KeyBinding::new(binding("fn-s")).platform_style(PlatformStyle::Windows))
     }
 }

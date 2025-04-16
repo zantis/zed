@@ -1,16 +1,17 @@
 use crate::commit::get_messages;
-use crate::{GitRemote, Oid};
-use anyhow::{Context as _, Result, anyhow};
+use crate::{parse_git_remote_url, BuildCommitPermalinkParams, GitHostingProviderRegistry, Oid};
+use anyhow::{anyhow, Context, Result};
 use collections::{HashMap, HashSet};
-use futures::AsyncWriteExt;
-use gpui::SharedString;
 use serde::{Deserialize, Serialize};
-use std::process::Stdio;
+use std::io::Write;
+use std::process::{Command, Stdio};
+use std::sync::Arc;
 use std::{ops::Range, path::Path};
 use text::Rope;
+use time::macros::format_description;
 use time::OffsetDateTime;
 use time::UtcOffset;
-use time::macros::format_description;
+use url::Url;
 
 pub use git2 as libgit;
 
@@ -18,42 +19,52 @@ pub use git2 as libgit;
 pub struct Blame {
     pub entries: Vec<BlameEntry>,
     pub messages: HashMap<Oid, String>,
+    pub permalinks: HashMap<Oid, Url>,
     pub remote_url: Option<String>,
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct ParsedCommitMessage {
-    pub message: SharedString,
-    pub permalink: Option<url::Url>,
-    pub pull_request: Option<crate::hosting_provider::PullRequest>,
-    pub remote: Option<GitRemote>,
-}
-
 impl Blame {
-    pub async fn for_path(
+    pub fn for_path(
         git_binary: &Path,
         working_directory: &Path,
         path: &Path,
         content: &Rope,
         remote_url: Option<String>,
+        provider_registry: Arc<GitHostingProviderRegistry>,
     ) -> Result<Self> {
-        let output = run_git_blame(git_binary, working_directory, path, content).await?;
+        let output = run_git_blame(git_binary, working_directory, path, content)?;
         let mut entries = parse_git_blame(&output)?;
         entries.sort_unstable_by(|a, b| a.range.start.cmp(&b.range.start));
 
+        let mut permalinks = HashMap::default();
         let mut unique_shas = HashSet::default();
+        let parsed_remote_url = remote_url
+            .as_deref()
+            .and_then(|remote_url| parse_git_remote_url(provider_registry, remote_url));
 
         for entry in entries.iter_mut() {
             unique_shas.insert(entry.sha);
+            // DEPRECATED (18 Apr 24): Sending permalinks over the wire is deprecated. Clients
+            // now do the parsing.
+            if let Some((provider, remote)) = parsed_remote_url.as_ref() {
+                permalinks.entry(entry.sha).or_insert_with(|| {
+                    provider.build_commit_permalink(
+                        remote,
+                        BuildCommitPermalinkParams {
+                            sha: entry.sha.to_string().as_str(),
+                        },
+                    )
+                });
+            }
         }
 
         let shas = unique_shas.into_iter().collect::<Vec<_>>();
-        let messages = get_messages(working_directory, &shas)
-            .await
-            .context("failed to get commit messages")?;
+        let messages =
+            get_messages(working_directory, &shas).context("failed to get commit messages")?;
 
         Ok(Self {
             entries,
+            permalinks,
             messages,
             remote_url,
         })
@@ -63,13 +74,15 @@ impl Blame {
 const GIT_BLAME_NO_COMMIT_ERROR: &str = "fatal: no such ref: HEAD";
 const GIT_BLAME_NO_PATH: &str = "fatal: no such path";
 
-async fn run_git_blame(
+fn run_git_blame(
     git_binary: &Path,
     working_directory: &Path,
     path: &Path,
     contents: &Rope,
 ) -> Result<String> {
-    let mut child = util::command::new_smol_command(git_binary)
+    let mut child = Command::new(git_binary);
+
+    child
         .current_dir(working_directory)
         .arg("blame")
         .arg("--incremental")
@@ -78,23 +91,30 @@ async fn run_git_blame(
         .arg(path.as_os_str())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        child.creation_flags(windows::Win32::System::Threading::CREATE_NO_WINDOW.0);
+    }
+
+    let child = child
         .spawn()
         .map_err(|e| anyhow!("Failed to start git blame process: {}", e))?;
 
-    let stdin = child
+    let mut stdin = child
         .stdin
-        .as_mut()
+        .as_ref()
         .context("failed to get pipe to stdin of git blame command")?;
 
     for chunk in contents.chunks() {
-        stdin.write_all(chunk.as_bytes()).await?;
+        stdin.write_all(chunk.as_bytes())?;
     }
-    stdin.flush().await?;
+    stdin.flush()?;
 
     let output = child
-        .output()
-        .await
+        .wait_with_output()
         .map_err(|e| anyhow!("Failed to read git blame output: {}", e))?;
 
     if !output.status.success() {
@@ -122,8 +142,8 @@ pub struct BlameEntry {
     pub author_time: Option<i64>,
     pub author_tz: Option<String>,
 
-    pub committer_name: Option<String>,
-    pub committer_email: Option<String>,
+    pub committer: Option<String>,
+    pub committer_mail: Option<String>,
     pub committer_time: Option<i64>,
     pub committer_tz: Option<String>,
 
@@ -245,12 +265,10 @@ fn parse_git_blame(output: &str) -> Result<Vec<BlameEntry>> {
                         .clone_from(&existing_entry.author_mail);
                     new_entry.author_time = existing_entry.author_time;
                     new_entry.author_tz.clone_from(&existing_entry.author_tz);
+                    new_entry.committer.clone_from(&existing_entry.committer);
                     new_entry
-                        .committer_name
-                        .clone_from(&existing_entry.committer_name);
-                    new_entry
-                        .committer_email
-                        .clone_from(&existing_entry.committer_email);
+                        .committer_mail
+                        .clone_from(&existing_entry.committer_mail);
                     new_entry.committer_time = existing_entry.committer_time;
                     new_entry
                         .committer_tz
@@ -280,8 +298,8 @@ fn parse_git_blame(output: &str) -> Result<Vec<BlameEntry>> {
                     }
                     "author-tz" if is_committed => entry.author_tz = Some(value.into()),
 
-                    "committer" if is_committed => entry.committer_name = Some(value.into()),
-                    "committer-mail" if is_committed => entry.committer_email = Some(value.into()),
+                    "committer" if is_committed => entry.committer = Some(value.into()),
+                    "committer-mail" if is_committed => entry.committer_mail = Some(value.into()),
                     "committer-time" if is_committed => {
                         entry.committer_time = Some(value.parse::<i64>()?)
                     }
@@ -310,8 +328,8 @@ fn parse_git_blame(output: &str) -> Result<Vec<BlameEntry>> {
 mod tests {
     use std::path::PathBuf;
 
-    use super::BlameEntry;
     use super::parse_git_blame;
+    use super::BlameEntry;
 
     fn read_test_data(filename: &str) -> String {
         let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -334,7 +352,7 @@ mod tests {
         have_json.push('\n');
 
         let update = std::env::var("UPDATE_GOLDEN")
-            .map(|val| val.eq_ignore_ascii_case("true"))
+            .map(|val| val.to_ascii_lowercase() == "true")
             .unwrap_or(false);
 
         if update {
@@ -345,7 +363,7 @@ mod tests {
             let want_json =
                 std::fs::read_to_string(&path).unwrap_or_else(|_| {
                     panic!("could not read golden test data file at {:?}. Did you run the test with UPDATE_GOLDEN=true before?", path);
-                }).replace("\r\n", "\n");
+                });
 
             pretty_assertions::assert_eq!(have_json, want_json, "wrong blame entries");
         }

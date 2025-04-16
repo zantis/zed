@@ -17,7 +17,7 @@ use language::Point;
 
 #[cfg(feature = "neovim")]
 use nvim_rs::{
-    Handler, Neovim, UiAttachOptions, Value, create::tokio::new_child_cmd, error::LoopError,
+    create::tokio::new_child_cmd, error::LoopError, Handler, Neovim, UiAttachOptions, Value,
 };
 #[cfg(feature = "neovim")]
 use parking_lot::ReentrantMutex;
@@ -442,7 +442,6 @@ impl NeovimConnection {
             }
             Mode::Insert | Mode::Normal | Mode::Replace => selections
                 .push(Point::new(selection_row, selection_col)..Point::new(cursor_row, cursor_col)),
-            Mode::HelixNormal => unreachable!(),
         }
 
         let ranges = encode_ranges(&text, &selections);

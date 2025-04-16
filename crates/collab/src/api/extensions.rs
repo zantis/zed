@@ -1,22 +1,21 @@
 use crate::db::ExtensionVersionConstraints;
-use crate::{AppState, Error, Result, db::NewExtensionVersion};
-use anyhow::{Context as _, anyhow};
+use crate::{db::NewExtensionVersion, AppState, Error, Result};
+use anyhow::{anyhow, Context as _};
 use aws_sdk_s3::presigning::PresigningConfig;
 use axum::{
-    Extension, Json, Router,
     extract::{Path, Query},
     http::StatusCode,
     response::Redirect,
     routing::get,
+    Extension, Json, Router,
 };
-use collections::{BTreeSet, HashMap};
-use rpc::{ExtensionApiManifest, ExtensionProvides, GetExtensionsResponse};
+use collections::HashMap;
+use rpc::{ExtensionApiManifest, GetExtensionsResponse};
 use semantic_version::SemanticVersion;
 use serde::Deserialize;
-use std::str::FromStr;
 use std::{sync::Arc, time::Duration};
 use time::PrimitiveDateTime;
-use util::{ResultExt, maybe};
+use util::{maybe, ResultExt};
 
 pub fn router() -> Router {
     Router::new()
@@ -36,14 +35,6 @@ pub fn router() -> Router {
 #[derive(Debug, Deserialize)]
 struct GetExtensionsParams {
     filter: Option<String>,
-    /// A comma-delimited list of features that the extension must provide.
-    ///
-    /// For example:
-    /// - `themes`
-    /// - `themes,icon-themes`
-    /// - `languages,language-servers`
-    #[serde(default)]
-    provides: Option<String>,
     #[serde(default)]
     max_schema_version: i32,
 }
@@ -52,22 +43,9 @@ async fn get_extensions(
     Extension(app): Extension<Arc<AppState>>,
     Query(params): Query<GetExtensionsParams>,
 ) -> Result<Json<GetExtensionsResponse>> {
-    let provides_filter = params.provides.map(|provides| {
-        provides
-            .split(',')
-            .map(|value| value.trim())
-            .filter_map(|value| ExtensionProvides::from_str(value).ok())
-            .collect::<BTreeSet<_>>()
-    });
-
     let mut extensions = app
         .db
-        .get_extensions(
-            params.filter.as_deref(),
-            provides_filter.as_ref(),
-            params.max_schema_version,
-            500,
-        )
+        .get_extensions(params.filter.as_deref(), params.max_schema_version, 500)
         .await?;
 
     if let Some(filter) = params.filter.as_deref() {
@@ -413,7 +391,6 @@ async fn fetch_extension_manifest(
         repository: manifest.repository,
         schema_version: manifest.schema_version.unwrap_or(0),
         wasm_api_version: manifest.wasm_api_version,
-        provides: manifest.provides,
         published_at,
     })
 }

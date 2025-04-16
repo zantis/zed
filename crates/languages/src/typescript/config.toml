@@ -1,7 +1,6 @@
 name = "TypeScript"
 grammar = "typescript"
 path_suffixes = ["ts", "cts", "d.cts", "d.mts", "mts"]
-first_line_pattern = '^#!.*\b(?:deno run|ts-node|bun|tsx)\b'
 line_comments = ["// "]
 autoclose_before = ";:.,=}])>"
 brackets = [
@@ -17,6 +16,3 @@ brackets = [
 word_characters = ["#", "$"]
 prettier_parser_name = "typescript"
 tab_size = 2
-
-[overrides.string]
-completion_query_characters = ["."]

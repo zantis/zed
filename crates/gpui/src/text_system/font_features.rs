@@ -7,11 +7,6 @@ use schemars::schema::{InstanceType, SchemaObject};
 pub struct FontFeatures(pub Arc<Vec<(String, u32)>>);
 
 impl FontFeatures {
-    /// Disables `calt`.
-    pub fn disable_ligatures() -> Self {
-        Self(Arc::new(vec![("calt".into(), 0)]))
-    }
-
     /// Get the tag name list of the font OpenType features
     /// only enabled or disabled features are returned
     pub fn tag_value_list(&self) -> &[(String, u32)] {
@@ -133,7 +128,7 @@ impl schemars::JsonSchema for FontFeatures {
         "FontFeatures".into()
     }
 
-    fn json_schema(_: &mut schemars::r#gen::SchemaGenerator) -> schemars::schema::Schema {
+    fn json_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
         let mut schema = SchemaObject::default();
         schema.instance_type = Some(schemars::schema::SingleOrVec::Single(Box::new(
             InstanceType::Object,

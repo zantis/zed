@@ -3,7 +3,7 @@
 Godot [GDScript](https://gdscript.com/) language support in Zed is provided by the community-maintained [GDScript extension](https://github.com/grndctrl/zed-gdscript).
 Report issues to: [https://github.com/grndctrl/zed-gdscript/issues](https://github.com/grndctrl/zed-gdscript/issues)
 
-- Tree-sitter: [PrestonKnopp/tree-sitter-gdscript](https://github.com/PrestonKnopp/tree-sitter-gdscript) and [PrestonKnopp/tree-sitter-godot-resource](https://github.com/PrestonKnopp/tree-sitter-godot-resource)
+- Tree Sitter: [PrestonKnopp/tree-sitter-gdscript](https://github.com/PrestonKnopp/tree-sitter-gdscript) and [PrestonKnopp/tree-sitter-godot-resource](https://github.com/PrestonKnopp/tree-sitter-godot-resource)
 - Language Server: [gdscript-language-server](https://github.com/godotengine/godot)
 
 ## Setup
@@ -14,7 +14,7 @@ Report issues to: [https://github.com/grndctrl/zed-gdscript/issues](https://gith
 4. In Godot, Editor Menu -> Editor Settings; scroll down the left sidebar to `Text Editor -> External`
    1. Use External Editor: "✅ On"
    2. Exec path: `/Applications/Zed.app/Contents/MacOS/zed`
-   3. Exec flags: `{project} {file}:{line}:{col}`
+   3. Exec flags: `{project} {file}`
    4. Close settings to save.
 5. In Godot double click on a \*.gd script and Zed will launch
 

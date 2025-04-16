@@ -1,4 +1,5 @@
 mod provider_tests;
+mod usage_tests;
 
 use gpui::BackgroundExecutor;
 use parking_lot::Mutex;
@@ -24,7 +25,7 @@ impl TestLlmDb {
         let mut rng = StdRng::from_entropy();
         let url = format!(
             "postgres://postgres@localhost/zed-llm-test-{}",
-            rng.r#gen::<u128>()
+            rng.gen::<u128>()
         );
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_io()

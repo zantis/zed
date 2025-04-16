@@ -1,30 +1,22 @@
-use editor::{
-    Anchor, Bias, Direction, Editor, display_map::ToDisplayPoint, movement, scroll::Autoscroll,
-};
-use gpui::{Context, Window, actions};
+use editor::{display_map::ToDisplayPoint, movement, scroll::Autoscroll, Bias, Direction, Editor};
+use gpui::{actions, ViewContext};
 
-use crate::{Vim, state::Mode};
+use crate::{state::Mode, Vim};
 
 actions!(vim, [ChangeListOlder, ChangeListNewer]);
 
-pub(crate) fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
-    Vim::action(editor, cx, |vim, _: &ChangeListOlder, window, cx| {
-        vim.move_to_change(Direction::Prev, window, cx);
+pub(crate) fn register(editor: &mut Editor, cx: &mut ViewContext<Vim>) {
+    Vim::action(editor, cx, |vim, _: &ChangeListOlder, cx| {
+        vim.move_to_change(Direction::Prev, cx);
     });
-    Vim::action(editor, cx, |vim, _: &ChangeListNewer, window, cx| {
-        vim.move_to_change(Direction::Next, window, cx);
+    Vim::action(editor, cx, |vim, _: &ChangeListNewer, cx| {
+        vim.move_to_change(Direction::Next, cx);
     });
 }
 
 impl Vim {
-    fn move_to_change(
-        &mut self,
-        direction: Direction,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let count = Vim::take_count(cx).unwrap_or(1);
-        Vim::take_forced_motion(cx);
+    fn move_to_change(&mut self, direction: Direction, cx: &mut ViewContext<Self>) {
+        let count = self.take_count(cx).unwrap_or(1);
         if self.change_list.is_empty() {
             return;
         }
@@ -39,8 +31,8 @@ impl Vim {
         let Some(selections) = self.change_list.get(next).cloned() else {
             return;
         };
-        self.update_editor(window, cx, |_, editor, window, cx| {
-            editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+        self.update_editor(cx, |_, editor, cx| {
+            editor.change_selections(Some(Autoscroll::fit()), cx, |s| {
                 let map = s.display_map();
                 s.select_display_ranges(selections.into_iter().map(|a| {
                     let point = a.to_display_point(&map);
@@ -50,11 +42,9 @@ impl Vim {
         });
     }
 
-    pub(crate) fn push_to_change_list(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((map, selections, buffer)) = self.update_editor(window, cx, |_, editor, _, cx| {
-            let (map, selections) = editor.selections.all_adjusted_display(cx);
-            let buffer = editor.buffer().clone();
-            (map, selections, buffer)
+    pub(crate) fn push_to_change_list(&mut self, cx: &mut ViewContext<Self>) {
+        let Some((map, selections)) = self.update_editor(cx, |_, editor, cx| {
+            editor.selections.all_adjusted_display(cx)
         }) else {
             return;
         };
@@ -70,7 +60,7 @@ impl Vim {
             })
             .unwrap_or(false);
 
-        let new_positions: Vec<Anchor> = selections
+        let new_positions = selections
             .into_iter()
             .map(|s| {
                 let point = if self.mode == Mode::Insert {
@@ -86,8 +76,7 @@ impl Vim {
         if pop_state {
             self.change_list.pop();
         }
-        self.change_list.push(new_positions.clone());
-        self.set_mark(".".to_string(), new_positions, &buffer, window, cx)
+        self.change_list.push(new_positions);
     }
 }
 

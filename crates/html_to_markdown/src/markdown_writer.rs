@@ -1,6 +1,7 @@
+use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
-use std::{cell::RefCell, sync::LazyLock};
+use std::sync::OnceLock;
 
 use anyhow::Result;
 use markup5ever_rcdom::{Handle, NodeData};
@@ -9,14 +10,13 @@ use regex::Regex;
 use crate::html_element::HtmlElement;
 
 fn empty_line_regex() -> &'static Regex {
-    static REGEX: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"^\s*$").expect("Failed to create empty_line_regex"));
-    &REGEX
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| Regex::new(r"^\s*$").unwrap())
 }
 
 fn more_than_three_newlines_regex() -> &'static Regex {
-    static REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\n{3,}").unwrap());
-    &REGEX
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| Regex::new(r"\n{3,}").unwrap())
 }
 
 pub enum StartTagOutcome {

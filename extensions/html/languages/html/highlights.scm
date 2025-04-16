@@ -1,7 +1,7 @@
-(tag_name) @tag
+(tag_name) @keyword
 (erroneous_end_tag_name) @keyword
-(doctype) @tag.doctype
-(attribute_name) @attribute
+(doctype) @constant
+(attribute_name) @property
 (attribute_value) @string
 (comment) @comment
 

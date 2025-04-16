@@ -1,9 +1,9 @@
-use crate::{Settings, settings_store::SettingsStore};
-use collections::HashSet;
-use fs::{Fs, PathEventKind};
-use futures::{StreamExt, channel::mpsc};
-use gpui::{App, BackgroundExecutor, ReadGlobal};
+use crate::{settings_store::SettingsStore, Settings};
+use fs::Fs;
+use futures::{channel::mpsc, StreamExt};
+use gpui::{AppContext, BackgroundExecutor, ReadGlobal, UpdateGlobal};
 use std::{path::PathBuf, sync::Arc, time::Duration};
+use util::ResultExt;
 
 pub const EMPTY_THEME_NAME: &str = "empty-theme";
 
@@ -13,7 +13,6 @@ pub fn test_settings() -> String {
         crate::default_settings().as_ref(),
     )
     .unwrap();
-    #[cfg(not(target_os = "windows"))]
     util::merge_non_null_json_value_into(
         serde_json::json!({
             "ui_font_family": "Courier",
@@ -21,21 +20,6 @@ pub fn test_settings() -> String {
             "ui_font_size": 14,
             "ui_font_fallback": [],
             "buffer_font_family": "Courier",
-            "buffer_font_features": {},
-            "buffer_font_size": 14,
-            "buffer_font_fallback": [],
-            "theme": EMPTY_THEME_NAME,
-        }),
-        &mut value,
-    );
-    #[cfg(target_os = "windows")]
-    util::merge_non_null_json_value_into(
-        serde_json::json!({
-            "ui_font_family": "Courier New",
-            "ui_font_features": {},
-            "ui_font_size": 14,
-            "ui_font_fallback": [],
-            "buffer_font_family": "Courier New",
             "buffer_font_features": {},
             "buffer_font_size": 14,
             "buffer_font_fallback": [],
@@ -79,59 +63,42 @@ pub fn watch_config_file(
     rx
 }
 
-pub fn watch_config_dir(
-    executor: &BackgroundExecutor,
-    fs: Arc<dyn Fs>,
-    dir_path: PathBuf,
-    config_paths: HashSet<PathBuf>,
-) -> mpsc::UnboundedReceiver<String> {
-    let (tx, rx) = mpsc::unbounded();
-    executor
-        .spawn(async move {
-            for file_path in &config_paths {
-                if fs.metadata(file_path).await.is_ok_and(|v| v.is_some()) {
-                    if let Ok(contents) = fs.load(file_path).await {
-                        if tx.unbounded_send(contents).is_err() {
-                            return;
-                        }
-                    }
+pub fn handle_settings_file_changes(
+    mut user_settings_file_rx: mpsc::UnboundedReceiver<String>,
+    cx: &mut AppContext,
+    settings_changed: impl Fn(Option<anyhow::Error>, &mut AppContext) + 'static,
+) {
+    let user_settings_content = cx
+        .background_executor()
+        .block(user_settings_file_rx.next())
+        .unwrap();
+    SettingsStore::update_global(cx, |store, cx| {
+        store
+            .set_user_settings(&user_settings_content, cx)
+            .log_err();
+    });
+    cx.spawn(move |mut cx| async move {
+        while let Some(user_settings_content) = user_settings_file_rx.next().await {
+            let result = cx.update_global(|store: &mut SettingsStore, cx| {
+                let result = store.set_user_settings(&user_settings_content, cx);
+                if let Err(err) = &result {
+                    log::error!("Failed to load user settings: {err}");
                 }
+                settings_changed(result.err(), cx);
+                cx.refresh();
+            });
+            if result.is_err() {
+                break; // App dropped
             }
-
-            let (events, _) = fs.watch(&dir_path, Duration::from_millis(100)).await;
-            futures::pin_mut!(events);
-
-            while let Some(event_batch) = events.next().await {
-                for event in event_batch {
-                    if config_paths.contains(&event.path) {
-                        match event.kind {
-                            Some(PathEventKind::Removed) => {
-                                if tx.unbounded_send(String::new()).is_err() {
-                                    return;
-                                }
-                            }
-                            Some(PathEventKind::Created) | Some(PathEventKind::Changed) => {
-                                if let Ok(contents) = fs.load(&event.path).await {
-                                    if tx.unbounded_send(contents).is_err() {
-                                        return;
-                                    }
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
-        })
-        .detach();
-
-    rx
+        }
+    })
+    .detach();
 }
 
 pub fn update_settings_file<T: Settings>(
     fs: Arc<dyn Fs>,
-    cx: &App,
-    update: impl 'static + Send + FnOnce(&mut T::FileContent, &App),
+    cx: &AppContext,
+    update: impl 'static + Send + FnOnce(&mut T::FileContent, &AppContext),
 ) {
     SettingsStore::global(cx).update_settings_file::<T>(fs, update);
 }

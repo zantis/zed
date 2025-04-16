@@ -1,13 +1,13 @@
 use gpui::Render;
 use story::Story;
 
-use crate::{IconButton, prelude::*};
+use crate::{prelude::*, IconButton};
 use crate::{IconName, ListHeader};
 
 pub struct ListHeaderStory;
 
 impl Render for ListHeaderStory {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _cx: &mut ViewContext<Self>) -> impl IntoElement {
         Story::container()
             .child(Story::title_for::<ListHeader>())
             .child(Story::label("Default"))
@@ -24,7 +24,7 @@ impl Render for ListHeaderStory {
             .child(
                 ListHeader::new("Section 4")
                     .end_slot(IconButton::new("action_1", IconName::Bolt))
-                    .end_slot(IconButton::new("action_2", IconName::Warning))
+                    .end_slot(IconButton::new("action_2", IconName::ExclamationTriangle))
                     .end_slot(IconButton::new("action_3", IconName::Plus)),
             )
     }

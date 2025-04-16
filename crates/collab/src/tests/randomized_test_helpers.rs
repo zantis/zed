@@ -9,7 +9,7 @@ use gpui::{BackgroundExecutor, Task, TestAppContext};
 use parking_lot::Mutex;
 use rand::prelude::*;
 use rpc::RECEIVE_TIMEOUT;
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use settings::SettingsStore;
 use std::sync::OnceLock;
 use std::{
@@ -17,8 +17,8 @@ use std::{
     path::PathBuf,
     rc::Rc,
     sync::{
-        Arc,
         atomic::{AtomicBool, Ordering::SeqCst},
+        Arc,
     },
 };
 
@@ -220,7 +220,6 @@ impl<T: RandomizedTest> TestPlan<T> {
                 .db
                 .create_user(
                     &format!("{username}@example.com"),
-                    None,
                     false,
                     NewUserParams {
                         github_login: username.clone(),
@@ -463,6 +462,7 @@ impl<T: RandomizedTest> TestPlan<T> {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn apply_server_operation(
         plan: Arc<Mutex<Self>>,
         deterministic: BackgroundExecutor,
@@ -532,9 +532,9 @@ impl<T: RandomizedTest> TestPlan<T> {
                 server.allow_connections();
 
                 for project in client.dev_server_projects().iter() {
-                    project.read_with(&client_cx, |project, cx| {
+                    project.read_with(&client_cx, |project, _| {
                         assert!(
-                            project.is_disconnected(cx),
+                            project.is_disconnected(),
                             "project {:?} should be read only",
                             project.remote_id()
                         )

@@ -1,6 +1,5 @@
 use std::cmp;
-use std::path::StripPrefixError;
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 use std::{
     ffi::OsStr,
     path::{Path, PathBuf},
@@ -21,8 +20,8 @@ pub fn home_dir() -> &'static PathBuf {
 
 pub trait PathExt {
     fn compact(&self) -> PathBuf;
+    fn icon_stem_or_suffix(&self) -> Option<&str>;
     fn extension_or_hidden_file_name(&self) -> Option<&str>;
-    fn to_sanitized_string(&self) -> String;
     fn try_from_bytes<'a>(bytes: &'a [u8]) -> anyhow::Result<Self>
     where
         Self: From<&'a Path>,
@@ -58,7 +57,7 @@ impl<T: AsRef<Path>> PathExt for T {
     ///   does not have the user's home directory prefix, or if we are not on
     ///   Linux or macOS, the original path is returned unchanged.
     fn compact(&self) -> PathBuf {
-        if cfg!(any(target_os = "linux", target_os = "freebsd")) || cfg!(target_os = "macos") {
+        if cfg!(target_os = "linux") || cfg!(target_os = "macos") {
             match self.as_ref().strip_prefix(home_dir().as_path()) {
                 Ok(relative_path) => {
                     let mut shortened_path = PathBuf::new();
@@ -73,8 +72,8 @@ impl<T: AsRef<Path>> PathExt for T {
         }
     }
 
-    /// Returns a file's extension or, if the file is hidden, its name without the leading dot
-    fn extension_or_hidden_file_name(&self) -> Option<&str> {
+    /// Returns either the suffix if available, or the file stem otherwise to determine which file icon to use
+    fn icon_stem_or_suffix(&self) -> Option<&str> {
         let path = self.as_ref();
         let file_name = path.file_name()?.to_str()?;
         if file_name.starts_with('.') {
@@ -86,102 +85,36 @@ impl<T: AsRef<Path>> PathExt for T {
             .or_else(|| path.file_stem()?.to_str())
     }
 
-    /// Returns a sanitized string representation of the path.
-    /// Note, on Windows, this assumes that the path is a valid UTF-8 string and
-    /// is not a UNC path.
-    fn to_sanitized_string(&self) -> String {
-        #[cfg(target_os = "windows")]
-        {
-            self.as_ref().to_string_lossy().replace("/", "\\")
+    /// Returns a file's extension or, if the file is hidden, its name without the leading dot
+    fn extension_or_hidden_file_name(&self) -> Option<&str> {
+        if let Some(extension) = self.as_ref().extension() {
+            return extension.to_str();
         }
-        #[cfg(not(target_os = "windows"))]
-        {
-            self.as_ref().to_string_lossy().to_string()
-        }
-    }
-}
 
-/// Due to the issue of UNC paths on Windows, which can cause bugs in various parts of Zed, introducing this `SanitizedPath`
-/// leverages Rust's type system to ensure that all paths entering Zed are always "sanitized" by removing the `\\\\?\\` prefix.
-/// On non-Windows operating systems, this struct is effectively a no-op.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct SanitizedPath(pub Arc<Path>);
-
-impl SanitizedPath {
-    pub fn starts_with(&self, prefix: &SanitizedPath) -> bool {
-        self.0.starts_with(&prefix.0)
-    }
-
-    pub fn as_path(&self) -> &Arc<Path> {
-        &self.0
-    }
-
-    pub fn to_string(&self) -> String {
-        self.0.to_string_lossy().to_string()
-    }
-
-    pub fn to_glob_string(&self) -> String {
-        #[cfg(target_os = "windows")]
-        {
-            self.0.to_string_lossy().replace("/", "\\")
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            self.0.to_string_lossy().to_string()
-        }
-    }
-
-    pub fn join(&self, path: &Self) -> Self {
-        self.0.join(&path.0).into()
-    }
-
-    pub fn strip_prefix(&self, base: &Self) -> Result<&Path, StripPrefixError> {
-        self.0.strip_prefix(base.as_path())
-    }
-}
-
-impl From<SanitizedPath> for Arc<Path> {
-    fn from(sanitized_path: SanitizedPath) -> Self {
-        sanitized_path.0
-    }
-}
-
-impl From<SanitizedPath> for PathBuf {
-    fn from(sanitized_path: SanitizedPath) -> Self {
-        sanitized_path.0.as_ref().into()
-    }
-}
-
-impl<T: AsRef<Path>> From<T> for SanitizedPath {
-    #[cfg(not(target_os = "windows"))]
-    fn from(path: T) -> Self {
-        let path = path.as_ref();
-        SanitizedPath(path.into())
-    }
-
-    #[cfg(target_os = "windows")]
-    fn from(path: T) -> Self {
-        let path = path.as_ref();
-        SanitizedPath(dunce::simplified(path).into())
+        self.as_ref().file_name()?.to_str()?.split('.').last()
     }
 }
 
 /// A delimiter to use in `path_query:row_number:column_number` strings parsing.
 pub const FILE_ROW_COLUMN_DELIMITER: char = ':';
 
-const ROW_COL_CAPTURE_REGEX: &str = r"(?xs)
+/// Extracts filename and row-column suffixes.
+/// Parenthesis format is used by [MSBuild](https://learn.microsoft.com/en-us/visualstudio/msbuild/msbuild-diagnostic-format-for-tasks) compatible tools
+// NOTE: All cases need to have exactly three capture groups for extract(): file_name, row and column.
+// Valid patterns that don't contain row and/or column should have empty groups in their place.
+const ROW_COL_CAPTURE_REGEX: &str = r"(?x)
     ([^\(]+)(?:
-        \((\d+)[,:](\d+)\) # filename(row,column), filename(row:column)
+        \((\d+),(\d+)\) # filename(row,column)
         |
         \((\d+)\)()     # filename(row)
     )
     |
-    (.+?)(?:
-        \:+(\d+)\:(\d+)\:*$  # filename:row:column
+    ([^\:]+)(?:
+        \:(\d+)\:(\d+)  # filename:row:column
         |
-        \:+(\d+)\:*()$       # filename:row
+        \:(\d+)()       # filename:row
         |
-        \:*()()$             # filename:
+        \:()()          # filename:
     )";
 
 /// A representation of a path-like string with optional row and column numbers.
@@ -203,96 +136,17 @@ impl PathWithPosition {
             column: None,
         }
     }
-
     /// Parses a string that possibly has `:row:column` or `(row, column)` suffix.
-    /// Parenthesis format is used by [MSBuild](https://learn.microsoft.com/en-us/visualstudio/msbuild/msbuild-diagnostic-format-for-tasks) compatible tools
     /// Ignores trailing `:`s, so `test.rs:22:` is parsed as `test.rs:22`.
     /// If the suffix parsing fails, the whole string is parsed as a path.
-    ///
-    /// Be mindful that `test_file:10:1:` is a valid posix filename.
-    /// `PathWithPosition` class assumes that the ending position-like suffix is **not** part of the filename.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use util::paths::PathWithPosition;
-    /// # use std::path::PathBuf;
-    /// assert_eq!(PathWithPosition::parse_str("test_file"), PathWithPosition {
-    ///     path: PathBuf::from("test_file"),
-    ///     row: None,
-    ///     column: None,
-    /// });
-    /// assert_eq!(PathWithPosition::parse_str("test_file:10"), PathWithPosition {
-    ///     path: PathBuf::from("test_file"),
-    ///     row: Some(10),
-    ///     column: None,
-    /// });
-    /// assert_eq!(PathWithPosition::parse_str("test_file.rs"), PathWithPosition {
-    ///     path: PathBuf::from("test_file.rs"),
-    ///     row: None,
-    ///     column: None,
-    /// });
-    /// assert_eq!(PathWithPosition::parse_str("test_file.rs:1"), PathWithPosition {
-    ///     path: PathBuf::from("test_file.rs"),
-    ///     row: Some(1),
-    ///     column: None,
-    /// });
-    /// assert_eq!(PathWithPosition::parse_str("test_file.rs:1:2"), PathWithPosition {
-    ///     path: PathBuf::from("test_file.rs"),
-    ///     row: Some(1),
-    ///     column: Some(2),
-    /// });
-    /// ```
-    ///
-    /// # Expected parsing results when encounter ill-formatted inputs.
-    /// ```
-    /// # use util::paths::PathWithPosition;
-    /// # use std::path::PathBuf;
-    /// assert_eq!(PathWithPosition::parse_str("test_file.rs:a"), PathWithPosition {
-    ///     path: PathBuf::from("test_file.rs:a"),
-    ///     row: None,
-    ///     column: None,
-    /// });
-    /// assert_eq!(PathWithPosition::parse_str("test_file.rs:a:b"), PathWithPosition {
-    ///     path: PathBuf::from("test_file.rs:a:b"),
-    ///     row: None,
-    ///     column: None,
-    /// });
-    /// assert_eq!(PathWithPosition::parse_str("test_file.rs::"), PathWithPosition {
-    ///     path: PathBuf::from("test_file.rs"),
-    ///     row: None,
-    ///     column: None,
-    /// });
-    /// assert_eq!(PathWithPosition::parse_str("test_file.rs::1"), PathWithPosition {
-    ///     path: PathBuf::from("test_file.rs"),
-    ///     row: Some(1),
-    ///     column: None,
-    /// });
-    /// assert_eq!(PathWithPosition::parse_str("test_file.rs:1::"), PathWithPosition {
-    ///     path: PathBuf::from("test_file.rs"),
-    ///     row: Some(1),
-    ///     column: None,
-    /// });
-    /// assert_eq!(PathWithPosition::parse_str("test_file.rs::1:2"), PathWithPosition {
-    ///     path: PathBuf::from("test_file.rs"),
-    ///     row: Some(1),
-    ///     column: Some(2),
-    /// });
-    /// assert_eq!(PathWithPosition::parse_str("test_file.rs:1::2"), PathWithPosition {
-    ///     path: PathBuf::from("test_file.rs:1"),
-    ///     row: Some(2),
-    ///     column: None,
-    /// });
-    /// assert_eq!(PathWithPosition::parse_str("test_file.rs:1:2:3"), PathWithPosition {
-    ///     path: PathBuf::from("test_file.rs:1"),
-    ///     row: Some(2),
-    ///     column: Some(3),
-    /// });
-    /// ```
     pub fn parse_str(s: &str) -> Self {
         let trimmed = s.trim();
         let path = Path::new(trimmed);
-        let maybe_file_name_with_row_col = path.file_name().unwrap_or_default().to_string_lossy();
+        let maybe_file_name_with_row_col = path
+            .file_name()
+            .unwrap_or_default()
+            .to_str()
+            .unwrap_or_default();
         if maybe_file_name_with_row_col.is_empty() {
             return Self {
                 path: Path::new(s).to_path_buf(),
@@ -307,7 +161,7 @@ impl PathWithPosition {
         static SUFFIX_RE: LazyLock<Regex> =
             LazyLock::new(|| Regex::new(ROW_COL_CAPTURE_REGEX).unwrap());
         match SUFFIX_RE
-            .captures(&maybe_file_name_with_row_col)
+            .captures(maybe_file_name_with_row_col)
             .map(|caps| caps.extract())
         {
             Some((_, [file_name, maybe_row, maybe_column])) => {
@@ -377,10 +231,10 @@ impl PartialEq for PathMatcher {
 impl Eq for PathMatcher {}
 
 impl PathMatcher {
-    pub fn new(globs: impl IntoIterator<Item = impl AsRef<str>>) -> Result<Self, globset::Error> {
+    pub fn new(globs: &[String]) -> Result<Self, globset::Error> {
         let globs = globs
-            .into_iter()
-            .map(|as_str| Glob::new(as_str.as_ref()))
+            .iter()
+            .map(|glob| Glob::new(glob))
             .collect::<Result<Vec<_>, _>>()?;
         let sources = globs.iter().map(|glob| glob.glob().to_owned()).collect();
         let mut glob_builder = GlobSetBuilder::new();
@@ -428,36 +282,28 @@ pub fn compare_paths(
                 let b_is_file = components_b.peek().is_none() && b_is_file;
                 let ordering = a_is_file.cmp(&b_is_file).then_with(|| {
                     let path_a = Path::new(component_a.as_os_str());
-                    let path_string_a = if a_is_file {
-                        path_a.file_stem()
-                    } else {
-                        path_a.file_name()
-                    }
-                    .map(|s| s.to_string_lossy());
-                    let num_and_remainder_a = path_string_a
-                        .as_deref()
-                        .map(NumericPrefixWithSuffix::from_numeric_prefixed_str);
+                    let num_and_remainder_a = NumericPrefixWithSuffix::from_numeric_prefixed_str(
+                        if a_is_file {
+                            path_a.file_stem()
+                        } else {
+                            path_a.file_name()
+                        }
+                        .and_then(|s| s.to_str())
+                        .unwrap_or_default(),
+                    );
 
                     let path_b = Path::new(component_b.as_os_str());
-                    let path_string_b = if b_is_file {
-                        path_b.file_stem()
-                    } else {
-                        path_b.file_name()
-                    }
-                    .map(|s| s.to_string_lossy());
-                    let num_and_remainder_b = path_string_b
-                        .as_deref()
-                        .map(NumericPrefixWithSuffix::from_numeric_prefixed_str);
-
-                    num_and_remainder_a.cmp(&num_and_remainder_b).then_with(|| {
-                        if a_is_file && b_is_file {
-                            let ext_a = path_a.extension().unwrap_or_default();
-                            let ext_b = path_b.extension().unwrap_or_default();
-                            ext_a.cmp(ext_b)
+                    let num_and_remainder_b = NumericPrefixWithSuffix::from_numeric_prefixed_str(
+                        if b_is_file {
+                            path_b.file_stem()
                         } else {
-                            cmp::Ordering::Equal
+                            path_b.file_name()
                         }
-                    })
+                        .and_then(|s| s.to_str())
+                        .unwrap_or_default(),
+                    );
+
+                    num_and_remainder_a.cmp(&num_and_remainder_b)
                 });
                 if !ordering.is_eq() {
                     return ordering;
@@ -513,309 +359,206 @@ mod tests {
     }
 
     #[test]
-    fn compare_paths_with_same_name_different_extensions() {
-        let mut paths = vec![
-            (Path::new("test_dirs/file.rs"), true),
-            (Path::new("test_dirs/file.txt"), true),
-            (Path::new("test_dirs/file.md"), true),
-            (Path::new("test_dirs/file"), true),
-            (Path::new("test_dirs/file.a"), true),
+    fn path_with_position_parsing_positive() {
+        let input_and_expected = [
+            (
+                "test_file.rs",
+                PathWithPosition {
+                    path: PathBuf::from("test_file.rs"),
+                    row: None,
+                    column: None,
+                },
+            ),
+            (
+                "test_file.rs:1",
+                PathWithPosition {
+                    path: PathBuf::from("test_file.rs"),
+                    row: Some(1),
+                    column: None,
+                },
+            ),
+            (
+                "test_file.rs:1:2",
+                PathWithPosition {
+                    path: PathBuf::from("test_file.rs"),
+                    row: Some(1),
+                    column: Some(2),
+                },
+            ),
         ];
-        paths.sort_by(|&a, &b| compare_paths(a, b));
-        assert_eq!(
-            paths,
-            vec![
-                (Path::new("test_dirs/file"), true),
-                (Path::new("test_dirs/file.a"), true),
-                (Path::new("test_dirs/file.md"), true),
-                (Path::new("test_dirs/file.rs"), true),
-                (Path::new("test_dirs/file.txt"), true),
-            ]
-        );
+
+        for (input, expected) in input_and_expected {
+            let actual = PathWithPosition::parse_str(input);
+            assert_eq!(
+                actual, expected,
+                "For positive case input str '{input}', got a parse mismatch"
+            );
+        }
     }
 
     #[test]
-    fn compare_paths_case_semi_sensitive() {
-        let mut paths = vec![
-            (Path::new("test_DIRS"), false),
-            (Path::new("test_DIRS/foo_1"), true),
-            (Path::new("test_DIRS/foo_2"), true),
-            (Path::new("test_DIRS/bar"), true),
-            (Path::new("test_DIRS/BAR"), true),
-            (Path::new("test_dirs"), false),
-            (Path::new("test_dirs/foo_1"), true),
-            (Path::new("test_dirs/foo_2"), true),
-            (Path::new("test_dirs/bar"), true),
-            (Path::new("test_dirs/BAR"), true),
+    fn path_with_position_parsing_negative() {
+        for (input, row, column) in [
+            ("test_file.rs:a", None, None),
+            ("test_file.rs:a:b", None, None),
+            ("test_file.rs::", None, None),
+            ("test_file.rs::1", None, None),
+            ("test_file.rs:1::", Some(1), None),
+            ("test_file.rs::1:2", None, None),
+            ("test_file.rs:1::2", Some(1), None),
+            ("test_file.rs:1:2:3", Some(1), Some(2)),
+        ] {
+            let actual = PathWithPosition::parse_str(input);
+            assert_eq!(
+                actual,
+                PathWithPosition {
+                    path: PathBuf::from("test_file.rs"),
+                    row,
+                    column,
+                },
+                "For negative case input str '{input}', got a parse mismatch"
+            );
+        }
+    }
+
+    // Trim off trailing `:`s for otherwise valid input.
+    #[test]
+    fn path_with_position_parsing_special() {
+        #[cfg(not(target_os = "windows"))]
+        let input_and_expected = [
+            (
+                "test_file.rs:",
+                PathWithPosition {
+                    path: PathBuf::from("test_file.rs"),
+                    row: None,
+                    column: None,
+                },
+            ),
+            (
+                "test_file.rs:1:",
+                PathWithPosition {
+                    path: PathBuf::from("test_file.rs"),
+                    row: Some(1),
+                    column: None,
+                },
+            ),
+            (
+                "crates/file_finder/src/file_finder.rs:1902:13:",
+                PathWithPosition {
+                    path: PathBuf::from("crates/file_finder/src/file_finder.rs"),
+                    row: Some(1902),
+                    column: Some(13),
+                },
+            ),
         ];
-        paths.sort_by(|&a, &b| compare_paths(a, b));
-        assert_eq!(
-            paths,
-            vec![
-                (Path::new("test_dirs"), false),
-                (Path::new("test_dirs/bar"), true),
-                (Path::new("test_dirs/BAR"), true),
-                (Path::new("test_dirs/foo_1"), true),
-                (Path::new("test_dirs/foo_2"), true),
-                (Path::new("test_DIRS"), false),
-                (Path::new("test_DIRS/bar"), true),
-                (Path::new("test_DIRS/BAR"), true),
-                (Path::new("test_DIRS/foo_1"), true),
-                (Path::new("test_DIRS/foo_2"), true),
-            ]
-        );
-    }
 
-    #[test]
-    fn path_with_position_parse_posix_path() {
-        // Test POSIX filename edge cases
-        // Read more at https://en.wikipedia.org/wiki/Filename
-        assert_eq!(
-            PathWithPosition::parse_str(" test_file"),
-            PathWithPosition {
-                path: PathBuf::from("test_file"),
-                row: None,
-                column: None
-            }
-        );
+        #[cfg(target_os = "windows")]
+        let input_and_expected = [
+            (
+                "test_file.rs:",
+                PathWithPosition {
+                    path: PathBuf::from("test_file.rs"),
+                    row: None,
+                    column: None,
+                },
+            ),
+            (
+                "test_file.rs:1:",
+                PathWithPosition {
+                    path: PathBuf::from("test_file.rs"),
+                    row: Some(1),
+                    column: None,
+                },
+            ),
+            (
+                "\\\\?\\C:\\Users\\someone\\test_file.rs:1902:13:",
+                PathWithPosition {
+                    path: PathBuf::from("\\\\?\\C:\\Users\\someone\\test_file.rs"),
+                    row: Some(1902),
+                    column: Some(13),
+                },
+            ),
+            (
+                "\\\\?\\C:\\Users\\someone\\test_file.rs:1902:13:15:",
+                PathWithPosition {
+                    path: PathBuf::from("\\\\?\\C:\\Users\\someone\\test_file.rs"),
+                    row: Some(1902),
+                    column: Some(13),
+                },
+            ),
+            (
+                "\\\\?\\C:\\Users\\someone\\test_file.rs:1902:::15:",
+                PathWithPosition {
+                    path: PathBuf::from("\\\\?\\C:\\Users\\someone\\test_file.rs"),
+                    row: Some(1902),
+                    column: None,
+                },
+            ),
+            (
+                "\\\\?\\C:\\Users\\someone\\test_file.rs(1902,13):",
+                PathWithPosition {
+                    path: PathBuf::from("\\\\?\\C:\\Users\\someone\\test_file.rs"),
+                    row: Some(1902),
+                    column: Some(13),
+                },
+            ),
+            (
+                "\\\\?\\C:\\Users\\someone\\test_file.rs(1902):",
+                PathWithPosition {
+                    path: PathBuf::from("\\\\?\\C:\\Users\\someone\\test_file.rs"),
+                    row: Some(1902),
+                    column: None,
+                },
+            ),
+            (
+                "C:\\Users\\someone\\test_file.rs:1902:13:",
+                PathWithPosition {
+                    path: PathBuf::from("C:\\Users\\someone\\test_file.rs"),
+                    row: Some(1902),
+                    column: Some(13),
+                },
+            ),
+            (
+                "crates/utils/paths.rs",
+                PathWithPosition {
+                    path: PathBuf::from("crates\\utils\\paths.rs"),
+                    row: None,
+                    column: None,
+                },
+            ),
+            (
+                "C:\\Users\\someone\\test_file.rs(1902,13):",
+                PathWithPosition {
+                    path: PathBuf::from("C:\\Users\\someone\\test_file.rs"),
+                    row: Some(1902),
+                    column: Some(13),
+                },
+            ),
+            (
+                "C:\\Users\\someone\\test_file.rs(1902):",
+                PathWithPosition {
+                    path: PathBuf::from("C:\\Users\\someone\\test_file.rs"),
+                    row: Some(1902),
+                    column: None,
+                },
+            ),
+            (
+                "crates/utils/paths.rs:101",
+                PathWithPosition {
+                    path: PathBuf::from("crates\\utils\\paths.rs"),
+                    row: Some(101),
+                    column: None,
+                },
+            ),
+        ];
 
-        assert_eq!(
-            PathWithPosition::parse_str("a:bc:.zip:1"),
-            PathWithPosition {
-                path: PathBuf::from("a:bc:.zip"),
-                row: Some(1),
-                column: None
-            }
-        );
-
-        assert_eq!(
-            PathWithPosition::parse_str("one.second.zip:1"),
-            PathWithPosition {
-                path: PathBuf::from("one.second.zip"),
-                row: Some(1),
-                column: None
-            }
-        );
-
-        // Trim off trailing `:`s for otherwise valid input.
-        assert_eq!(
-            PathWithPosition::parse_str("test_file:10:1:"),
-            PathWithPosition {
-                path: PathBuf::from("test_file"),
-                row: Some(10),
-                column: Some(1)
-            }
-        );
-
-        assert_eq!(
-            PathWithPosition::parse_str("test_file.rs:"),
-            PathWithPosition {
-                path: PathBuf::from("test_file.rs"),
-                row: None,
-                column: None
-            }
-        );
-
-        assert_eq!(
-            PathWithPosition::parse_str("test_file.rs:1:"),
-            PathWithPosition {
-                path: PathBuf::from("test_file.rs"),
-                row: Some(1),
-                column: None
-            }
-        );
-
-        assert_eq!(
-            PathWithPosition::parse_str("ab\ncd"),
-            PathWithPosition {
-                path: PathBuf::from("ab\ncd"),
-                row: None,
-                column: None
-            }
-        );
-
-        assert_eq!(
-            PathWithPosition::parse_str("👋\nab"),
-            PathWithPosition {
-                path: PathBuf::from("👋\nab"),
-                row: None,
-                column: None
-            }
-        );
-    }
-
-    #[test]
-    #[cfg(not(target_os = "windows"))]
-    fn path_with_position_parse_posix_path_with_suffix() {
-        assert_eq!(
-            PathWithPosition::parse_str("app-editors:zed-0.143.6:20240710-201212.log:34:"),
-            PathWithPosition {
-                path: PathBuf::from("app-editors:zed-0.143.6:20240710-201212.log"),
-                row: Some(34),
-                column: None,
-            }
-        );
-
-        assert_eq!(
-            PathWithPosition::parse_str("crates/file_finder/src/file_finder.rs:1902:13:"),
-            PathWithPosition {
-                path: PathBuf::from("crates/file_finder/src/file_finder.rs"),
-                row: Some(1902),
-                column: Some(13),
-            }
-        );
-
-        assert_eq!(
-            PathWithPosition::parse_str("crate/utils/src/test:today.log:34"),
-            PathWithPosition {
-                path: PathBuf::from("crate/utils/src/test:today.log"),
-                row: Some(34),
-                column: None,
-            }
-        );
-        assert_eq!(
-            PathWithPosition::parse_str("/testing/out/src/file_finder.odin(7:15)"),
-            PathWithPosition {
-                path: PathBuf::from("/testing/out/src/file_finder.odin"),
-                row: Some(7),
-                column: Some(15),
-            }
-        );
-    }
-
-    #[test]
-    #[cfg(target_os = "windows")]
-    fn path_with_position_parse_windows_path() {
-        assert_eq!(
-            PathWithPosition::parse_str("crates\\utils\\paths.rs"),
-            PathWithPosition {
-                path: PathBuf::from("crates\\utils\\paths.rs"),
-                row: None,
-                column: None
-            }
-        );
-
-        assert_eq!(
-            PathWithPosition::parse_str("C:\\Users\\someone\\test_file.rs"),
-            PathWithPosition {
-                path: PathBuf::from("C:\\Users\\someone\\test_file.rs"),
-                row: None,
-                column: None
-            }
-        );
-    }
-
-    #[test]
-    #[cfg(target_os = "windows")]
-    fn path_with_position_parse_windows_path_with_suffix() {
-        assert_eq!(
-            PathWithPosition::parse_str("crates\\utils\\paths.rs:101"),
-            PathWithPosition {
-                path: PathBuf::from("crates\\utils\\paths.rs"),
-                row: Some(101),
-                column: None
-            }
-        );
-
-        assert_eq!(
-            PathWithPosition::parse_str("\\\\?\\C:\\Users\\someone\\test_file.rs:1:20"),
-            PathWithPosition {
-                path: PathBuf::from("\\\\?\\C:\\Users\\someone\\test_file.rs"),
-                row: Some(1),
-                column: Some(20)
-            }
-        );
-
-        assert_eq!(
-            PathWithPosition::parse_str("C:\\Users\\someone\\test_file.rs(1902,13)"),
-            PathWithPosition {
-                path: PathBuf::from("C:\\Users\\someone\\test_file.rs"),
-                row: Some(1902),
-                column: Some(13)
-            }
-        );
-
-        // Trim off trailing `:`s for otherwise valid input.
-        assert_eq!(
-            PathWithPosition::parse_str("\\\\?\\C:\\Users\\someone\\test_file.rs:1902:13:"),
-            PathWithPosition {
-                path: PathBuf::from("\\\\?\\C:\\Users\\someone\\test_file.rs"),
-                row: Some(1902),
-                column: Some(13)
-            }
-        );
-
-        assert_eq!(
-            PathWithPosition::parse_str("\\\\?\\C:\\Users\\someone\\test_file.rs:1902:13:15:"),
-            PathWithPosition {
-                path: PathBuf::from("\\\\?\\C:\\Users\\someone\\test_file.rs:1902"),
-                row: Some(13),
-                column: Some(15)
-            }
-        );
-
-        assert_eq!(
-            PathWithPosition::parse_str("\\\\?\\C:\\Users\\someone\\test_file.rs:1902:::15:"),
-            PathWithPosition {
-                path: PathBuf::from("\\\\?\\C:\\Users\\someone\\test_file.rs:1902"),
-                row: Some(15),
-                column: None
-            }
-        );
-
-        assert_eq!(
-            PathWithPosition::parse_str("\\\\?\\C:\\Users\\someone\\test_file.rs(1902,13):"),
-            PathWithPosition {
-                path: PathBuf::from("\\\\?\\C:\\Users\\someone\\test_file.rs"),
-                row: Some(1902),
-                column: Some(13),
-            }
-        );
-
-        assert_eq!(
-            PathWithPosition::parse_str("\\\\?\\C:\\Users\\someone\\test_file.rs(1902):"),
-            PathWithPosition {
-                path: PathBuf::from("\\\\?\\C:\\Users\\someone\\test_file.rs"),
-                row: Some(1902),
-                column: None,
-            }
-        );
-
-        assert_eq!(
-            PathWithPosition::parse_str("C:\\Users\\someone\\test_file.rs:1902:13:"),
-            PathWithPosition {
-                path: PathBuf::from("C:\\Users\\someone\\test_file.rs"),
-                row: Some(1902),
-                column: Some(13),
-            }
-        );
-
-        assert_eq!(
-            PathWithPosition::parse_str("C:\\Users\\someone\\test_file.rs(1902,13):"),
-            PathWithPosition {
-                path: PathBuf::from("C:\\Users\\someone\\test_file.rs"),
-                row: Some(1902),
-                column: Some(13),
-            }
-        );
-
-        assert_eq!(
-            PathWithPosition::parse_str("C:\\Users\\someone\\test_file.rs(1902):"),
-            PathWithPosition {
-                path: PathBuf::from("C:\\Users\\someone\\test_file.rs"),
-                row: Some(1902),
-                column: None,
-            }
-        );
-
-        assert_eq!(
-            PathWithPosition::parse_str("crates/utils/paths.rs:101"),
-            PathWithPosition {
-                path: PathBuf::from("crates\\utils\\paths.rs"),
-                row: Some(101),
-                column: None,
-            }
-        );
+        for (input, expected) in input_and_expected {
+            let actual = PathWithPosition::parse_str(input);
+            assert_eq!(
+                actual, expected,
+                "For special case input str '{input}', got a parse mismatch"
+            );
+        }
     }
 
     #[test]
@@ -826,11 +569,38 @@ mod tests {
         ]
         .iter()
         .collect();
-        if cfg!(any(target_os = "linux", target_os = "freebsd")) || cfg!(target_os = "macos") {
+        if cfg!(target_os = "linux") || cfg!(target_os = "macos") {
             assert_eq!(path.compact().to_str(), Some("~/some_file.txt"));
         } else {
             assert_eq!(path.compact().to_str(), path.to_str());
         }
+    }
+
+    #[test]
+    fn test_icon_stem_or_suffix() {
+        // No dots in name
+        let path = Path::new("/a/b/c/file_name.rs");
+        assert_eq!(path.icon_stem_or_suffix(), Some("rs"));
+
+        // Single dot in name
+        let path = Path::new("/a/b/c/file.name.rs");
+        assert_eq!(path.icon_stem_or_suffix(), Some("rs"));
+
+        // No suffix
+        let path = Path::new("/a/b/c/file");
+        assert_eq!(path.icon_stem_or_suffix(), Some("file"));
+
+        // Multiple dots in name
+        let path = Path::new("/a/b/c/long.file.name.rs");
+        assert_eq!(path.icon_stem_or_suffix(), Some("rs"));
+
+        // Hidden file, no extension
+        let path = Path::new("/a/b/c/.gitignore");
+        assert_eq!(path.icon_stem_or_suffix(), Some("gitignore"));
+
+        // Hidden file, with extension
+        let path = Path::new("/a/b/c/.eslintrc.js");
+        assert_eq!(path.icon_stem_or_suffix(), Some("eslintrc.js"));
     }
 
     #[test]
@@ -853,7 +623,7 @@ mod tests {
 
         // Hidden file, with extension
         let path = Path::new("/a/b/c/.eslintrc.js");
-        assert_eq!(path.extension_or_hidden_file_name(), Some("eslintrc.js"));
+        assert_eq!(path.extension_or_hidden_file_name(), Some("js"));
     }
 
     #[test]
@@ -873,24 +643,6 @@ mod tests {
         assert!(
             path_matcher.is_match(path),
             "Path matcher should match {path:?}"
-        );
-    }
-
-    #[test]
-    #[cfg(target_os = "windows")]
-    fn test_sanitized_path() {
-        let path = Path::new("C:\\Users\\someone\\test_file.rs");
-        let sanitized_path = SanitizedPath::from(path);
-        assert_eq!(
-            sanitized_path.to_string(),
-            "C:\\Users\\someone\\test_file.rs"
-        );
-
-        let path = Path::new("\\\\?\\C:\\Users\\someone\\test_file.rs");
-        let sanitized_path = SanitizedPath::from(path);
-        assert_eq!(
-            sanitized_path.to_string(),
-            "C:\\Users\\someone\\test_file.rs"
         );
     }
 }

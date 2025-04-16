@@ -2,7 +2,7 @@
 
 TOML support is available through the [TOML extension](https://github.com/zed-industries/zed/tree/main/extensions/toml).
 
-- Tree-sitter: [tree-sitter/tree-sitter-toml](https://github.com/tree-sitter/tree-sitter-toml)
+- Tree Sitter: [tree-sitter/tree-sitter-toml](https://github.com/tree-sitter/tree-sitter-toml)
 - Language Server: [tamasfe/taplo](https://github.com/tamasfe/taplo)
 
 ## Configuration
@@ -17,16 +17,4 @@ include = ["Cargo.toml", "some_directory/**/*.toml"]
 [formatting]
 align_entries = true
 reorder_keys = true
-```
-
-Alternatively, you can pass taplo configuration options via [Zed LSP Settings](../configuring-zed.md#lsp)
-
-```json
-  "lsp": {
-    "taplo": {
-      "settings": {
-        "array_auto_collapse": false
-      }
-    }
-  }
 ```

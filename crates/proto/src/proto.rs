@@ -2,22 +2,142 @@
 
 pub mod error;
 mod macros;
+mod proto_client;
 mod typed_envelope;
 
 pub use error::*;
+pub use proto_client::*;
+pub use typed_envelope::*;
+
+use collections::HashMap;
 pub use prost::{DecodeError, Message};
+use serde::Serialize;
 use std::{
+    any::{Any, TypeId},
     cmp,
-    fmt::Debug,
+    fmt::{self, Debug},
     iter, mem,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-pub use typed_envelope::*;
 
 include!(concat!(env!("OUT_DIR"), "/zed.messages.rs"));
 
 pub const SSH_PEER_ID: PeerId = PeerId { owner_id: 0, id: 0 };
 pub const SSH_PROJECT_ID: u64 = 0;
+
+pub trait EnvelopedMessage: Clone + Debug + Serialize + Sized + Send + Sync + 'static {
+    const NAME: &'static str;
+    const PRIORITY: MessagePriority;
+    fn into_envelope(
+        self,
+        id: u32,
+        responding_to: Option<u32>,
+        original_sender_id: Option<PeerId>,
+    ) -> Envelope;
+    fn from_envelope(envelope: Envelope) -> Option<Self>;
+}
+
+pub trait EntityMessage: EnvelopedMessage {
+    type Entity;
+    fn remote_entity_id(&self) -> u64;
+}
+
+pub trait RequestMessage: EnvelopedMessage {
+    type Response: EnvelopedMessage;
+}
+
+pub trait AnyTypedEnvelope: 'static + Send + Sync {
+    fn payload_type_id(&self) -> TypeId;
+    fn payload_type_name(&self) -> &'static str;
+    fn as_any(&self) -> &dyn Any;
+    fn into_any(self: Box<Self>) -> Box<dyn Any + Send + Sync>;
+    fn is_background(&self) -> bool;
+    fn original_sender_id(&self) -> Option<PeerId>;
+    fn sender_id(&self) -> PeerId;
+    fn message_id(&self) -> u32;
+}
+
+pub enum MessagePriority {
+    Foreground,
+    Background,
+}
+
+impl<T: EnvelopedMessage> AnyTypedEnvelope for TypedEnvelope<T> {
+    fn payload_type_id(&self) -> TypeId {
+        TypeId::of::<T>()
+    }
+
+    fn payload_type_name(&self) -> &'static str {
+        T::NAME
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any + Send + Sync> {
+        self
+    }
+
+    fn is_background(&self) -> bool {
+        matches!(T::PRIORITY, MessagePriority::Background)
+    }
+
+    fn original_sender_id(&self) -> Option<PeerId> {
+        self.original_sender_id
+    }
+
+    fn sender_id(&self) -> PeerId {
+        self.sender_id
+    }
+
+    fn message_id(&self) -> u32 {
+        self.message_id
+    }
+}
+
+impl PeerId {
+    pub fn from_u64(peer_id: u64) -> Self {
+        let owner_id = (peer_id >> 32) as u32;
+        let id = peer_id as u32;
+        Self { owner_id, id }
+    }
+
+    pub fn as_u64(self) -> u64 {
+        ((self.owner_id as u64) << 32) | (self.id as u64)
+    }
+}
+
+impl Copy for PeerId {}
+
+impl Eq for PeerId {}
+
+impl Ord for PeerId {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.owner_id
+            .cmp(&other.owner_id)
+            .then_with(|| self.id.cmp(&other.id))
+    }
+}
+
+impl PartialOrd for PeerId {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl std::hash::Hash for PeerId {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.owner_id.hash(state);
+        self.id.hash(state);
+    }
+}
+
+impl fmt::Display for PeerId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}/{}", self.owner_id, self.id)
+    }
+}
 
 messages!(
     (AcceptTermsOfService, Foreground),
@@ -25,60 +145,39 @@ messages!(
     (Ack, Foreground),
     (AckBufferOperation, Background),
     (AckChannelMessage, Background),
-    (ActivateToolchain, Foreground),
-    (ActiveToolchain, Foreground),
-    (ActiveToolchainResponse, Foreground),
     (AddNotification, Foreground),
     (AddProjectCollaborator, Foreground),
-    (AddWorktree, Foreground),
-    (AddWorktreeResponse, Foreground),
-    (AdvertiseContexts, Foreground),
     (ApplyCodeAction, Background),
     (ApplyCodeActionResponse, Background),
     (ApplyCompletionAdditionalEdits, Background),
     (ApplyCompletionAdditionalEditsResponse, Background),
-    (BlameBuffer, Foreground),
-    (BlameBufferResponse, Foreground),
     (BufferReloaded, Foreground),
     (BufferSaved, Foreground),
     (Call, Foreground),
     (CallCanceled, Foreground),
     (CancelCall, Foreground),
-    (CancelLanguageServerWork, Foreground),
     (ChannelMessageSent, Foreground),
     (ChannelMessageUpdate, Foreground),
-    (CloseBuffer, Foreground),
-    (Commit, Background),
     (ComputeEmbeddings, Background),
     (ComputeEmbeddingsResponse, Background),
     (CopyProjectEntry, Foreground),
-    (CountLanguageModelTokens, Background),
-    (CountLanguageModelTokensResponse, Background),
     (CreateBufferForPeer, Foreground),
     (CreateChannel, Foreground),
     (CreateChannelResponse, Foreground),
-    (CreateContext, Foreground),
-    (CreateContextResponse, Foreground),
     (CreateProjectEntry, Foreground),
     (CreateRoom, Foreground),
     (CreateRoomResponse, Foreground),
     (DeclineCall, Foreground),
     (DeleteChannel, Foreground),
     (DeleteNotification, Foreground),
+    (UpdateNotification, Foreground),
     (DeleteProjectEntry, Foreground),
     (EndStream, Foreground),
     (Error, Foreground),
     (ExpandProjectEntry, Foreground),
     (ExpandProjectEntryResponse, Foreground),
-    (FindSearchCandidatesResponse, Background),
-    (FindSearchCandidates, Background),
-    (FlushBufferedMessages, Foreground),
-    (ExpandAllForProjectEntry, Foreground),
-    (ExpandAllForProjectEntryResponse, Foreground),
     (Follow, Foreground),
     (FollowResponse, Foreground),
-    (ApplyCodeActionKind, Foreground),
-    (ApplyCodeActionKindResponse, Foreground),
     (FormatBuffers, Foreground),
     (FormatBuffersResponse, Foreground),
     (FuzzySearchUsers, Foreground),
@@ -93,24 +192,16 @@ messages!(
     (GetCodeActionsResponse, Background),
     (GetCompletions, Background),
     (GetCompletionsResponse, Background),
-    (GetDeclaration, Background),
-    (GetDeclarationResponse, Background),
     (GetDefinition, Background),
     (GetDefinitionResponse, Background),
+    (GetDeclaration, Background),
+    (GetDeclarationResponse, Background),
     (GetDocumentHighlights, Background),
     (GetDocumentHighlightsResponse, Background),
-    (GetDocumentSymbols, Background),
-    (GetDocumentSymbolsResponse, Background),
     (GetHover, Background),
     (GetHoverResponse, Background),
     (GetNotifications, Foreground),
     (GetNotificationsResponse, Foreground),
-    (GetPanicFiles, Background),
-    (GetPanicFilesResponse, Background),
-    (GetPathMetadata, Background),
-    (GetPathMetadataResponse, Background),
-    (GetPermalinkToLine, Foreground),
-    (GetPermalinkToLineResponse, Foreground),
     (GetPrivateUserInfo, Foreground),
     (GetPrivateUserInfoResponse, Foreground),
     (GetProjectSymbols, Background),
@@ -127,21 +218,11 @@ messages!(
     (GetImplementationResponse, Background),
     (GetLlmToken, Background),
     (GetLlmTokenResponse, Background),
-    (LanguageServerIdForName, Background),
-    (LanguageServerIdForNameResponse, Background),
-    (OpenUnstagedDiff, Foreground),
-    (OpenUnstagedDiffResponse, Foreground),
-    (OpenUncommittedDiff, Foreground),
-    (OpenUncommittedDiffResponse, Foreground),
     (GetUsers, Foreground),
-    (GitGetBranches, Background),
-    (GitBranchesResponse, Background),
     (Hello, Foreground),
-    (HideToast, Background),
     (IncomingCall, Foreground),
     (InlayHints, Background),
     (InlayHintsResponse, Background),
-    (InstallExtension, Background),
     (InviteChannelMember, Foreground),
     (JoinChannel, Foreground),
     (JoinChannelBuffer, Foreground),
@@ -149,36 +230,16 @@ messages!(
     (JoinChannelChat, Foreground),
     (JoinChannelChatResponse, Foreground),
     (JoinProject, Foreground),
+    (JoinHostedProject, Foreground),
     (JoinProjectResponse, Foreground),
     (JoinRoom, Foreground),
     (JoinRoomResponse, Foreground),
-    (LanguageServerLog, Foreground),
-    (LanguageServerPromptRequest, Foreground),
-    (LanguageServerPromptResponse, Foreground),
     (LeaveChannelBuffer, Background),
     (LeaveChannelChat, Foreground),
     (LeaveProject, Foreground),
     (LeaveRoom, Foreground),
-    (LinkedEditingRange, Background),
-    (LinkedEditingRangeResponse, Background),
-    (ListRemoteDirectory, Background),
-    (ListRemoteDirectoryResponse, Background),
-    (ListToolchains, Foreground),
-    (ListToolchainsResponse, Foreground),
-    (LoadCommitDiff, Foreground),
-    (LoadCommitDiffResponse, Foreground),
-    (LspExtExpandMacro, Background),
-    (LspExtExpandMacroResponse, Background),
-    (LspExtOpenDocs, Background),
-    (LspExtOpenDocsResponse, Background),
-    (LspExtRunnables, Background),
-    (LspExtRunnablesResponse, Background),
-    (LspExtSwitchSourceHeader, Background),
-    (LspExtSwitchSourceHeaderResponse, Background),
     (MarkNotificationRead, Foreground),
     (MoveChannel, Foreground),
-    (MultiLspQuery, Background),
-    (MultiLspQueryResponse, Background),
     (OnTypeFormatting, Background),
     (OnTypeFormattingResponse, Background),
     (OpenBufferById, Background),
@@ -186,33 +247,26 @@ messages!(
     (OpenBufferForSymbol, Background),
     (OpenBufferForSymbolResponse, Background),
     (OpenBufferResponse, Background),
-    (OpenCommitMessageBuffer, Background),
-    (OpenContext, Foreground),
-    (OpenContextResponse, Foreground),
-    (OpenNewBuffer, Foreground),
-    (OpenServerSettings, Foreground),
     (PerformRename, Background),
     (PerformRenameResponse, Background),
     (Ping, Foreground),
     (PrepareRename, Background),
     (PrepareRenameResponse, Background),
     (ProjectEntryResponse, Foreground),
+    (CountLanguageModelTokens, Background),
+    (CountLanguageModelTokensResponse, Background),
     (RefreshInlayHints, Foreground),
-    (RefreshLlmToken, Background),
-    (RegisterBufferWithLanguageServers, Background),
     (RejoinChannelBuffers, Foreground),
     (RejoinChannelBuffersResponse, Foreground),
-    (RejoinRemoteProjects, Foreground),
-    (RejoinRemoteProjectsResponse, Foreground),
     (RejoinRoom, Foreground),
     (RejoinRoomResponse, Foreground),
     (ReloadBuffers, Foreground),
     (ReloadBuffersResponse, Foreground),
     (RemoveChannelMember, Foreground),
     (RemoveChannelMessage, Foreground),
+    (UpdateChannelMessage, Foreground),
     (RemoveContact, Foreground),
     (RemoveProjectCollaborator, Foreground),
-    (RemoveWorktree, Foreground),
     (RenameChannel, Foreground),
     (RenameChannelResponse, Foreground),
     (RenameProjectEntry, Foreground),
@@ -221,87 +275,98 @@ messages!(
     (ResolveCompletionDocumentationResponse, Background),
     (ResolveInlayHint, Background),
     (ResolveInlayHintResponse, Background),
-    (RefreshCodeLens, Background),
-    (GetCodeLens, Background),
-    (GetCodeLensResponse, Background),
     (RespondToChannelInvite, Foreground),
     (RespondToContactRequest, Foreground),
-    (RestartLanguageServers, Foreground),
-    (StopLanguageServers, Background),
     (RoomUpdated, Foreground),
     (SaveBuffer, Foreground),
-    (SendChannelMessage, Background),
-    (SendChannelMessageResponse, Background),
     (SetChannelMemberRole, Foreground),
     (SetChannelVisibility, Foreground),
-    (SetRoomParticipantRole, Foreground),
+    (SearchProject, Background),
+    (SearchProjectResponse, Background),
+    (SendChannelMessage, Background),
+    (SendChannelMessageResponse, Background),
     (ShareProject, Foreground),
     (ShareProjectResponse, Foreground),
     (ShowContacts, Foreground),
-    (ShutdownRemoteServer, Foreground),
-    (Stage, Background),
     (StartLanguageServer, Foreground),
     (SubscribeToChannels, Foreground),
-    (SyncExtensions, Background),
-    (SyncExtensionsResponse, Background),
-    (BreakpointsForFile, Background),
-    (ToggleBreakpoint, Foreground),
     (SynchronizeBuffers, Foreground),
     (SynchronizeBuffersResponse, Foreground),
-    (SynchronizeContexts, Foreground),
-    (SynchronizeContextsResponse, Foreground),
-    (TaskContext, Background),
     (TaskContextForLocation, Background),
+    (TaskContext, Background),
+    (TaskTemplates, Background),
+    (TaskTemplatesResponse, Background),
     (Test, Foreground),
-    (Toast, Background),
     (Unfollow, Foreground),
     (UnshareProject, Foreground),
-    (Unstage, Background),
     (UpdateBuffer, Foreground),
     (UpdateBufferFile, Foreground),
     (UpdateChannelBuffer, Foreground),
     (UpdateChannelBufferCollaborators, Foreground),
-    (UpdateChannelMessage, Foreground),
     (UpdateChannels, Foreground),
+    (UpdateUserChannels, Foreground),
     (UpdateContacts, Foreground),
-    (UpdateContext, Foreground),
     (UpdateDiagnosticSummary, Foreground),
-    (UpdateDiffBases, Foreground),
+    (UpdateDiffBase, Foreground),
     (UpdateFollowers, Foreground),
-    (UpdateGitBranch, Background),
     (UpdateInviteInfo, Foreground),
     (UpdateLanguageServer, Foreground),
-    (UpdateNotification, Foreground),
     (UpdateParticipantLocation, Foreground),
     (UpdateProject, Foreground),
     (UpdateProjectCollaborator, Foreground),
-    (UpdateUserChannels, Foreground),
     (UpdateUserPlan, Foreground),
     (UpdateWorktree, Foreground),
     (UpdateWorktreeSettings, Foreground),
-    (UpdateRepository, Foreground),
-    (RemoveRepository, Foreground),
     (UsersResponse, Foreground),
-    (GitReset, Background),
-    (GitCheckoutFiles, Background),
-    (GitShow, Background),
-    (GitCommitDetails, Background),
-    (SetIndexText, Background),
-    (Push, Background),
-    (Fetch, Background),
-    (GetRemotes, Background),
-    (GetRemotesResponse, Background),
-    (Pull, Background),
-    (RemoteMessageResponse, Background),
-    (AskPassRequest, Background),
-    (AskPassResponse, Background),
-    (GitCreateBranch, Background),
-    (GitChangeBranch, Background),
-    (CheckForPushedCommits, Background),
-    (CheckForPushedCommitsResponse, Background),
-    (GitDiff, Background),
-    (GitDiffResponse, Background),
-    (GitInit, Background),
+    (LspExtExpandMacro, Background),
+    (LspExtExpandMacroResponse, Background),
+    (SetRoomParticipantRole, Foreground),
+    (BlameBuffer, Foreground),
+    (BlameBufferResponse, Foreground),
+    (CreateDevServerProject, Background),
+    (CreateDevServerProjectResponse, Foreground),
+    (CreateDevServer, Foreground),
+    (CreateDevServerResponse, Foreground),
+    (DevServerInstructions, Foreground),
+    (ShutdownDevServer, Foreground),
+    (ReconnectDevServer, Foreground),
+    (ReconnectDevServerResponse, Foreground),
+    (ShareDevServerProject, Foreground),
+    (JoinDevServerProject, Foreground),
+    (RejoinRemoteProjects, Foreground),
+    (RejoinRemoteProjectsResponse, Foreground),
+    (MultiLspQuery, Background),
+    (MultiLspQueryResponse, Background),
+    (DevServerProjectsUpdate, Foreground),
+    (ValidateDevServerProjectRequest, Background),
+    (ListRemoteDirectory, Background),
+    (ListRemoteDirectoryResponse, Background),
+    (UpdateDevServerProject, Background),
+    (DeleteDevServer, Foreground),
+    (DeleteDevServerProject, Foreground),
+    (RegenerateDevServerToken, Foreground),
+    (RegenerateDevServerTokenResponse, Foreground),
+    (RenameDevServer, Foreground),
+    (OpenNewBuffer, Foreground),
+    (RestartLanguageServers, Foreground),
+    (LinkedEditingRange, Background),
+    (LinkedEditingRangeResponse, Background),
+    (AdvertiseContexts, Foreground),
+    (OpenContext, Foreground),
+    (OpenContextResponse, Foreground),
+    (CreateContext, Foreground),
+    (CreateContextResponse, Foreground),
+    (UpdateContext, Foreground),
+    (SynchronizeContexts, Foreground),
+    (SynchronizeContextsResponse, Foreground),
+    (LspExtSwitchSourceHeader, Background),
+    (LspExtSwitchSourceHeaderResponse, Background),
+    (AddWorktree, Foreground),
+    (AddWorktreeResponse, Foreground),
+    (FindSearchCandidates, Background),
+    (FindSearchCandidatesResponse, Background),
+    (CloseBuffer, Foreground),
+    (UpdateUserSettings, Foreground)
 );
 
 request_messages!(
@@ -313,7 +378,6 @@ request_messages!(
     ),
     (Call, Ack),
     (CancelCall, Ack),
-    (Commit, Ack),
     (CopyProjectEntry, ProjectEntryResponse),
     (ComputeEmbeddings, ComputeEmbeddingsResponse),
     (CreateChannel, CreateChannelResponse),
@@ -323,9 +387,7 @@ request_messages!(
     (DeleteChannel, Ack),
     (DeleteProjectEntry, ProjectEntryResponse),
     (ExpandProjectEntry, ExpandProjectEntryResponse),
-    (ExpandAllForProjectEntry, ExpandAllForProjectEntryResponse),
     (Follow, FollowResponse),
-    (ApplyCodeActionKind, ApplyCodeActionKindResponse),
     (FormatBuffers, FormatBuffersResponse),
     (FuzzySearchUsers, UsersResponse),
     (GetCachedEmbeddings, GetCachedEmbeddingsResponse),
@@ -338,7 +400,6 @@ request_messages!(
     (GetDeclaration, GetDeclarationResponse),
     (GetImplementation, GetImplementationResponse),
     (GetDocumentHighlights, GetDocumentHighlightsResponse),
-    (GetDocumentSymbols, GetDocumentSymbolsResponse),
     (GetHover, GetHoverResponse),
     (GetLlmToken, GetLlmTokenResponse),
     (GetNotifications, GetNotificationsResponse),
@@ -346,39 +407,35 @@ request_messages!(
     (GetProjectSymbols, GetProjectSymbolsResponse),
     (GetReferences, GetReferencesResponse),
     (GetSignatureHelp, GetSignatureHelpResponse),
-    (OpenUnstagedDiff, OpenUnstagedDiffResponse),
-    (OpenUncommittedDiff, OpenUncommittedDiffResponse),
     (GetSupermavenApiKey, GetSupermavenApiKeyResponse),
     (GetTypeDefinition, GetTypeDefinitionResponse),
     (LinkedEditingRange, LinkedEditingRangeResponse),
     (ListRemoteDirectory, ListRemoteDirectoryResponse),
+    (UpdateDevServerProject, Ack),
     (GetUsers, UsersResponse),
     (IncomingCall, Ack),
     (InlayHints, InlayHintsResponse),
-    (GetCodeLens, GetCodeLensResponse),
     (InviteChannelMember, Ack),
     (JoinChannel, JoinRoomResponse),
     (JoinChannelBuffer, JoinChannelBufferResponse),
     (JoinChannelChat, JoinChannelChatResponse),
+    (JoinHostedProject, JoinProjectResponse),
     (JoinProject, JoinProjectResponse),
     (JoinRoom, JoinRoomResponse),
     (LeaveChannelBuffer, Ack),
     (LeaveRoom, Ack),
-    (LoadCommitDiff, LoadCommitDiffResponse),
     (MarkNotificationRead, Ack),
     (MoveChannel, Ack),
     (OnTypeFormatting, OnTypeFormattingResponse),
     (OpenBufferById, OpenBufferResponse),
     (OpenBufferByPath, OpenBufferResponse),
     (OpenBufferForSymbol, OpenBufferForSymbolResponse),
-    (OpenCommitMessageBuffer, OpenBufferResponse),
     (OpenNewBuffer, OpenBufferResponse),
     (PerformRename, PerformRenameResponse),
     (Ping, Ack),
     (PrepareRename, PrepareRenameResponse),
     (CountLanguageModelTokens, CountLanguageModelTokensResponse),
     (RefreshInlayHints, Ack),
-    (RefreshCodeLens, Ack),
     (RejoinChannelBuffers, RejoinChannelBuffersResponse),
     (RejoinRoom, RejoinRoomResponse),
     (ReloadBuffers, ReloadBuffersResponse),
@@ -397,7 +454,7 @@ request_messages!(
     (RespondToChannelInvite, Ack),
     (RespondToContactRequest, Ack),
     (SaveBuffer, BufferSaved),
-    (Stage, Ack),
+    (SearchProject, SearchProjectResponse),
     (FindSearchCandidates, FindSearchCandidatesResponse),
     (SendChannelMessage, SendChannelMessageResponse),
     (SetChannelMemberRole, Ack),
@@ -405,61 +462,34 @@ request_messages!(
     (ShareProject, ShareProjectResponse),
     (SynchronizeBuffers, SynchronizeBuffersResponse),
     (TaskContextForLocation, TaskContext),
+    (TaskTemplates, TaskTemplatesResponse),
     (Test, Test),
-    (Unstage, Ack),
     (UpdateBuffer, Ack),
     (UpdateParticipantLocation, Ack),
     (UpdateProject, Ack),
     (UpdateWorktree, Ack),
-    (UpdateRepository, Ack),
-    (RemoveRepository, Ack),
-    (LanguageServerIdForName, LanguageServerIdForNameResponse),
     (LspExtExpandMacro, LspExtExpandMacroResponse),
-    (LspExtOpenDocs, LspExtOpenDocsResponse),
-    (LspExtRunnables, LspExtRunnablesResponse),
     (SetRoomParticipantRole, Ack),
     (BlameBuffer, BlameBufferResponse),
+    (CreateDevServerProject, CreateDevServerProjectResponse),
+    (CreateDevServer, CreateDevServerResponse),
+    (ShutdownDevServer, Ack),
+    (ShareDevServerProject, ShareProjectResponse),
+    (JoinDevServerProject, JoinProjectResponse),
     (RejoinRemoteProjects, RejoinRemoteProjectsResponse),
+    (ReconnectDevServer, ReconnectDevServerResponse),
+    (ValidateDevServerProjectRequest, Ack),
     (MultiLspQuery, MultiLspQueryResponse),
+    (DeleteDevServer, Ack),
+    (DeleteDevServerProject, Ack),
+    (RegenerateDevServerToken, RegenerateDevServerTokenResponse),
+    (RenameDevServer, Ack),
     (RestartLanguageServers, Ack),
-    (StopLanguageServers, Ack),
     (OpenContext, OpenContextResponse),
     (CreateContext, CreateContextResponse),
     (SynchronizeContexts, SynchronizeContextsResponse),
     (LspExtSwitchSourceHeader, LspExtSwitchSourceHeaderResponse),
     (AddWorktree, AddWorktreeResponse),
-    (ShutdownRemoteServer, Ack),
-    (RemoveWorktree, Ack),
-    (OpenServerSettings, OpenBufferResponse),
-    (GetPermalinkToLine, GetPermalinkToLineResponse),
-    (FlushBufferedMessages, Ack),
-    (LanguageServerPromptRequest, LanguageServerPromptResponse),
-    (GitGetBranches, GitBranchesResponse),
-    (UpdateGitBranch, Ack),
-    (ListToolchains, ListToolchainsResponse),
-    (ActivateToolchain, Ack),
-    (ActiveToolchain, ActiveToolchainResponse),
-    (GetPathMetadata, GetPathMetadataResponse),
-    (GetPanicFiles, GetPanicFilesResponse),
-    (CancelLanguageServerWork, Ack),
-    (SyncExtensions, SyncExtensionsResponse),
-    (InstallExtension, Ack),
-    (RegisterBufferWithLanguageServers, Ack),
-    (GitShow, GitCommitDetails),
-    (GitReset, Ack),
-    (GitCheckoutFiles, Ack),
-    (SetIndexText, Ack),
-    (Push, RemoteMessageResponse),
-    (Fetch, RemoteMessageResponse),
-    (GetRemotes, GetRemotesResponse),
-    (Pull, RemoteMessageResponse),
-    (AskPassRequest, AskPassResponse),
-    (GitCreateBranch, Ack),
-    (GitChangeBranch, Ack),
-    (CheckForPushedCommits, CheckForPushedCommitsResponse),
-    (GitDiff, GitDiffResponse),
-    (GitInit, Ack),
-    (ToggleBreakpoint, Ack),
 );
 
 entity_messages!(
@@ -472,113 +502,67 @@ entity_messages!(
     BufferReloaded,
     BufferSaved,
     CloseBuffer,
-    Commit,
     CopyProjectEntry,
     CreateBufferForPeer,
     CreateProjectEntry,
     DeleteProjectEntry,
     ExpandProjectEntry,
-    ExpandAllForProjectEntry,
     FindSearchCandidates,
-    ApplyCodeActionKind,
     FormatBuffers,
     GetCodeActions,
-    GetCodeLens,
     GetCompletions,
     GetDefinition,
     GetDeclaration,
     GetImplementation,
     GetDocumentHighlights,
-    GetDocumentSymbols,
     GetHover,
     GetProjectSymbols,
     GetReferences,
     GetSignatureHelp,
-    OpenUnstagedDiff,
-    OpenUncommittedDiff,
     GetTypeDefinition,
     InlayHints,
     JoinProject,
     LeaveProject,
     LinkedEditingRange,
-    LoadCommitDiff,
     MultiLspQuery,
     RestartLanguageServers,
-    StopLanguageServers,
     OnTypeFormatting,
     OpenNewBuffer,
     OpenBufferById,
     OpenBufferByPath,
     OpenBufferForSymbol,
-    OpenCommitMessageBuffer,
     PerformRename,
     PrepareRename,
     RefreshInlayHints,
-    RefreshCodeLens,
     ReloadBuffers,
     RemoveProjectCollaborator,
     RenameProjectEntry,
     ResolveCompletionDocumentation,
     ResolveInlayHint,
     SaveBuffer,
-    Stage,
+    SearchProject,
     StartLanguageServer,
     SynchronizeBuffers,
     TaskContextForLocation,
+    TaskTemplates,
     UnshareProject,
-    Unstage,
     UpdateBuffer,
     UpdateBufferFile,
     UpdateDiagnosticSummary,
-    UpdateDiffBases,
+    UpdateDiffBase,
     UpdateLanguageServer,
     UpdateProject,
     UpdateProjectCollaborator,
     UpdateWorktree,
-    UpdateRepository,
-    RemoveRepository,
     UpdateWorktreeSettings,
     LspExtExpandMacro,
-    LspExtOpenDocs,
-    LspExtRunnables,
     AdvertiseContexts,
     OpenContext,
     CreateContext,
     UpdateContext,
     SynchronizeContexts,
     LspExtSwitchSourceHeader,
-    LanguageServerLog,
-    Toast,
-    HideToast,
-    OpenServerSettings,
-    GetPermalinkToLine,
-    LanguageServerPromptRequest,
-    LanguageServerIdForName,
-    GitGetBranches,
-    UpdateGitBranch,
-    ListToolchains,
-    ActivateToolchain,
-    ActiveToolchain,
-    GetPathMetadata,
-    CancelLanguageServerWork,
-    RegisterBufferWithLanguageServers,
-    GitShow,
-    GitReset,
-    GitCheckoutFiles,
-    SetIndexText,
-
-    Push,
-    Fetch,
-    GetRemotes,
-    Pull,
-    AskPassRequest,
-    GitChangeBranch,
-    GitCreateBranch,
-    CheckForPushedCommits,
-    GitDiff,
-    GitInit,
-    BreakpointsForFile,
-    ToggleBreakpoint,
+    UpdateUserSettings
 );
 
 entity_messages!(
@@ -628,74 +612,56 @@ impl From<Nonce> for u128 {
     }
 }
 
-#[cfg(any(test, feature = "test-support"))]
-pub const MAX_WORKTREE_UPDATE_MAX_CHUNK_SIZE: usize = 2;
-#[cfg(not(any(test, feature = "test-support")))]
-pub const MAX_WORKTREE_UPDATE_MAX_CHUNK_SIZE: usize = 256;
+pub fn split_worktree_update(
+    mut message: UpdateWorktree,
+    max_chunk_size: usize,
+) -> impl Iterator<Item = UpdateWorktree> {
+    let mut done_files = false;
 
-pub fn split_worktree_update(mut message: UpdateWorktree) -> impl Iterator<Item = UpdateWorktree> {
-    let mut done = false;
+    let mut repository_map = message
+        .updated_repositories
+        .into_iter()
+        .map(|repo| (repo.work_directory_id, repo))
+        .collect::<HashMap<_, _>>();
 
     iter::from_fn(move || {
-        if done {
+        if done_files {
             return None;
         }
 
-        let updated_entries_chunk_size = cmp::min(
-            message.updated_entries.len(),
-            MAX_WORKTREE_UPDATE_MAX_CHUNK_SIZE,
-        );
+        let updated_entries_chunk_size = cmp::min(message.updated_entries.len(), max_chunk_size);
         let updated_entries: Vec<_> = message
             .updated_entries
             .drain(..updated_entries_chunk_size)
             .collect();
 
-        let removed_entries_chunk_size = cmp::min(
-            message.removed_entries.len(),
-            MAX_WORKTREE_UPDATE_MAX_CHUNK_SIZE,
-        );
+        let removed_entries_chunk_size = cmp::min(message.removed_entries.len(), max_chunk_size);
         let removed_entries = message
             .removed_entries
             .drain(..removed_entries_chunk_size)
             .collect();
 
-        let mut updated_repositories = Vec::new();
-        let mut limit = MAX_WORKTREE_UPDATE_MAX_CHUNK_SIZE;
-        while let Some(repo) = message.updated_repositories.first_mut() {
-            let updated_statuses_limit = cmp::min(repo.updated_statuses.len(), limit);
-            let removed_statuses_limit = cmp::min(repo.removed_statuses.len(), limit);
+        done_files = message.updated_entries.is_empty() && message.removed_entries.is_empty();
 
-            updated_repositories.push(RepositoryEntry {
-                repository_id: repo.repository_id,
-                branch_summary: repo.branch_summary.clone(),
-                updated_statuses: repo
-                    .updated_statuses
-                    .drain(..updated_statuses_limit)
-                    .collect(),
-                removed_statuses: repo
-                    .removed_statuses
-                    .drain(..removed_statuses_limit)
-                    .collect(),
-                current_merge_conflicts: repo.current_merge_conflicts.clone(),
-            });
-            if repo.removed_statuses.is_empty() && repo.updated_statuses.is_empty() {
-                message.updated_repositories.remove(0);
-            }
-            limit = limit.saturating_sub(removed_statuses_limit + updated_statuses_limit);
-            if limit == 0 {
-                break;
+        let mut updated_repositories = Vec::new();
+
+        if !repository_map.is_empty() {
+            for entry in &updated_entries {
+                if let Some(repo) = repository_map.remove(&entry.id) {
+                    updated_repositories.push(repo)
+                }
             }
         }
 
-        done = message.updated_entries.is_empty()
-            && message.removed_entries.is_empty()
-            && message.updated_repositories.is_empty();
-
-        let removed_repositories = if done {
+        let removed_repositories = if done_files {
             mem::take(&mut message.removed_repositories)
         } else {
             Default::default()
         };
+
+        if done_files {
+            updated_repositories.extend(mem::take(&mut repository_map).into_values());
+        }
 
         Some(UpdateWorktree {
             project_id: message.project_id,
@@ -705,46 +671,11 @@ pub fn split_worktree_update(mut message: UpdateWorktree) -> impl Iterator<Item 
             updated_entries,
             removed_entries,
             scan_id: message.scan_id,
-            is_last_update: done && message.is_last_update,
+            is_last_update: done_files && message.is_last_update,
             updated_repositories,
             removed_repositories,
         })
     })
-}
-
-pub fn split_repository_update(
-    mut update: UpdateRepository,
-) -> impl Iterator<Item = UpdateRepository> {
-    let mut updated_statuses_iter = mem::take(&mut update.updated_statuses).into_iter().fuse();
-    let mut removed_statuses_iter = mem::take(&mut update.removed_statuses).into_iter().fuse();
-    std::iter::from_fn({
-        let update = update.clone();
-        move || {
-            let updated_statuses = updated_statuses_iter
-                .by_ref()
-                .take(MAX_WORKTREE_UPDATE_MAX_CHUNK_SIZE)
-                .collect::<Vec<_>>();
-            let removed_statuses = removed_statuses_iter
-                .by_ref()
-                .take(MAX_WORKTREE_UPDATE_MAX_CHUNK_SIZE)
-                .collect::<Vec<_>>();
-            if updated_statuses.is_empty() && removed_statuses.is_empty() {
-                return None;
-            }
-            Some(UpdateRepository {
-                updated_statuses,
-                removed_statuses,
-                is_last_update: false,
-                ..update.clone()
-            })
-        }
-    })
-    .chain([UpdateRepository {
-        updated_statuses: Vec::new(),
-        removed_statuses: Vec::new(),
-        is_last_update: true,
-        ..update
-    }])
 }
 
 #[cfg(test)]
@@ -773,25 +704,5 @@ mod tests {
             id: u32::MAX,
         };
         assert_eq!(PeerId::from_u64(peer_id.as_u64()), peer_id);
-    }
-
-    #[test]
-    #[cfg(target_os = "windows")]
-    fn test_proto() {
-        use std::path::PathBuf;
-
-        fn generate_proto_path(path: PathBuf) -> PathBuf {
-            let proto = path.to_proto();
-            PathBuf::from_proto(proto)
-        }
-
-        let path = PathBuf::from("C:\\foo\\bar");
-        assert_eq!(path, generate_proto_path(path.clone()));
-
-        let path = PathBuf::from("C:/foo/bar/");
-        assert_eq!(path, generate_proto_path(path.clone()));
-
-        let path = PathBuf::from("C:/foo\\bar\\");
-        assert_eq!(path, generate_proto_path(path.clone()));
     }
 }

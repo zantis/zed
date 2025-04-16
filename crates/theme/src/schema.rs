@@ -1,12 +1,10 @@
-#![allow(missing_docs)]
-
 use anyhow::Result;
 use gpui::{FontStyle, FontWeight, HighlightStyle, Hsla, WindowBackgroundAppearance};
 use indexmap::IndexMap;
 use palette::FromColor;
-use schemars::JsonSchema;
-use schemars::r#gen::SchemaGenerator;
+use schemars::gen::SchemaGenerator;
 use schemars::schema::{Schema, SchemaObject};
+use schemars::JsonSchema;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use serde_repr::{Deserialize_repr, Serialize_repr};
@@ -71,7 +69,7 @@ pub struct ThemeContent {
 }
 
 /// The content of a serialized theme.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct ThemeStyleContent {
     #[serde(default, rename = "background.appearance")]
@@ -98,8 +96,7 @@ impl ThemeStyleContent {
     /// Returns a [`ThemeColorsRefinement`] based on the colors in the [`ThemeContent`].
     #[inline(always)]
     pub fn theme_colors_refinement(&self) -> ThemeColorsRefinement {
-        self.colors
-            .theme_colors_refinement(&self.status_colors_refinement())
+        self.colors.theme_colors_refinement()
     }
 
     /// Returns a [`StatusColorsRefinement`] based on the colors in the [`ThemeContent`].
@@ -134,7 +131,7 @@ impl ThemeStyleContent {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct ThemeColorsContent {
     /// Border color. Used for most borders, is usually a high contrast color.
@@ -189,7 +186,7 @@ pub struct ThemeColorsContent {
 
     /// Background Color. Used for the active state of an element that should have a different background than the surface it's on.
     ///
-    /// Active states are triggered by the mouse button being pressed down on an element, or the Return button or other activator being pressed.
+    /// Active states are triggered by the mouse button being pressed down on an element, or the Return button or other activator being pressd.
     #[serde(rename = "element.active")]
     pub element_active: Option<String>,
 
@@ -227,7 +224,7 @@ pub struct ThemeColorsContent {
 
     /// Background Color. Used for the active state of a ghost element that should have the same background as the surface it's on.
     ///
-    /// Active states are triggered by the mouse button being pressed down on an element, or the Return button or other activator being pressed.
+    /// Active states are triggered by the mouse button being pressed down on an element, or the Return button or other activator being pressd.
     #[serde(rename = "ghost_element.active")]
     pub ghost_element_active: Option<String>,
 
@@ -271,7 +268,7 @@ pub struct ThemeColorsContent {
 
     /// Fill Color. Used for the muted or deemphasized fill color of an icon.
     ///
-    /// This might be used to show an icon in an inactive pane, or to deemphasize a series of icons to give them less visual weight.
+    /// This might be used to show an icon in an inactive pane, or to demphasize a series of icons to give them less visual weight.
     #[serde(rename = "icon.muted")]
     pub icon_muted: Option<String>,
 
@@ -292,11 +289,6 @@ pub struct ThemeColorsContent {
     /// This might be used to show when a toggleable icon button is selected.
     #[serde(rename = "icon.accent")]
     pub icon_accent: Option<String>,
-
-    /// Color used to accent some of the debuggers elements
-    /// Only accent breakpoint & breakpoint related symbols right now
-    #[serde(rename = "debugger.accent")]
-    pub debugger_accent: Option<String>,
 
     #[serde(rename = "status_bar.background")]
     pub status_bar_background: Option<String>,
@@ -327,15 +319,6 @@ pub struct ThemeColorsContent {
 
     #[serde(rename = "panel.focused_border")]
     pub panel_focused_border: Option<String>,
-
-    #[serde(rename = "panel.indent_guide")]
-    pub panel_indent_guide: Option<String>,
-
-    #[serde(rename = "panel.indent_guide_hover")]
-    pub panel_indent_guide_hover: Option<String>,
-
-    #[serde(rename = "panel.indent_guide_active")]
-    pub panel_indent_guide_active: Option<String>,
 
     #[serde(rename = "pane.focused_border")]
     pub pane_focused_border: Option<String>,
@@ -388,10 +371,6 @@ pub struct ThemeColorsContent {
     #[serde(rename = "editor.highlighted_line.background")]
     pub editor_highlighted_line_background: Option<String>,
 
-    /// Background of active line of debugger
-    #[serde(rename = "editor.debugger_active_line.background")]
-    pub editor_debugger_active_line_background: Option<String>,
-
     /// Text Color. Used for the text of the line number in the editor gutter.
     #[serde(rename = "editor.line_number")]
     pub editor_line_number: Option<String>,
@@ -399,10 +378,6 @@ pub struct ThemeColorsContent {
     /// Text Color. Used for the text of the line number in the editor gutter when the line is highlighted.
     #[serde(rename = "editor.active_line_number")]
     pub editor_active_line_number: Option<String>,
-
-    /// Text Color. Used for the text of the line number in the editor gutter when the line is hovered over.
-    #[serde(rename = "editor.hover_line_number")]
-    pub editor_hover_line_number: Option<String>,
 
     /// Text Color. Used to mark invisible characters in the editor.
     ///
@@ -438,12 +413,6 @@ pub struct ThemeColorsContent {
     #[serde(rename = "editor.document_highlight.write_background")]
     pub editor_document_highlight_write_background: Option<String>,
 
-    /// Highlighted brackets background color.
-    ///
-    /// Matching brackets in the cursor scope are highlighted with this background color.
-    #[serde(rename = "editor.document_highlight.bracket_background")]
-    pub editor_document_highlight_bracket_background: Option<String>,
-
     /// Terminal background color.
     #[serde(rename = "terminal.background")]
     pub terminal_background: Option<String>,
@@ -451,10 +420,6 @@ pub struct ThemeColorsContent {
     /// Terminal foreground color.
     #[serde(rename = "terminal.foreground")]
     pub terminal_foreground: Option<String>,
-
-    /// Terminal ANSI background color.
-    #[serde(rename = "terminal.ansi.background")]
-    pub terminal_ansi_background: Option<String>,
 
     /// Bright terminal foreground color.
     #[serde(rename = "terminal.bright_foreground")]
@@ -562,44 +527,13 @@ pub struct ThemeColorsContent {
 
     #[serde(rename = "link_text.hover")]
     pub link_text_hover: Option<String>,
-
-    /// Added version control color.
-    #[serde(rename = "version_control.added")]
-    pub version_control_added: Option<String>,
-
-    /// Deleted version control color.
-    #[serde(rename = "version_control.deleted")]
-    pub version_control_deleted: Option<String>,
-
-    /// Modified version control color.
-    #[serde(rename = "version_control.modified")]
-    pub version_control_modified: Option<String>,
-
-    /// Renamed version control color.
-    #[serde(rename = "version_control.renamed")]
-    pub version_control_renamed: Option<String>,
-
-    /// Conflict version control color.
-    #[serde(rename = "version_control.conflict")]
-    pub version_control_conflict: Option<String>,
-
-    /// Ignored version control color.
-    #[serde(rename = "version_control.ignored")]
-    pub version_control_ignored: Option<String>,
 }
 
 impl ThemeColorsContent {
     /// Returns a [`ThemeColorsRefinement`] based on the colors in the [`ThemeColorsContent`].
-    pub fn theme_colors_refinement(
-        &self,
-        status_colors: &StatusColorsRefinement,
-    ) -> ThemeColorsRefinement {
+    pub fn theme_colors_refinement(&self) -> ThemeColorsRefinement {
         let border = self
             .border
-            .as_ref()
-            .and_then(|color| try_parse_color(color).ok());
-        let editor_document_highlight_read_background = self
-            .editor_document_highlight_read_background
             .as_ref()
             .and_then(|color| try_parse_color(color).ok());
         ThemeColorsRefinement {
@@ -720,10 +654,6 @@ impl ThemeColorsContent {
                 .icon_accent
                 .as_ref()
                 .and_then(|color| try_parse_color(color).ok()),
-            debugger_accent: self
-                .debugger_accent
-                .as_ref()
-                .and_then(|color| try_parse_color(color).ok()),
             status_bar_background: self
                 .status_bar_background
                 .as_ref()
@@ -762,18 +692,6 @@ impl ThemeColorsContent {
                 .and_then(|color| try_parse_color(color).ok()),
             panel_focused_border: self
                 .panel_focused_border
-                .as_ref()
-                .and_then(|color| try_parse_color(color).ok()),
-            panel_indent_guide: self
-                .panel_indent_guide
-                .as_ref()
-                .and_then(|color| try_parse_color(color).ok()),
-            panel_indent_guide_hover: self
-                .panel_indent_guide_hover
-                .as_ref()
-                .and_then(|color| try_parse_color(color).ok()),
-            panel_indent_guide_active: self
-                .panel_indent_guide_active
                 .as_ref()
                 .and_then(|color| try_parse_color(color).ok()),
             pane_focused_border: self
@@ -834,16 +752,8 @@ impl ThemeColorsContent {
                 .editor_highlighted_line_background
                 .as_ref()
                 .and_then(|color| try_parse_color(color).ok()),
-            editor_debugger_active_line_background: self
-                .editor_debugger_active_line_background
-                .as_ref()
-                .and_then(|color| try_parse_color(color).ok()),
             editor_line_number: self
                 .editor_line_number
-                .as_ref()
-                .and_then(|color| try_parse_color(color).ok()),
-            editor_hover_line_number: self
-                .editor_hover_line_number
                 .as_ref()
                 .and_then(|color| try_parse_color(color).ok()),
             editor_active_line_number: self
@@ -870,23 +780,16 @@ impl ThemeColorsContent {
                 .editor_indent_guide_active
                 .as_ref()
                 .and_then(|color| try_parse_color(color).ok()),
-            editor_document_highlight_read_background,
+            editor_document_highlight_read_background: self
+                .editor_document_highlight_read_background
+                .as_ref()
+                .and_then(|color| try_parse_color(color).ok()),
             editor_document_highlight_write_background: self
                 .editor_document_highlight_write_background
                 .as_ref()
                 .and_then(|color| try_parse_color(color).ok()),
-            editor_document_highlight_bracket_background: self
-                .editor_document_highlight_bracket_background
-                .as_ref()
-                .and_then(|color| try_parse_color(color).ok())
-                // Fall back to `editor.document_highlight.read_background`, for backwards compatibility.
-                .or(editor_document_highlight_read_background),
             terminal_background: self
                 .terminal_background
-                .as_ref()
-                .and_then(|color| try_parse_color(color).ok()),
-            terminal_ansi_background: self
-                .terminal_ansi_background
                 .as_ref()
                 .and_then(|color| try_parse_color(color).ok()),
             terminal_foreground: self
@@ -1001,47 +904,11 @@ impl ThemeColorsContent {
                 .link_text_hover
                 .as_ref()
                 .and_then(|color| try_parse_color(color).ok()),
-            version_control_added: self
-                .version_control_added
-                .as_ref()
-                .and_then(|color| try_parse_color(color).ok())
-                // Fall back to `created`, for backwards compatibility.
-                .or(status_colors.created),
-            version_control_deleted: self
-                .version_control_deleted
-                .as_ref()
-                .and_then(|color| try_parse_color(color).ok())
-                // Fall back to `deleted`, for backwards compatibility.
-                .or(status_colors.deleted),
-            version_control_modified: self
-                .version_control_modified
-                .as_ref()
-                .and_then(|color| try_parse_color(color).ok())
-                // Fall back to `modified`, for backwards compatibility.
-                .or(status_colors.modified),
-            version_control_renamed: self
-                .version_control_renamed
-                .as_ref()
-                .and_then(|color| try_parse_color(color).ok())
-                // Fall back to `modified`, for backwards compatibility.
-                .or(status_colors.modified),
-            version_control_conflict: self
-                .version_control_conflict
-                .as_ref()
-                .and_then(|color| try_parse_color(color).ok())
-                // Fall back to `ignored`, for backwards compatibility.
-                .or(status_colors.ignored),
-            version_control_ignored: self
-                .version_control_ignored
-                .as_ref()
-                .and_then(|color| try_parse_color(color).ok())
-                // Fall back to `conflict`, for backwards compatibility.
-                .or(status_colors.ignored),
         }
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct StatusColorsContent {
     /// Indicates some kind of conflict, like a file changed on disk while it was open, or
@@ -1362,17 +1229,17 @@ impl StatusColorsContent {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct AccentContent(pub Option<String>);
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct PlayerColorContent {
     pub cursor: Option<String>,
     pub background: Option<String>,
     pub selection: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum FontStyleContent {
     Normal,
@@ -1390,7 +1257,7 @@ impl From<FontStyleContent> for FontStyle {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize_repr, Deserialize_repr, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize_repr, Deserialize_repr)]
 #[repr(u16)]
 pub enum FontWeightContent {
     Thin = 100,
@@ -1448,7 +1315,7 @@ impl From<FontWeightContent> for FontWeight {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct HighlightStyleContent {
     pub color: Option<String>,

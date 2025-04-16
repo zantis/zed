@@ -1,8 +1,9 @@
+use std::ops::Range;
+
 use collections::HashMap;
-use gpui::{Context, Window};
 use itertools::Itertools;
-use std::{ops::Range, time::Duration};
 use text::{AnchorRangeExt, BufferId, ToPoint};
+use ui::ViewContext;
 use util::ResultExt;
 
 use crate::Editor;
@@ -34,61 +35,38 @@ impl LinkedEditingRanges {
     pub(super) fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
-
-    pub(super) fn clear(&mut self) {
-        self.0.clear();
-    }
 }
-
-const UPDATE_DEBOUNCE: Duration = Duration::from_millis(50);
-
-// TODO do not refresh anything at all, if the settings/capabilities do not have it enabled.
-pub(super) fn refresh_linked_ranges(
-    editor: &mut Editor,
-    window: &mut Window,
-    cx: &mut Context<Editor>,
-) -> Option<()> {
-    if editor.pending_rename.is_some() {
+pub(super) fn refresh_linked_ranges(this: &mut Editor, cx: &mut ViewContext<Editor>) -> Option<()> {
+    if this.pending_rename.is_some() {
         return None;
     }
-    let project = editor.project.as_ref()?.downgrade();
-
-    editor.linked_editing_range_task = Some(cx.spawn_in(window, async move |editor, cx| {
-        cx.background_executor().timer(UPDATE_DEBOUNCE).await;
-
-        let mut applicable_selections = Vec::new();
-        editor
-            .update(cx, |editor, cx| {
-                let selections = editor.selections.all::<usize>(cx);
-                let snapshot = editor.buffer.read(cx).snapshot(cx);
-                let buffer = editor.buffer.read(cx);
-                for selection in selections {
-                    let cursor_position = selection.head();
-                    let start_position = snapshot.anchor_before(cursor_position);
-                    let end_position = snapshot.anchor_after(selection.tail());
-                    if start_position.buffer_id != end_position.buffer_id
-                        || end_position.buffer_id.is_none()
-                    {
-                        // Throw away selections spanning multiple buffers.
-                        continue;
-                    }
-                    if let Some(buffer) = end_position.buffer_id.and_then(|id| buffer.buffer(id)) {
-                        applicable_selections.push((
-                            buffer,
-                            start_position.text_anchor,
-                            end_position.text_anchor,
-                        ));
-                    }
-                }
-            })
-            .ok()?;
-
-        if applicable_selections.is_empty() {
-            return None;
+    let project = this.project.clone()?;
+    let buffer = this.buffer.read(cx);
+    let mut applicable_selections = vec![];
+    let selections = this.selections.all::<usize>(cx);
+    let snapshot = buffer.snapshot(cx);
+    for selection in selections {
+        let cursor_position = selection.head();
+        let start_position = snapshot.anchor_before(cursor_position);
+        let end_position = snapshot.anchor_after(selection.tail());
+        if start_position.buffer_id != end_position.buffer_id || end_position.buffer_id.is_none() {
+            // Throw away selections spanning multiple buffers.
+            continue;
         }
-
+        if let Some(buffer) = end_position.buffer_id.and_then(|id| buffer.buffer(id)) {
+            applicable_selections.push((
+                buffer,
+                start_position.text_anchor,
+                end_position.text_anchor,
+            ));
+        }
+    }
+    if applicable_selections.is_empty() {
+        return None;
+    }
+    this.linked_editing_range_task = Some(cx.spawn(|this, mut cx| async move {
         let highlights = project
-            .update(cx, |project, cx| {
+            .update(&mut cx, |project, cx| {
                 let mut linked_edits_tasks = vec![];
 
                 for (buffer, start, end) in &applicable_selections {
@@ -132,38 +110,37 @@ pub(super) fn refresh_linked_ranges(
                 }
                 linked_edits_tasks
             })
-            .ok()?;
+            .log_err()?;
 
         let highlights = futures::future::join_all(highlights).await;
 
-        editor
-            .update(cx, |this, cx| {
-                this.linked_edit_ranges.0.clear();
-                if this.pending_rename.is_some() {
-                    return;
-                }
-                for (buffer_id, ranges) in highlights.into_iter().flatten() {
-                    this.linked_edit_ranges
-                        .0
-                        .entry(buffer_id)
-                        .or_default()
-                        .extend(ranges);
-                }
-                for (buffer_id, values) in this.linked_edit_ranges.0.iter_mut() {
-                    let Some(snapshot) = this
-                        .buffer
-                        .read(cx)
-                        .buffer(*buffer_id)
-                        .map(|buffer| buffer.read(cx).snapshot())
-                    else {
-                        continue;
-                    };
-                    values.sort_by(|lhs, rhs| lhs.0.cmp(&rhs.0, &snapshot));
-                }
+        this.update(&mut cx, |this, cx| {
+            this.linked_edit_ranges.0.clear();
+            if this.pending_rename.is_some() {
+                return;
+            }
+            for (buffer_id, ranges) in highlights.into_iter().flatten() {
+                this.linked_edit_ranges
+                    .0
+                    .entry(buffer_id)
+                    .or_default()
+                    .extend(ranges);
+            }
+            for (buffer_id, values) in this.linked_edit_ranges.0.iter_mut() {
+                let Some(snapshot) = this
+                    .buffer
+                    .read(cx)
+                    .buffer(*buffer_id)
+                    .map(|buffer| buffer.read(cx).snapshot())
+                else {
+                    continue;
+                };
+                values.sort_by(|lhs, rhs| lhs.0.cmp(&rhs.0, &snapshot));
+            }
 
-                cx.notify();
-            })
-            .ok()?;
+            cx.notify();
+        })
+        .log_err();
 
         Some(())
     }));

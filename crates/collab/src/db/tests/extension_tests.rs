@@ -1,14 +1,10 @@
-use std::collections::BTreeSet;
-use std::sync::Arc;
-
-use rpc::ExtensionProvides;
-
 use super::Database;
 use crate::db::ExtensionVersionConstraints;
 use crate::{
-    db::{ExtensionMetadata, NewExtensionVersion, queries::extensions::convert_time_to_chrono},
+    db::{queries::extensions::convert_time_to_chrono, ExtensionMetadata, NewExtensionVersion},
     test_both_dbs,
 };
+use std::sync::Arc;
 
 test_both_dbs!(
     test_extensions,
@@ -20,7 +16,7 @@ async fn test_extensions(db: &Arc<Database>) {
     let versions = db.get_known_extension_versions().await.unwrap();
     assert!(versions.is_empty());
 
-    let extensions = db.get_extensions(None, None, 1, 5).await.unwrap();
+    let extensions = db.get_extensions(None, 1, 5).await.unwrap();
     assert!(extensions.is_empty());
 
     let t0 = time::OffsetDateTime::from_unix_timestamp_nanos(0).unwrap();
@@ -41,7 +37,6 @@ async fn test_extensions(db: &Arc<Database>) {
                         repository: "ext1/repo".into(),
                         schema_version: 1,
                         wasm_api_version: None,
-                        provides: BTreeSet::default(),
                         published_at: t0,
                     },
                     NewExtensionVersion {
@@ -52,7 +47,6 @@ async fn test_extensions(db: &Arc<Database>) {
                         repository: "ext1/repo".into(),
                         schema_version: 1,
                         wasm_api_version: None,
-                        provides: BTreeSet::default(),
                         published_at: t0,
                     },
                 ],
@@ -67,7 +61,6 @@ async fn test_extensions(db: &Arc<Database>) {
                     repository: "ext2/repo".into(),
                     schema_version: 0,
                     wasm_api_version: None,
-                    provides: BTreeSet::default(),
                     published_at: t0,
                 }],
             ),
@@ -90,7 +83,7 @@ async fn test_extensions(db: &Arc<Database>) {
     );
 
     // The latest version of each extension is returned.
-    let extensions = db.get_extensions(None, None, 1, 5).await.unwrap();
+    let extensions = db.get_extensions(None, 1, 5).await.unwrap();
     assert_eq!(
         extensions,
         &[
@@ -104,7 +97,6 @@ async fn test_extensions(db: &Arc<Database>) {
                     repository: "ext1/repo".into(),
                     schema_version: Some(1),
                     wasm_api_version: None,
-                    provides: BTreeSet::default(),
                 },
                 published_at: t0_chrono,
                 download_count: 0,
@@ -119,7 +111,6 @@ async fn test_extensions(db: &Arc<Database>) {
                     repository: "ext2/repo".into(),
                     schema_version: Some(0),
                     wasm_api_version: None,
-                    provides: BTreeSet::default(),
                 },
                 published_at: t0_chrono,
                 download_count: 0
@@ -128,7 +119,7 @@ async fn test_extensions(db: &Arc<Database>) {
     );
 
     // Extensions with too new of a schema version are excluded.
-    let extensions = db.get_extensions(None, None, 0, 5).await.unwrap();
+    let extensions = db.get_extensions(None, 0, 5).await.unwrap();
     assert_eq!(
         extensions,
         &[ExtensionMetadata {
@@ -141,7 +132,6 @@ async fn test_extensions(db: &Arc<Database>) {
                 repository: "ext2/repo".into(),
                 schema_version: Some(0),
                 wasm_api_version: None,
-                provides: BTreeSet::default(),
             },
             published_at: t0_chrono,
             download_count: 0
@@ -162,14 +152,13 @@ async fn test_extensions(db: &Arc<Database>) {
     }
 
     // Record download returns false if the extension does not exist.
-    assert!(
-        !db.record_extension_download("no-such-extension", "0.0.2")
-            .await
-            .unwrap()
-    );
+    assert!(!db
+        .record_extension_download("no-such-extension", "0.0.2")
+        .await
+        .unwrap());
 
     // Extensions are returned in descending order of total downloads.
-    let extensions = db.get_extensions(None, None, 1, 5).await.unwrap();
+    let extensions = db.get_extensions(None, 1, 5).await.unwrap();
     assert_eq!(
         extensions,
         &[
@@ -183,7 +172,6 @@ async fn test_extensions(db: &Arc<Database>) {
                     repository: "ext2/repo".into(),
                     schema_version: Some(0),
                     wasm_api_version: None,
-                    provides: BTreeSet::default(),
                 },
                 published_at: t0_chrono,
                 download_count: 7
@@ -198,7 +186,6 @@ async fn test_extensions(db: &Arc<Database>) {
                     repository: "ext1/repo".into(),
                     schema_version: Some(1),
                     wasm_api_version: None,
-                    provides: BTreeSet::default(),
                 },
                 published_at: t0_chrono,
                 download_count: 5,
@@ -220,7 +207,6 @@ async fn test_extensions(db: &Arc<Database>) {
                     repository: "ext1/repo".into(),
                     schema_version: 1,
                     wasm_api_version: None,
-                    provides: BTreeSet::default(),
                     published_at: t0,
                 }],
             ),
@@ -234,7 +220,6 @@ async fn test_extensions(db: &Arc<Database>) {
                     repository: "ext2/repo".into(),
                     schema_version: 0,
                     wasm_api_version: None,
-                    provides: BTreeSet::default(),
                     published_at: t0,
                 }],
             ),
@@ -259,7 +244,7 @@ async fn test_extensions(db: &Arc<Database>) {
         .collect()
     );
 
-    let extensions = db.get_extensions(None, None, 1, 5).await.unwrap();
+    let extensions = db.get_extensions(None, 1, 5).await.unwrap();
     assert_eq!(
         extensions,
         &[
@@ -273,7 +258,6 @@ async fn test_extensions(db: &Arc<Database>) {
                     repository: "ext2/repo".into(),
                     schema_version: Some(0),
                     wasm_api_version: None,
-                    provides: BTreeSet::default(),
                 },
                 published_at: t0_chrono,
                 download_count: 7
@@ -288,7 +272,6 @@ async fn test_extensions(db: &Arc<Database>) {
                     repository: "ext1/repo".into(),
                     schema_version: Some(1),
                     wasm_api_version: None,
-                    provides: BTreeSet::default(),
                 },
                 published_at: t0_chrono,
                 download_count: 5,
@@ -307,7 +290,7 @@ async fn test_extensions_by_id(db: &Arc<Database>) {
     let versions = db.get_known_extension_versions().await.unwrap();
     assert!(versions.is_empty());
 
-    let extensions = db.get_extensions(None, None, 1, 5).await.unwrap();
+    let extensions = db.get_extensions(None, 1, 5).await.unwrap();
     assert!(extensions.is_empty());
 
     let t0 = time::OffsetDateTime::from_unix_timestamp_nanos(0).unwrap();
@@ -328,10 +311,6 @@ async fn test_extensions_by_id(db: &Arc<Database>) {
                         repository: "ext1/repo".into(),
                         schema_version: 1,
                         wasm_api_version: Some("0.0.4".into()),
-                        provides: BTreeSet::from_iter([
-                            ExtensionProvides::Grammars,
-                            ExtensionProvides::Languages,
-                        ]),
                         published_at: t0,
                     },
                     NewExtensionVersion {
@@ -342,11 +321,6 @@ async fn test_extensions_by_id(db: &Arc<Database>) {
                         repository: "ext1/repo".into(),
                         schema_version: 1,
                         wasm_api_version: Some("0.0.4".into()),
-                        provides: BTreeSet::from_iter([
-                            ExtensionProvides::Grammars,
-                            ExtensionProvides::Languages,
-                            ExtensionProvides::LanguageServers,
-                        ]),
                         published_at: t0,
                     },
                     NewExtensionVersion {
@@ -357,11 +331,6 @@ async fn test_extensions_by_id(db: &Arc<Database>) {
                         repository: "ext1/repo".into(),
                         schema_version: 1,
                         wasm_api_version: Some("0.0.5".into()),
-                        provides: BTreeSet::from_iter([
-                            ExtensionProvides::Grammars,
-                            ExtensionProvides::Languages,
-                            ExtensionProvides::LanguageServers,
-                        ]),
                         published_at: t0,
                     },
                 ],
@@ -376,7 +345,6 @@ async fn test_extensions_by_id(db: &Arc<Database>) {
                     repository: "ext2/repo".into(),
                     schema_version: 0,
                     wasm_api_version: None,
-                    provides: BTreeSet::default(),
                     published_at: t0,
                 }],
             ),
@@ -410,11 +378,6 @@ async fn test_extensions_by_id(db: &Arc<Database>) {
                 repository: "ext1/repo".into(),
                 schema_version: Some(1),
                 wasm_api_version: Some("0.0.4".into()),
-                provides: BTreeSet::from_iter([
-                    ExtensionProvides::Grammars,
-                    ExtensionProvides::Languages,
-                    ExtensionProvides::LanguageServers,
-                ]),
             },
             published_at: t0_chrono,
             download_count: 0,

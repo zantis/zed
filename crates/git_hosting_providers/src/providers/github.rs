@@ -1,26 +1,24 @@
-use std::str::FromStr;
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, OnceLock};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use futures::AsyncReadExt;
-use gpui::SharedString;
-use http_client::{AsyncBody, HttpClient, HttpRequestExt, Request};
+use http_client::HttpClient;
+use isahc::config::Configurable;
+use isahc::{AsyncBody, Request};
 use regex::Regex;
 use serde::Deserialize;
 use url::Url;
 
 use git::{
-    BuildCommitPermalinkParams, BuildPermalinkParams, GitHostingProvider, ParsedGitRemote,
-    PullRequest, RemoteUrl,
+    BuildCommitPermalinkParams, BuildPermalinkParams, GitHostingProvider, Oid, ParsedGitRemote,
+    PullRequest,
 };
 
-use crate::get_host_from_git_remote_url;
-
 fn pull_request_number_regex() -> &'static Regex {
-    static PULL_REQUEST_NUMBER_REGEX: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"\(#(\d+)\)$").unwrap());
-    &PULL_REQUEST_NUMBER_REGEX
+    static PULL_REQUEST_NUMBER_REGEX: OnceLock<Regex> = OnceLock::new();
+
+    PULL_REQUEST_NUMBER_REGEX.get_or_init(|| Regex::new(r"\(#(\d+)\)$").unwrap())
 }
 
 #[derive(Debug, Deserialize)]
@@ -45,43 +43,9 @@ struct User {
     pub avatar_url: String,
 }
 
-#[derive(Debug)]
-pub struct Github {
-    name: String,
-    base_url: Url,
-}
+pub struct Github;
 
 impl Github {
-    pub fn new(name: impl Into<String>, base_url: Url) -> Self {
-        Self {
-            name: name.into(),
-            base_url,
-        }
-    }
-
-    pub fn public_instance() -> Self {
-        Self::new("GitHub", Url::parse("https://github.com").unwrap())
-    }
-
-    pub fn from_remote_url(remote_url: &str) -> Result<Self> {
-        let host = get_host_from_git_remote_url(remote_url)?;
-        if host == "github.com" {
-            bail!("the GitHub instance is not self-hosted");
-        }
-
-        // TODO: detecting self hosted instances by checking whether "github" is in the url or not
-        // is not very reliable. See https://github.com/zed-industries/zed/issues/26393 for more
-        // information.
-        if !host.contains("github") {
-            bail!("not a GitHub URL");
-        }
-
-        Ok(Self::new(
-            "GitHub Self-Hosted",
-            Url::parse(&format!("https://{}", host))?,
-        ))
-    }
-
     async fn fetch_github_commit_author(
         &self,
         repo_owner: &str,
@@ -89,14 +53,11 @@ impl Github {
         commit: &str,
         client: &Arc<dyn HttpClient>,
     ) -> Result<Option<User>> {
-        let Some(host) = self.base_url.host_str() else {
-            bail!("failed to get host from github base url");
-        };
-        let url = format!("https://api.{host}/repos/{repo_owner}/{repo}/commits/{commit}");
+        let url = format!("https://api.github.com/repos/{repo_owner}/{repo}/commits/{commit}");
 
         let mut request = Request::get(&url)
-            .header("Content-Type", "application/json")
-            .follow_redirects(http_client::RedirectPolicy::FollowAll);
+            .redirect_policy(isahc::config::RedirectPolicy::Follow)
+            .header("Content-Type", "application/json");
 
         if let Ok(github_token) = std::env::var("GITHUB_TOKEN") {
             request = request.header("Authorization", format!("Bearer {}", github_token));
@@ -129,17 +90,15 @@ impl Github {
 #[async_trait]
 impl GitHostingProvider for Github {
     fn name(&self) -> String {
-        self.name.clone()
+        "GitHub".to_string()
     }
 
     fn base_url(&self) -> Url {
-        self.base_url.clone()
+        Url::parse("https://github.com").unwrap()
     }
 
     fn supports_avatars(&self) -> bool {
-        // Avatars are not supported for self-hosted GitHub instances
-        // See tracking issue: https://github.com/zed-industries/zed/issues/11043
-        &self.name == "GitHub"
+        true
     }
 
     fn format_line_number(&self, line: u32) -> String {
@@ -150,22 +109,19 @@ impl GitHostingProvider for Github {
         format!("L{start_line}-L{end_line}")
     }
 
-    fn parse_remote_url(&self, url: &str) -> Option<ParsedGitRemote> {
-        let url = RemoteUrl::from_str(url).ok()?;
+    fn parse_remote_url<'a>(&self, url: &'a str) -> Option<ParsedGitRemote<'a>> {
+        if url.starts_with("git@github.com:") || url.starts_with("https://github.com/") {
+            let repo_with_owner = url
+                .trim_start_matches("git@github.com:")
+                .trim_start_matches("https://github.com/")
+                .trim_end_matches(".git");
 
-        let host = url.host_str()?;
-        if host != self.base_url.host_str()? {
-            return None;
+            let (owner, repo) = repo_with_owner.split_once('/')?;
+
+            return Some(ParsedGitRemote { owner, repo });
         }
 
-        let mut path_segments = url.path_segments()?;
-        let owner = path_segments.next()?;
-        let repo = path_segments.next()?.trim_end_matches(".git");
-
-        Some(ParsedGitRemote {
-            owner: owner.into(),
-            repo: repo.into(),
-        })
+        None
     }
 
     fn build_commit_permalink(
@@ -193,9 +149,6 @@ impl GitHostingProvider for Github {
             .base_url()
             .join(&format!("{owner}/{repo}/blob/{sha}/{path}"))
             .unwrap();
-        if path.ends_with(".md") {
-            permalink.set_query(Some("plain=1"));
-        }
         permalink.set_fragment(
             selection
                 .map(|selection| self.line_fragment(&selection))
@@ -220,7 +173,7 @@ impl GitHostingProvider for Github {
         &self,
         repo_owner: &str,
         repo: &str,
-        commit: SharedString,
+        commit: Oid,
         http_client: Arc<dyn HttpClient>,
     ) -> Result<Option<Url>> {
         let commit = commit.to_string();
@@ -239,130 +192,18 @@ impl GitHostingProvider for Github {
 
 #[cfg(test)]
 mod tests {
-    use indoc::indoc;
-    use pretty_assertions::assert_eq;
+    // TODO: Replace with `indoc`.
+    use unindent::Unindent;
 
     use super::*;
 
     #[test]
-    fn test_invalid_self_hosted_remote_url() {
-        let remote_url = "git@github.com:zed-industries/zed.git";
-        let github = Github::from_remote_url(remote_url);
-        assert!(github.is_err());
-    }
-
-    #[test]
-    fn test_from_remote_url_ssh() {
-        let remote_url = "git@github.my-enterprise.com:zed-industries/zed.git";
-        let github = Github::from_remote_url(remote_url).unwrap();
-
-        assert!(!github.supports_avatars());
-        assert_eq!(github.name, "GitHub Self-Hosted".to_string());
-        assert_eq!(
-            github.base_url,
-            Url::parse("https://github.my-enterprise.com").unwrap()
-        );
-    }
-
-    #[test]
-    fn test_from_remote_url_https() {
-        let remote_url = "https://github.my-enterprise.com/zed-industries/zed.git";
-        let github = Github::from_remote_url(remote_url).unwrap();
-
-        assert!(!github.supports_avatars());
-        assert_eq!(github.name, "GitHub Self-Hosted".to_string());
-        assert_eq!(
-            github.base_url,
-            Url::parse("https://github.my-enterprise.com").unwrap()
-        );
-    }
-
-    #[test]
-    fn test_parse_remote_url_given_self_hosted_ssh_url() {
-        let remote_url = "git@github.my-enterprise.com:zed-industries/zed.git";
-        let parsed_remote = Github::from_remote_url(remote_url)
-            .unwrap()
-            .parse_remote_url(remote_url)
-            .unwrap();
-
-        assert_eq!(
-            parsed_remote,
-            ParsedGitRemote {
-                owner: "zed-industries".into(),
-                repo: "zed".into(),
-            }
-        );
-    }
-
-    #[test]
-    fn test_parse_remote_url_given_self_hosted_https_url_with_subgroup() {
-        let remote_url = "https://github.my-enterprise.com/zed-industries/zed.git";
-        let parsed_remote = Github::from_remote_url(remote_url)
-            .unwrap()
-            .parse_remote_url(remote_url)
-            .unwrap();
-
-        assert_eq!(
-            parsed_remote,
-            ParsedGitRemote {
-                owner: "zed-industries".into(),
-                repo: "zed".into(),
-            }
-        );
-    }
-
-    #[test]
-    fn test_parse_remote_url_given_ssh_url() {
-        let parsed_remote = Github::public_instance()
-            .parse_remote_url("git@github.com:zed-industries/zed.git")
-            .unwrap();
-
-        assert_eq!(
-            parsed_remote,
-            ParsedGitRemote {
-                owner: "zed-industries".into(),
-                repo: "zed".into(),
-            }
-        );
-    }
-
-    #[test]
-    fn test_parse_remote_url_given_https_url() {
-        let parsed_remote = Github::public_instance()
-            .parse_remote_url("https://github.com/zed-industries/zed.git")
-            .unwrap();
-
-        assert_eq!(
-            parsed_remote,
-            ParsedGitRemote {
-                owner: "zed-industries".into(),
-                repo: "zed".into(),
-            }
-        );
-    }
-
-    #[test]
-    fn test_parse_remote_url_given_https_url_with_username() {
-        let parsed_remote = Github::public_instance()
-            .parse_remote_url("https://jlannister@github.com/some-org/some-repo.git")
-            .unwrap();
-
-        assert_eq!(
-            parsed_remote,
-            ParsedGitRemote {
-                owner: "some-org".into(),
-                repo: "some-repo".into(),
-            }
-        );
-    }
-
-    #[test]
     fn test_build_github_permalink_from_ssh_url() {
         let remote = ParsedGitRemote {
-            owner: "zed-industries".into(),
-            repo: "zed".into(),
+            owner: "zed-industries",
+            repo: "zed",
         };
-        let permalink = Github::public_instance().build_permalink(
+        let permalink = Github.build_permalink(
             remote,
             BuildPermalinkParams {
                 sha: "e6ebe7974deb6bb6cc0e2595c8ec31f0c71084b7",
@@ -376,30 +217,13 @@ mod tests {
     }
 
     #[test]
-    fn test_build_github_permalink() {
-        let permalink = Github::public_instance().build_permalink(
-            ParsedGitRemote {
-                owner: "zed-industries".into(),
-                repo: "zed".into(),
-            },
-            BuildPermalinkParams {
-                sha: "b2efec9824c45fcc90c9a7eb107a50d1772a60aa",
-                path: "crates/zed/src/main.rs",
-                selection: None,
-            },
-        );
-
-        let expected_url = "https://github.com/zed-industries/zed/blob/b2efec9824c45fcc90c9a7eb107a50d1772a60aa/crates/zed/src/main.rs";
-        assert_eq!(permalink.to_string(), expected_url.to_string())
-    }
-
-    #[test]
-    fn test_build_github_permalink_with_single_line_selection() {
-        let permalink = Github::public_instance().build_permalink(
-            ParsedGitRemote {
-                owner: "zed-industries".into(),
-                repo: "zed".into(),
-            },
+    fn test_build_github_permalink_from_ssh_url_single_line_selection() {
+        let remote = ParsedGitRemote {
+            owner: "zed-industries",
+            repo: "zed",
+        };
+        let permalink = Github.build_permalink(
+            remote,
             BuildPermalinkParams {
                 sha: "e6ebe7974deb6bb6cc0e2595c8ec31f0c71084b7",
                 path: "crates/editor/src/git/permalink.rs",
@@ -412,12 +236,13 @@ mod tests {
     }
 
     #[test]
-    fn test_build_github_permalink_with_multi_line_selection() {
-        let permalink = Github::public_instance().build_permalink(
-            ParsedGitRemote {
-                owner: "zed-industries".into(),
-                repo: "zed".into(),
-            },
+    fn test_build_github_permalink_from_ssh_url_multi_line_selection() {
+        let remote = ParsedGitRemote {
+            owner: "zed-industries",
+            repo: "zed",
+        };
+        let permalink = Github.build_permalink(
+            remote,
             BuildPermalinkParams {
                 sha: "e6ebe7974deb6bb6cc0e2595c8ec31f0c71084b7",
                 path: "crates/editor/src/git/permalink.rs",
@@ -430,18 +255,74 @@ mod tests {
     }
 
     #[test]
+    fn test_build_github_permalink_from_https_url() {
+        let remote = ParsedGitRemote {
+            owner: "zed-industries",
+            repo: "zed",
+        };
+        let permalink = Github.build_permalink(
+            remote,
+            BuildPermalinkParams {
+                sha: "b2efec9824c45fcc90c9a7eb107a50d1772a60aa",
+                path: "crates/zed/src/main.rs",
+                selection: None,
+            },
+        );
+
+        let expected_url = "https://github.com/zed-industries/zed/blob/b2efec9824c45fcc90c9a7eb107a50d1772a60aa/crates/zed/src/main.rs";
+        assert_eq!(permalink.to_string(), expected_url.to_string())
+    }
+
+    #[test]
+    fn test_build_github_permalink_from_https_url_single_line_selection() {
+        let remote = ParsedGitRemote {
+            owner: "zed-industries",
+            repo: "zed",
+        };
+        let permalink = Github.build_permalink(
+            remote,
+            BuildPermalinkParams {
+                sha: "b2efec9824c45fcc90c9a7eb107a50d1772a60aa",
+                path: "crates/zed/src/main.rs",
+                selection: Some(6..6),
+            },
+        );
+
+        let expected_url = "https://github.com/zed-industries/zed/blob/b2efec9824c45fcc90c9a7eb107a50d1772a60aa/crates/zed/src/main.rs#L7";
+        assert_eq!(permalink.to_string(), expected_url.to_string())
+    }
+
+    #[test]
+    fn test_build_github_permalink_from_https_url_multi_line_selection() {
+        let remote = ParsedGitRemote {
+            owner: "zed-industries",
+            repo: "zed",
+        };
+        let permalink = Github.build_permalink(
+            remote,
+            BuildPermalinkParams {
+                sha: "b2efec9824c45fcc90c9a7eb107a50d1772a60aa",
+                path: "crates/zed/src/main.rs",
+                selection: Some(23..47),
+            },
+        );
+
+        let expected_url = "https://github.com/zed-industries/zed/blob/b2efec9824c45fcc90c9a7eb107a50d1772a60aa/crates/zed/src/main.rs#L24-L48";
+        assert_eq!(permalink.to_string(), expected_url.to_string())
+    }
+
+    #[test]
     fn test_github_pull_requests() {
         let remote = ParsedGitRemote {
-            owner: "zed-industries".into(),
-            repo: "zed".into(),
+            owner: "zed-industries",
+            repo: "zed",
         };
 
-        let github = Github::public_instance();
         let message = "This does not contain a pull request";
-        assert!(github.extract_pull_request(&remote, message).is_none());
+        assert!(Github.extract_pull_request(&remote, message).is_none());
 
         // Pull request number at end of first line
-        let message = indoc! {r#"
+        let message = r#"
             project panel: do not expand collapsed worktrees on "collapse all entries" (#10687)
 
             Fixes #10597
@@ -450,10 +331,10 @@ mod tests {
 
             - Fixed "project panel: collapse all entries" expanding collapsed worktrees.
             "#
-        };
+        .unindent();
 
         assert_eq!(
-            github
+            Github
                 .extract_pull_request(&remote, &message)
                 .unwrap()
                 .url
@@ -462,12 +343,12 @@ mod tests {
         );
 
         // Pull request number in middle of line, which we want to ignore
-        let message = indoc! {r#"
+        let message = r#"
             Follow-up to #10687 to fix problems
 
             See the original PR, this is a fix.
             "#
-        };
-        assert_eq!(github.extract_pull_request(&remote, &message), None);
+        .unindent();
+        assert_eq!(Github.extract_pull_request(&remote, &message), None);
     }
 }

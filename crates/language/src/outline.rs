@@ -1,7 +1,9 @@
 use crate::{BufferSnapshot, Point, ToPoint};
 use fuzzy::{StringMatch, StringMatchCandidate};
-use gpui::{BackgroundExecutor, HighlightStyle};
+use gpui::{relative, AppContext, BackgroundExecutor, HighlightStyle, StyledText, TextStyle};
+use settings::Settings;
 use std::ops::Range;
+use theme::{color_alpha, ActiveTheme, ThemeSettings};
 
 /// An outline of all the symbols contained in a buffer.
 #[derive(Debug)]
@@ -73,8 +75,8 @@ impl<T> Outline<T> {
                 .map(|range| &item.text[range.start..range.end])
                 .collect::<String>();
 
-            path_candidates.push(StringMatchCandidate::new(id, &path_text));
-            candidates.push(StringMatchCandidate::new(id, &candidate_text));
+            path_candidates.push(StringMatchCandidate::new(id, path_text.clone()));
+            candidates.push(StringMatchCandidate::new(id, candidate_text));
         }
 
         Self {
@@ -146,9 +148,7 @@ impl<T> Outline<T> {
                 }
             } else {
                 let mut name_ranges = outline_match.name_ranges.iter();
-                let Some(mut name_range) = name_ranges.next() else {
-                    continue;
-                };
+                let mut name_range = name_ranges.next().unwrap();
                 let mut preceding_ranges_len = 0;
                 for position in &mut string_match.positions {
                     while *position >= preceding_ranges_len + name_range.len() {
@@ -193,43 +193,45 @@ impl<T> Outline<T> {
     }
 }
 
+pub fn render_item<T>(
+    outline_item: &OutlineItem<T>,
+    match_ranges: impl IntoIterator<Item = Range<usize>>,
+    cx: &AppContext,
+) -> StyledText {
+    let highlight_style = HighlightStyle {
+        background_color: Some(color_alpha(cx.theme().colors().text_accent, 0.3)),
+        ..Default::default()
+    };
+    let custom_highlights = match_ranges
+        .into_iter()
+        .map(|range| (range, highlight_style));
+
+    let settings = ThemeSettings::get_global(cx);
+
+    // TODO: We probably shouldn't need to build a whole new text style here
+    // but I'm not sure how to get the current one and modify it.
+    // Before this change TextStyle::default() was used here, which was giving us the wrong font and text color.
+    let text_style = TextStyle {
+        color: cx.theme().colors().text,
+        font_family: settings.buffer_font.family.clone(),
+        font_features: settings.buffer_font.features.clone(),
+        font_fallbacks: settings.buffer_font.fallbacks.clone(),
+        font_size: settings.buffer_font_size(cx).into(),
+        font_weight: settings.buffer_font.weight,
+        line_height: relative(1.),
+        ..Default::default()
+    };
+    let highlights = gpui::combine_highlights(
+        custom_highlights,
+        outline_item.highlight_ranges.iter().cloned(),
+    );
+
+    StyledText::new(outline_item.text.clone()).with_highlights(&text_style, highlights)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gpui::TestAppContext;
-
-    #[gpui::test]
-    async fn test_entries_with_no_names(cx: &mut TestAppContext) {
-        let outline = Outline::new(vec![
-            OutlineItem {
-                depth: 0,
-                range: Point::new(0, 0)..Point::new(5, 0),
-                text: "class Foo".to_string(),
-                highlight_ranges: vec![],
-                name_ranges: vec![6..9],
-                body_range: None,
-                annotation_range: None,
-            },
-            OutlineItem {
-                depth: 0,
-                range: Point::new(2, 0)..Point::new(2, 7),
-                text: "private".to_string(),
-                highlight_ranges: vec![],
-                name_ranges: vec![],
-                body_range: None,
-                annotation_range: None,
-            },
-        ]);
-        assert_eq!(
-            outline
-                .search(" ", cx.executor())
-                .await
-                .into_iter()
-                .map(|mat| mat.string)
-                .collect::<Vec<String>>(),
-            vec!["class Foo".to_string()]
-        );
-    }
 
     #[test]
     fn test_find_most_similar_with_low_similarity() {

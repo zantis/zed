@@ -1,30 +1,17 @@
 # Svelte
 
-Svelte support is available through the [Svelte extension](https://github.com/zed-extensions/svelte).
+Svelte support is available through the [Svelte extension](https://github.com/zed-industries/zed/tree/main/extensions/svelte).
 
-- Tree-sitter: [tree-sitter-grammars/tree-sitter-svelte](https://github.com/tree-sitter-grammars/tree-sitter-svelte)
+- Tree Sitter: [Himujjal/tree-sitter-svelte](https://github.com/Himujjal/tree-sitter-svelte)
 - Language Server: [sveltejs/language-tools](https://github.com/sveltejs/language-tools)
 
-## Extra theme styling configuration
-
-You can modify how certain styles such as directives and modifiers appear in attributes:
-
-```json
-"syntax": {
-  // Styling for directives (e.g., `class:foo` or `on:click`) (the `on` or `class` part of the attribute).
-  "attribute.function": {
-    "color": "#ff0000"
-  },
-  // Styling for modifiers at the end of attributes, e.g. `on:<click|preventDefault|stopPropagation>`
-  "attribute.special": {
-    "color": "#00ff00"
-  }
-}
-```
+<!--
+TBD: Rewrite Svelte docs so it doesn't begin with a json block assuming you know what inlayHints are.
+-->
 
 ## Inlay Hints
 
-Zed sets the following initialization options for inlay hints:
+Zed sets the following initialization options for inlay Hints:
 
 ```json
 "inlayHints": {

@@ -1,5 +1,5 @@
 /// Stores and updates all data received from LSP <a href="https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_inlayHint">textDocument/inlayHint</a> requests.
-/// Has nothing to do with other inlays, e.g. copilot suggestions — those are stored elsewhere.
+/// Has nothing to do with other inlays, e.g. copilot suggestions — those are stored elsewhere.
 /// On every update, cache may query for more inlay hints and update inlays on the screen.
 ///
 /// Inlays stored on screen are in [`crate::display_map::inlay_map`] and this cache is the only way to update any inlay hint data in the visible hints in the inlay map.
@@ -14,32 +14,30 @@ use std::{
 };
 
 use crate::{
-    Anchor, Editor, ExcerptId, InlayId, MultiBuffer, MultiBufferSnapshot, display_map::Inlay,
+    display_map::Inlay, Anchor, Editor, ExcerptId, InlayId, MultiBuffer, MultiBufferSnapshot,
 };
-use anyhow::Context as _;
+use anyhow::Context;
 use clock::Global;
 use futures::future;
-use gpui::{AppContext as _, AsyncApp, Context, Entity, Task, Window};
-use language::{Buffer, BufferSnapshot, language_settings::InlayHintKind};
+use gpui::{AsyncWindowContext, Model, ModelContext, Task, ViewContext};
+use language::{language_settings::InlayHintKind, Buffer, BufferSnapshot};
 use parking_lot::RwLock;
 use project::{InlayHint, ResolveState};
 
-use collections::{HashMap, HashSet, hash_map};
+use collections::{hash_map, HashMap, HashSet};
 use language::language_settings::InlayHintSettings;
 use smol::lock::Semaphore;
 use sum_tree::Bias;
 use text::{BufferId, ToOffset, ToPoint};
-use util::{ResultExt, post_inc};
+use util::{post_inc, ResultExt};
 
 pub struct InlayHintCache {
     hints: HashMap<ExcerptId, Arc<RwLock<CachedExcerptHints>>>,
     allowed_hint_kinds: HashSet<Option<InlayHintKind>>,
     version: usize,
     pub(super) enabled: bool,
-    modifiers_override: bool,
-    enabled_in_settings: bool,
     update_tasks: HashMap<ExcerptId, TasksForRanges>,
-    refresh_task: Task<()>,
+    refresh_task: Option<Task<()>>,
     invalidate_debounce: Option<Duration>,
     append_debounce: Option<Duration>,
     lsp_request_limiter: Arc<Semaphore>,
@@ -117,9 +115,13 @@ impl InvalidationStrategy {
 
 impl TasksForRanges {
     fn new(query_ranges: QueryRanges, task: Task<()>) -> Self {
+        let mut sorted_ranges = Vec::new();
+        sorted_ranges.extend(query_ranges.before_visible);
+        sorted_ranges.extend(query_ranges.visible);
+        sorted_ranges.extend(query_ranges.after_visible);
         Self {
             tasks: vec![task],
-            sorted_ranges: query_ranges.into_sorted_query_ranges(),
+            sorted_ranges,
         }
     }
 
@@ -132,7 +134,7 @@ impl TasksForRanges {
     ) {
         let query_ranges = if invalidate.should_invalidate() {
             self.tasks.clear();
-            self.sorted_ranges = query_ranges.clone().into_sorted_query_ranges();
+            self.sorted_ranges.clear();
             query_ranges
         } else {
             let mut non_cached_query_ranges = query_ranges;
@@ -266,11 +268,9 @@ impl InlayHintCache {
         Self {
             allowed_hint_kinds: inlay_hint_settings.enabled_inlay_hint_kinds(),
             enabled: inlay_hint_settings.enabled,
-            modifiers_override: false,
-            enabled_in_settings: inlay_hint_settings.enabled,
             hints: HashMap::default(),
             update_tasks: HashMap::default(),
-            refresh_task: Task::ready(()),
+            refresh_task: None,
             invalidate_debounce: debounce_value(inlay_hint_settings.edit_debounce_ms),
             append_debounce: debounce_value(inlay_hint_settings.scroll_debounce_ms),
             version: 0,
@@ -283,27 +283,15 @@ impl InlayHintCache {
     /// Does not update inlay hint cache state on disabling or inlay hint kinds change: only reenabling forces new LSP queries.
     pub(super) fn update_settings(
         &mut self,
-        multi_buffer: &Entity<MultiBuffer>,
+        multi_buffer: &Model<MultiBuffer>,
         new_hint_settings: InlayHintSettings,
         visible_hints: Vec<Inlay>,
-        cx: &mut Context<Editor>,
+        cx: &mut ViewContext<Editor>,
     ) -> ControlFlow<Option<InlaySplice>> {
-        let old_enabled = self.enabled;
-        // If the setting for inlay hints has changed, update `enabled`. This condition avoids inlay
-        // hint visibility changes when other settings change (such as theme).
-        //
-        // Another option might be to store whether the user has manually toggled inlay hint
-        // visibility, and prefer this. This could lead to confusion as it means inlay hint
-        // visibility would not change when updating the setting if they were ever toggled.
-        if new_hint_settings.enabled != self.enabled_in_settings {
-            self.enabled = new_hint_settings.enabled;
-            self.enabled_in_settings = new_hint_settings.enabled;
-            self.modifiers_override = false;
-        };
         self.invalidate_debounce = debounce_value(new_hint_settings.edit_debounce_ms);
         self.append_debounce = debounce_value(new_hint_settings.scroll_debounce_ms);
         let new_allowed_hint_kinds = new_hint_settings.enabled_inlay_hint_kinds();
-        match (old_enabled, self.enabled) {
+        match (self.enabled, new_hint_settings.enabled) {
             (false, false) => {
                 self.allowed_hint_kinds = new_allowed_hint_kinds;
                 ControlFlow::Break(None)
@@ -326,7 +314,7 @@ impl InlayHintCache {
                 }
             }
             (true, false) => {
-                self.modifiers_override = false;
+                self.enabled = new_hint_settings.enabled;
                 self.allowed_hint_kinds = new_allowed_hint_kinds;
                 if self.hints.is_empty() {
                     ControlFlow::Break(None)
@@ -339,37 +327,11 @@ impl InlayHintCache {
                 }
             }
             (false, true) => {
-                self.modifiers_override = false;
+                self.enabled = new_hint_settings.enabled;
                 self.allowed_hint_kinds = new_allowed_hint_kinds;
                 ControlFlow::Continue(())
             }
         }
-    }
-
-    pub(super) fn modifiers_override(&mut self, new_override: bool) -> Option<bool> {
-        if self.modifiers_override == new_override {
-            return None;
-        }
-        self.modifiers_override = new_override;
-        if (self.enabled && self.modifiers_override) || (!self.enabled && !self.modifiers_override)
-        {
-            self.clear();
-            Some(false)
-        } else {
-            Some(true)
-        }
-    }
-
-    pub(super) fn toggle(&mut self, enabled: bool) -> bool {
-        if self.enabled == enabled {
-            return false;
-        }
-        self.enabled = enabled;
-        self.modifiers_override = false;
-        if !enabled {
-            self.clear();
-        }
-        true
     }
 
     /// If needed, queries LSP for new inlay hints, using the invalidation strategy given.
@@ -379,13 +341,12 @@ impl InlayHintCache {
     pub(super) fn spawn_hint_refresh(
         &mut self,
         reason_description: &'static str,
-        excerpts_to_query: HashMap<ExcerptId, (Entity<Buffer>, Global, Range<usize>)>,
+        excerpts_to_query: HashMap<ExcerptId, (Model<Buffer>, Global, Range<usize>)>,
         invalidate: InvalidationStrategy,
         ignore_debounce: bool,
-        cx: &mut Context<Editor>,
+        cx: &mut ViewContext<Editor>,
     ) -> Option<InlaySplice> {
-        if (self.enabled && self.modifiers_override) || (!self.enabled && !self.modifiers_override)
-        {
+        if !self.enabled {
             return None;
         }
         let mut invalidated_hints = Vec::new();
@@ -412,13 +373,13 @@ impl InlayHintCache {
         } else {
             self.append_debounce
         };
-        self.refresh_task = cx.spawn(async move |editor, cx| {
+        self.refresh_task = Some(cx.spawn(|editor, mut cx| async move {
             if let Some(debounce_duration) = debounce_duration {
                 cx.background_executor().timer(debounce_duration).await;
             }
 
             editor
-                .update(cx, |editor, cx| {
+                .update(&mut cx, |editor, cx| {
                     spawn_new_update_tasks(
                         editor,
                         reason_description,
@@ -429,7 +390,7 @@ impl InlayHintCache {
                     )
                 })
                 .ok();
-        });
+        }));
 
         if invalidated_hints.is_empty() {
             None
@@ -443,10 +404,10 @@ impl InlayHintCache {
 
     fn new_allowed_hint_kinds_splice(
         &self,
-        multi_buffer: &Entity<MultiBuffer>,
+        multi_buffer: &Model<MultiBuffer>,
         visible_hints: &[Inlay],
         new_kinds: &HashSet<Option<InlayHintKind>>,
-        cx: &mut Context<Editor>,
+        cx: &mut ViewContext<Editor>,
     ) -> Option<InlaySplice> {
         let old_kinds = &self.allowed_hint_kinds;
         if new_kinds == old_kinds {
@@ -555,12 +516,12 @@ impl InlayHintCache {
     /// Completely forget of certain excerpts that were removed from the multibuffer.
     pub(super) fn remove_excerpts(
         &mut self,
-        excerpts_removed: &[ExcerptId],
+        excerpts_removed: Vec<ExcerptId>,
     ) -> Option<InlaySplice> {
         let mut to_remove = Vec::new();
         for excerpt_to_remove in excerpts_removed {
-            self.update_tasks.remove(excerpt_to_remove);
-            if let Some(cached_hints) = self.hints.remove(excerpt_to_remove) {
+            self.update_tasks.remove(&excerpt_to_remove);
+            if let Some(cached_hints) = self.hints.remove(&excerpt_to_remove) {
                 let cached_hints = cached_hints.read();
                 to_remove.extend(cached_hints.ordered_hints.iter().copied());
             }
@@ -581,7 +542,6 @@ impl InlayHintCache {
             self.version += 1;
         }
         self.update_tasks.clear();
-        self.refresh_task = Task::ready(());
         self.hints.clear();
     }
 
@@ -609,14 +569,17 @@ impl InlayHintCache {
         hints
     }
 
+    pub fn version(&self) -> usize {
+        self.version
+    }
+
     /// Queries a certain hint from the cache for extra data via the LSP <a href="https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#inlayHint_resolve">resolve</a> request.
     pub(super) fn spawn_hint_resolve(
         &self,
         buffer_id: BufferId,
         excerpt_id: ExcerptId,
         id: InlayId,
-        window: &mut Window,
-        cx: &mut Context<Editor>,
+        cx: &mut ViewContext<'_, Editor>,
     ) {
         if let Some(excerpt_hints) = self.hints.get(&excerpt_id) {
             let mut guard = excerpt_hints.write();
@@ -626,20 +589,28 @@ impl InlayHintCache {
                     let server_id = *server_id;
                     cached_hint.resolve_state = ResolveState::Resolving;
                     drop(guard);
-                    cx.spawn_in(window, async move |editor, cx| {
-                        let resolved_hint_task = editor.update(cx, |editor, cx| {
-                            let buffer = editor.buffer().read(cx).buffer(buffer_id)?;
-                            editor.semantics_provider.as_ref()?.resolve_inlay_hint(
-                                hint_to_resolve,
-                                buffer,
-                                server_id,
-                                cx,
-                            )
+                    cx.spawn(|editor, mut cx| async move {
+                        let resolved_hint_task = editor.update(&mut cx, |editor, cx| {
+                            editor
+                                .buffer()
+                                .read(cx)
+                                .buffer(buffer_id)
+                                .and_then(|buffer| {
+                                    let project = editor.project.as_ref()?;
+                                    Some(project.update(cx, |project, cx| {
+                                        project.resolve_inlay_hint(
+                                            hint_to_resolve,
+                                            buffer,
+                                            server_id,
+                                            cx,
+                                        )
+                                    }))
+                                })
                         })?;
                         if let Some(resolved_hint_task) = resolved_hint_task {
                             let mut resolved_hint =
                                 resolved_hint_task.await.context("hint resolve task")?;
-                            editor.update(cx, |editor, _| {
+                            editor.update(&mut cx, |editor, _| {
                                 if let Some(excerpt_hints) =
                                     editor.inlay_hint_cache.hints.get(&excerpt_id)
                                 {
@@ -674,10 +645,10 @@ fn debounce_value(debounce_ms: u64) -> Option<Duration> {
 fn spawn_new_update_tasks(
     editor: &mut Editor,
     reason: &'static str,
-    excerpts_to_query: HashMap<ExcerptId, (Entity<Buffer>, Global, Range<usize>)>,
+    excerpts_to_query: HashMap<ExcerptId, (Model<Buffer>, Global, Range<usize>)>,
     invalidate: InvalidationStrategy,
     update_cache_version: usize,
-    cx: &mut Context<Editor>,
+    cx: &mut ViewContext<'_, Editor>,
 ) {
     for (excerpt_id, (excerpt_buffer, new_task_buffer_version, excerpt_visible_range)) in
         excerpts_to_query
@@ -757,31 +728,21 @@ impl QueryRanges {
     fn is_empty(&self) -> bool {
         self.before_visible.is_empty() && self.visible.is_empty() && self.after_visible.is_empty()
     }
-
-    fn into_sorted_query_ranges(self) -> Vec<Range<text::Anchor>> {
-        let mut sorted_ranges = Vec::with_capacity(
-            self.before_visible.len() + self.visible.len() + self.after_visible.len(),
-        );
-        sorted_ranges.extend(self.before_visible);
-        sorted_ranges.extend(self.visible);
-        sorted_ranges.extend(self.after_visible);
-        sorted_ranges
-    }
 }
 
 fn determine_query_ranges(
     multi_buffer: &mut MultiBuffer,
     excerpt_id: ExcerptId,
-    excerpt_buffer: &Entity<Buffer>,
+    excerpt_buffer: &Model<Buffer>,
     excerpt_visible_range: Range<usize>,
-    cx: &mut Context<MultiBuffer>,
+    cx: &mut ModelContext<'_, MultiBuffer>,
 ) -> Option<QueryRanges> {
-    let buffer = excerpt_buffer.read(cx);
     let full_excerpt_range = multi_buffer
-        .excerpts_for_buffer(buffer.remote_id(), cx)
+        .excerpts_for_buffer(excerpt_buffer, cx)
         .into_iter()
         .find(|(id, _)| id == &excerpt_id)
         .map(|(_, range)| range.context)?;
+    let buffer = excerpt_buffer.read(cx);
     let snapshot = buffer.snapshot();
     let excerpt_visible_len = excerpt_visible_range.end - excerpt_visible_range.start;
 
@@ -843,17 +804,17 @@ const INVISIBLE_RANGES_HINTS_REQUEST_DELAY_MILLIS: u64 = 400;
 fn new_update_task(
     query: ExcerptQuery,
     query_ranges: QueryRanges,
-    excerpt_buffer: Entity<Buffer>,
-    cx: &mut Context<Editor>,
+    excerpt_buffer: Model<Buffer>,
+    cx: &mut ViewContext<'_, Editor>,
 ) -> Task<()> {
-    cx.spawn(async move |editor, cx| {
+    cx.spawn(move |editor, mut cx| async move {
         let visible_range_update_results = future::join_all(
             query_ranges
                 .visible
                 .into_iter()
                 .filter_map(|visible_range| {
                     let fetch_task = editor
-                        .update(cx, |_, cx| {
+                        .update(&mut cx, |_, cx| {
                             fetch_and_update_hints(
                                 excerpt_buffer.clone(),
                                 query,
@@ -873,7 +834,7 @@ fn new_update_task(
         ));
 
         let query_range_failed =
-            |range: &Range<language::Anchor>, e: anyhow::Error, cx: &mut AsyncApp| {
+            |range: &Range<language::Anchor>, e: anyhow::Error, cx: &mut AsyncWindowContext| {
                 log::error!("inlay hint update task for range failed: {e:#?}");
                 editor
                     .update(cx, |editor, cx| {
@@ -891,7 +852,7 @@ fn new_update_task(
 
         for (range, result) in visible_range_update_results {
             if let Err(e) = result {
-                query_range_failed(&range, e, cx);
+                query_range_failed(&range, e, &mut cx);
             }
         }
 
@@ -903,7 +864,7 @@ fn new_update_task(
                 .chain(query_ranges.after_visible.into_iter())
                 .filter_map(|invisible_range| {
                     let fetch_task = editor
-                        .update(cx, |_, cx| {
+                        .update(&mut cx, |_, cx| {
                             fetch_and_update_hints(
                                 excerpt_buffer.clone(),
                                 query,
@@ -919,28 +880,26 @@ fn new_update_task(
         .await;
         for (range, result) in invisible_range_update_results {
             if let Err(e) = result {
-                query_range_failed(&range, e, cx);
+                query_range_failed(&range, e, &mut cx);
             }
         }
     })
 }
 
 fn fetch_and_update_hints(
-    excerpt_buffer: Entity<Buffer>,
+    excerpt_buffer: Model<Buffer>,
     query: ExcerptQuery,
     fetch_range: Range<language::Anchor>,
     invalidate: bool,
-    cx: &mut Context<Editor>,
+    cx: &mut ViewContext<Editor>,
 ) -> Task<anyhow::Result<()>> {
-    cx.spawn(async move |editor, cx|{
-        let buffer_snapshot = excerpt_buffer.update(cx, |buffer, _| buffer.snapshot())?;
-        let (lsp_request_limiter, multi_buffer_snapshot) =
-            editor.update(cx, |editor, cx| {
-                let multi_buffer_snapshot =
-                    editor.buffer().update(cx, |buffer, cx| buffer.snapshot(cx));
-                let lsp_request_limiter = Arc::clone(&editor.inlay_hint_cache.lsp_request_limiter);
-                (lsp_request_limiter, multi_buffer_snapshot)
-            })?;
+    cx.spawn(|editor, mut cx| async move {
+        let buffer_snapshot = excerpt_buffer.update(&mut cx, |buffer, _| buffer.snapshot())?;
+        let (lsp_request_limiter, multi_buffer_snapshot) = editor.update(&mut cx, |editor, cx| {
+            let multi_buffer_snapshot  = editor.buffer().update(cx, |buffer, cx| buffer.snapshot(cx));
+            let lsp_request_limiter = Arc::clone(&editor.inlay_hint_cache.lsp_request_limiter);
+            (lsp_request_limiter, multi_buffer_snapshot)
+        })?;
 
         let (lsp_request_guard, got_throttled) = if query.invalidate.should_invalidate() {
             (None, false)
@@ -950,15 +909,12 @@ fn fetch_and_update_hints(
                 None => (Some(lsp_request_limiter.acquire().await), true),
             }
         };
-        let fetch_range_to_log = fetch_range.start.to_point(&buffer_snapshot)
-            ..fetch_range.end.to_point(&buffer_snapshot);
+        let fetch_range_to_log =
+            fetch_range.start.to_point(&buffer_snapshot)..fetch_range.end.to_point(&buffer_snapshot);
         let inlay_hints_fetch_task = editor
-            .update(cx, |editor, cx| {
+            .update(&mut cx, |editor, cx| {
                 if got_throttled {
-                    let query_not_around_visible_range = match editor
-                        .excerpts_for_inlay_hints_query(None, cx)
-                        .remove(&query.excerpt_id)
-                    {
+                    let query_not_around_visible_range = match editor.excerpts_for_inlay_hints_query(None, cx).remove(&query.excerpt_id) {
                         Some((_, _, current_visible_range)) => {
                             let visible_offset_length = current_visible_range.len();
                             let double_visible_range = current_visible_range
@@ -972,7 +928,7 @@ fn fetch_and_update_hints(
                                 .contains(&fetch_range.start.to_offset(&buffer_snapshot))
                                 && !double_visible_range
                                     .contains(&fetch_range.end.to_offset(&buffer_snapshot))
-                        }
+                        },
                         None => true,
                     };
                     if query_not_around_visible_range {
@@ -987,27 +943,21 @@ fn fetch_and_update_hints(
                         return None;
                     }
                 }
-
-                let buffer = editor.buffer().read(cx).buffer(query.buffer_id)?;
-                if !editor.registered_buffers.contains_key(&query.buffer_id) {
-                    if let Some(project) = editor.project.as_ref() {
-                        project.update(cx, |project, cx| {
-                            editor.registered_buffers.insert(
-                                query.buffer_id,
-                                project.register_buffer_with_language_servers(&buffer, cx),
-                            );
-                        })
-                    }
-                }
                 editor
-                    .semantics_provider
-                    .as_ref()?
-                    .inlay_hints(buffer, fetch_range.clone(), cx)
+                    .buffer()
+                    .read(cx)
+                    .buffer(query.buffer_id)
+                    .and_then(|buffer| {
+                        let project = editor.project.as_ref()?;
+                        Some(project.update(cx, |project, cx| {
+                            project.inlay_hints(buffer, fetch_range.clone(), cx)
+                        }))
+                    })
             })
             .ok()
             .flatten();
 
-        let cached_excerpt_hints = editor.update(cx, |editor, _| {
+        let cached_excerpt_hints = editor.update(&mut cx, |editor, _| {
             editor
                 .inlay_hint_cache
                 .hints
@@ -1015,7 +965,7 @@ fn fetch_and_update_hints(
                 .cloned()
         })?;
 
-        let visible_hints = editor.update(cx, |editor, cx| editor.visible_inlay_hints(cx))?;
+        let visible_hints = editor.update(&mut cx, |editor, cx| editor.visible_inlay_hints(cx))?;
         let new_hints = match inlay_hints_fetch_task {
             Some(fetch_task) => {
                 log::debug!(
@@ -1039,17 +989,19 @@ fn fetch_and_update_hints(
 
         let background_task_buffer_snapshot = buffer_snapshot.clone();
         let background_fetch_range = fetch_range.clone();
-        let new_update = cx.background_spawn(async move {
-            calculate_hint_updates(
-                query.excerpt_id,
-                invalidate,
-                background_fetch_range,
-                new_hints,
-                &background_task_buffer_snapshot,
-                cached_excerpt_hints,
-                &visible_hints,
-            )
-        })
+        let new_update = cx
+            .background_executor()
+            .spawn(async move {
+                calculate_hint_updates(
+                    query.excerpt_id,
+                    invalidate,
+                    background_fetch_range,
+                    new_hints,
+                    &background_task_buffer_snapshot,
+                    cached_excerpt_hints,
+                    &visible_hints,
+                )
+            })
             .await;
         if let Some(new_update) = new_update {
             log::debug!(
@@ -1060,7 +1012,7 @@ fn fetch_and_update_hints(
             );
             log::trace!("New update: {new_update:?}");
             editor
-                .update(cx, |editor,  cx| {
+                .update(&mut cx, |editor, cx| {
                     apply_hint_update(
                         editor,
                         new_update,
@@ -1184,7 +1136,7 @@ fn apply_hint_update(
     invalidate: bool,
     buffer_snapshot: BufferSnapshot,
     multi_buffer_snapshot: MultiBufferSnapshot,
-    cx: &mut Context<Editor>,
+    cx: &mut ViewContext<'_, Editor>,
 ) {
     let cached_excerpt_hints = editor
         .inlay_hint_cache
@@ -1225,39 +1177,48 @@ fn apply_hint_update(
                     .cmp(&new_hint.position, &buffer_snapshot)
             }) {
             Ok(i) => {
-                // When a hint is added to the same position where existing ones are present,
-                // do not deduplicate it: we split hint queries into non-overlapping ranges
-                // and each hint batch returned by the server should already contain unique hints.
-                i + cached_excerpt_hints.ordered_hints[i..].len() + 1
+                let mut insert_position = Some(i);
+                for id in &cached_excerpt_hints.ordered_hints[i..] {
+                    let cached_hint = &cached_excerpt_hints.hints_by_id[id];
+                    if new_hint
+                        .position
+                        .cmp(&cached_hint.position, &buffer_snapshot)
+                        .is_gt()
+                    {
+                        break;
+                    }
+                    if cached_hint.text() == new_hint.text() {
+                        insert_position = None;
+                        break;
+                    }
+                }
+                insert_position
             }
-            Err(i) => i,
+            Err(i) => Some(i),
         };
 
-        let new_inlay_id = post_inc(&mut editor.next_inlay_id);
-        if editor
-            .inlay_hint_cache
-            .allowed_hint_kinds
-            .contains(&new_hint.kind)
-        {
-            if let Some(new_hint_position) =
-                multi_buffer_snapshot.anchor_in_excerpt(query.excerpt_id, new_hint.position)
+        if let Some(insert_position) = insert_position {
+            let new_inlay_id = post_inc(&mut editor.next_inlay_id);
+            if editor
+                .inlay_hint_cache
+                .allowed_hint_kinds
+                .contains(&new_hint.kind)
             {
-                splice
-                    .to_insert
-                    .push(Inlay::hint(new_inlay_id, new_hint_position, &new_hint));
+                if let Some(new_hint_position) =
+                    multi_buffer_snapshot.anchor_in_excerpt(query.excerpt_id, new_hint.position)
+                {
+                    splice
+                        .to_insert
+                        .push(Inlay::hint(new_inlay_id, new_hint_position, &new_hint));
+                }
             }
-        }
-        let new_id = InlayId::Hint(new_inlay_id);
-        cached_excerpt_hints.hints_by_id.insert(new_id, new_hint);
-        if cached_excerpt_hints.ordered_hints.len() <= insert_position {
-            cached_excerpt_hints.ordered_hints.push(new_id);
-        } else {
+            let new_id = InlayId::Hint(new_inlay_id);
+            cached_excerpt_hints.hints_by_id.insert(new_id, new_hint);
             cached_excerpt_hints
                 .ordered_hints
                 .insert(insert_position, new_id);
+            cached_inlays_changed = true;
         }
-
-        cached_inlays_changed = true;
     }
     cached_excerpt_hints.buffer_version = buffer_snapshot.version().clone();
     drop(cached_excerpt_hints);
@@ -1294,28 +1255,33 @@ fn apply_hint_update(
         editor.inlay_hint_cache.version += 1;
     }
     if displayed_inlays_changed {
-        editor.splice_inlays(&to_remove, to_insert, cx)
+        editor.splice_inlays(to_remove, to_insert, cx)
     }
 }
 
 #[cfg(test)]
 pub mod tests {
-    use crate::editor_tests::update_test_language_settings;
-    use crate::scroll::ScrollAmount;
-    use crate::{ExcerptRange, scroll::Autoscroll, test::editor_lsp_test_context::rust_lang};
+    use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+
+    use crate::{
+        scroll::{scroll_amount::ScrollAmount, Autoscroll},
+        ExcerptRange,
+    };
     use futures::StreamExt;
-    use gpui::{AppContext as _, Context, SemanticVersion, TestAppContext, WindowHandle};
-    use itertools::Itertools as _;
-    use language::{Capability, FakeLspAdapter, language_settings::AllLanguageSettingsContent};
-    use language::{Language, LanguageConfig, LanguageMatcher};
+    use gpui::{Context, SemanticVersion, TestAppContext, WindowHandle};
+    use itertools::Itertools;
+    use language::{
+        language_settings::AllLanguageSettingsContent, Capability, FakeLspAdapter, Language,
+        LanguageConfig, LanguageMatcher,
+    };
     use lsp::FakeLanguageServer;
     use parking_lot::Mutex;
     use project::{FakeFs, Project};
     use serde_json::json;
     use settings::SettingsStore;
-    use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
-    use text::Point;
-    use util::path;
+    use text::{Point, ToPoint};
+
+    use crate::editor_tests::update_test_language_settings;
 
     use super::*;
 
@@ -1330,41 +1296,53 @@ pub mod tests {
                 show_type_hints: allowed_hint_kinds.contains(&Some(InlayHintKind::Type)),
                 show_parameter_hints: allowed_hint_kinds.contains(&Some(InlayHintKind::Parameter)),
                 show_other_hints: allowed_hint_kinds.contains(&None),
-                show_background: false,
-                toggle_on_modifiers_press: None,
             })
         });
-        let (_, editor, fake_server) = prepare_test_objects(cx, |fake_server, file_with_hints| {
-            let lsp_request_count = Arc::new(AtomicU32::new(0));
-            fake_server.set_request_handler::<lsp::request::InlayHintRequest, _, _>(
-                move |params, _| {
-                    let task_lsp_request_count = Arc::clone(&lsp_request_count);
-                    async move {
-                        let i = task_lsp_request_count.fetch_add(1, Ordering::Release) + 1;
-                        assert_eq!(
-                            params.text_document.uri,
-                            lsp::Url::from_file_path(file_with_hints).unwrap(),
-                        );
-                        Ok(Some(vec![lsp::InlayHint {
-                            position: lsp::Position::new(0, i),
-                            label: lsp::InlayHintLabel::String(i.to_string()),
-                            kind: None,
-                            text_edits: None,
-                            tooltip: None,
-                            padding_left: None,
-                            padding_right: None,
-                            data: None,
-                        }]))
+
+        let (file_with_hints, editor, fake_server) = prepare_test_objects(cx).await;
+        let lsp_request_count = Arc::new(AtomicU32::new(0));
+        fake_server
+            .handle_request::<lsp::request::InlayHintRequest, _, _>(move |params, _| {
+                let task_lsp_request_count = Arc::clone(&lsp_request_count);
+                async move {
+                    assert_eq!(
+                        params.text_document.uri,
+                        lsp::Url::from_file_path(file_with_hints).unwrap(),
+                    );
+                    let current_call_id =
+                        Arc::clone(&task_lsp_request_count).fetch_add(1, Ordering::SeqCst);
+                    let mut new_hints = Vec::with_capacity(2 * current_call_id as usize);
+                    for _ in 0..2 {
+                        let mut i = current_call_id;
+                        loop {
+                            new_hints.push(lsp::InlayHint {
+                                position: lsp::Position::new(0, i),
+                                label: lsp::InlayHintLabel::String(i.to_string()),
+                                kind: None,
+                                text_edits: None,
+                                tooltip: None,
+                                padding_left: None,
+                                padding_right: None,
+                                data: None,
+                            });
+                            if i == 0 {
+                                break;
+                            }
+                            i -= 1;
+                        }
                     }
-                },
-            );
-        })
-        .await;
+
+                    Ok(Some(new_hints))
+                }
+            })
+            .next()
+            .await;
         cx.executor().run_until_parked();
 
+        let mut edits_made = 1;
         editor
-            .update(cx, |editor, _window, cx| {
-                let expected_hints = vec!["1".to_string()];
+            .update(cx, |editor, cx| {
+                let expected_hints = vec!["0".to_string()];
                 assert_eq!(
                     expected_hints,
                     cached_hint_labels(editor),
@@ -1376,19 +1354,24 @@ pub mod tests {
                     inlay_cache.allowed_hint_kinds, allowed_hint_kinds,
                     "Cache should use editor settings to get the allowed hint kinds"
                 );
+                assert_eq!(
+                    inlay_cache.version, edits_made,
+                    "The editor update the cache version after every cache/view change"
+                );
             })
             .unwrap();
 
         editor
-            .update(cx, |editor, window, cx| {
-                editor.change_selections(None, window, cx, |s| s.select_ranges([13..13]));
-                editor.handle_input("some change", window, cx);
+            .update(cx, |editor, cx| {
+                editor.change_selections(None, cx, |s| s.select_ranges([13..13]));
+                editor.handle_input("some change", cx);
+                edits_made += 1;
             })
             .unwrap();
         cx.executor().run_until_parked();
         editor
-            .update(cx, |editor, _window, cx| {
-                let expected_hints = vec!["2".to_string()];
+            .update(cx, |editor, cx| {
+                let expected_hints = vec!["0".to_string(), "1".to_string()];
                 assert_eq!(
                     expected_hints,
                     cached_hint_labels(editor),
@@ -1400,6 +1383,10 @@ pub mod tests {
                     inlay_cache.allowed_hint_kinds, allowed_hint_kinds,
                     "Cache should use editor settings to get the allowed hint kinds"
                 );
+                assert_eq!(
+                    inlay_cache.version, edits_made,
+                    "The editor update the cache version after every cache/view change"
+                );
             })
             .unwrap();
 
@@ -1407,10 +1394,11 @@ pub mod tests {
             .request::<lsp::request::InlayHintRefreshRequest>(())
             .await
             .expect("inlay refresh request failed");
+        edits_made += 1;
         cx.executor().run_until_parked();
         editor
-            .update(cx, |editor, _window, cx| {
-                let expected_hints = vec!["3".to_string()];
+            .update(cx, |editor, cx| {
+                let expected_hints = vec!["0".to_string(), "1".to_string(), "2".to_string()];
                 assert_eq!(
                     expected_hints,
                     cached_hint_labels(editor),
@@ -1421,6 +1409,10 @@ pub mod tests {
                 assert_eq!(
                     inlay_cache.allowed_hint_kinds, allowed_hint_kinds,
                     "Cache should use editor settings to get the allowed hint kinds"
+                );
+                assert_eq!(
+                    inlay_cache.version, edits_made,
+                    "The editor update the cache version after every cache/view change"
                 );
             })
             .unwrap();
@@ -1436,42 +1428,40 @@ pub mod tests {
                 show_type_hints: true,
                 show_parameter_hints: true,
                 show_other_hints: true,
-                show_background: false,
-                toggle_on_modifiers_press: None,
             })
         });
 
-        let (_, editor, fake_server) = prepare_test_objects(cx, |fake_server, file_with_hints| {
-            let lsp_request_count = Arc::new(AtomicU32::new(0));
-            fake_server.set_request_handler::<lsp::request::InlayHintRequest, _, _>(
-                move |params, _| {
-                    let task_lsp_request_count = Arc::clone(&lsp_request_count);
-                    async move {
-                        assert_eq!(
-                            params.text_document.uri,
-                            lsp::Url::from_file_path(file_with_hints).unwrap(),
-                        );
-                        let current_call_id =
-                            Arc::clone(&task_lsp_request_count).fetch_add(1, Ordering::SeqCst);
-                        Ok(Some(vec![lsp::InlayHint {
-                            position: lsp::Position::new(0, current_call_id),
-                            label: lsp::InlayHintLabel::String(current_call_id.to_string()),
-                            kind: None,
-                            text_edits: None,
-                            tooltip: None,
-                            padding_left: None,
-                            padding_right: None,
-                            data: None,
-                        }]))
-                    }
-                },
-            );
-        })
-        .await;
+        let (file_with_hints, editor, fake_server) = prepare_test_objects(cx).await;
+        let lsp_request_count = Arc::new(AtomicU32::new(0));
+        fake_server
+            .handle_request::<lsp::request::InlayHintRequest, _, _>(move |params, _| {
+                let task_lsp_request_count = Arc::clone(&lsp_request_count);
+                async move {
+                    assert_eq!(
+                        params.text_document.uri,
+                        lsp::Url::from_file_path(file_with_hints).unwrap(),
+                    );
+                    let current_call_id =
+                        Arc::clone(&task_lsp_request_count).fetch_add(1, Ordering::SeqCst);
+                    Ok(Some(vec![lsp::InlayHint {
+                        position: lsp::Position::new(0, current_call_id),
+                        label: lsp::InlayHintLabel::String(current_call_id.to_string()),
+                        kind: None,
+                        text_edits: None,
+                        tooltip: None,
+                        padding_left: None,
+                        padding_right: None,
+                        data: None,
+                    }]))
+                }
+            })
+            .next()
+            .await;
         cx.executor().run_until_parked();
 
+        let mut edits_made = 1;
         editor
-            .update(cx, |editor, _, cx| {
+            .update(cx, |editor, cx| {
                 let expected_hints = vec!["0".to_string()];
                 assert_eq!(
                     expected_hints,
@@ -1479,6 +1469,11 @@ pub mod tests {
                     "Should get its first hints when opening the editor"
                 );
                 assert_eq!(expected_hints, visible_hint_labels(editor, cx));
+                assert_eq!(
+                    editor.inlay_hint_cache().version,
+                    edits_made,
+                    "The editor update the cache version after every cache/view change"
+                );
             })
             .unwrap();
 
@@ -1490,7 +1485,7 @@ pub mod tests {
             .await
             .expect("work done progress create request failed");
         cx.executor().run_until_parked();
-        fake_server.notify::<lsp::notification::Progress>(&lsp::ProgressParams {
+        fake_server.notify::<lsp::notification::Progress>(lsp::ProgressParams {
             token: lsp::ProgressToken::String(progress_token.to_string()),
             value: lsp::ProgressParamsValue::WorkDone(lsp::WorkDoneProgress::Begin(
                 lsp::WorkDoneProgressBegin::default(),
@@ -1499,7 +1494,7 @@ pub mod tests {
         cx.executor().run_until_parked();
 
         editor
-            .update(cx, |editor, _, cx| {
+            .update(cx, |editor, cx| {
                 let expected_hints = vec!["0".to_string()];
                 assert_eq!(
                     expected_hints,
@@ -1507,10 +1502,15 @@ pub mod tests {
                     "Should not update hints while the work task is running"
                 );
                 assert_eq!(expected_hints, visible_hint_labels(editor, cx));
+                assert_eq!(
+                    editor.inlay_hint_cache().version,
+                    edits_made,
+                    "Should not update the cache while the work task is running"
+                );
             })
             .unwrap();
 
-        fake_server.notify::<lsp::notification::Progress>(&lsp::ProgressParams {
+        fake_server.notify::<lsp::notification::Progress>(lsp::ProgressParams {
             token: lsp::ProgressToken::String(progress_token.to_string()),
             value: lsp::ProgressParamsValue::WorkDone(lsp::WorkDoneProgress::End(
                 lsp::WorkDoneProgressEnd::default(),
@@ -1518,8 +1518,9 @@ pub mod tests {
         });
         cx.executor().run_until_parked();
 
+        edits_made += 1;
         editor
-            .update(cx, |editor, _, cx| {
+            .update(cx, |editor, cx| {
                 let expected_hints = vec!["1".to_string()];
                 assert_eq!(
                     expected_hints,
@@ -1527,6 +1528,11 @@ pub mod tests {
                     "New hints should be queried after the work task is done"
                 );
                 assert_eq!(expected_hints, visible_hint_labels(editor, cx));
+                assert_eq!(
+                    editor.inlay_hint_cache().version,
+                    edits_made,
+                    "Cache version should update once after the work task is done"
+                );
             })
             .unwrap();
     }
@@ -1541,22 +1547,20 @@ pub mod tests {
                 show_type_hints: true,
                 show_parameter_hints: true,
                 show_other_hints: true,
-                show_background: false,
-                toggle_on_modifiers_press: None,
             })
         });
 
         let fs = FakeFs::new(cx.background_executor.clone());
         fs.insert_tree(
-            path!("/a"),
-            json!({
-                "main.rs": "fn main() { a } // and some long comment to ensure inlays are not trimmed out",
-                "other.md": "Test md file with some text",
-            }),
-        )
-        .await;
+                    "/a",
+                    json!({
+                        "main.rs": "fn main() { a } // and some long comment to ensure inlays are not trimmed out",
+                        "other.md": "Test md file with some text",
+                    }),
+                )
+                .await;
 
-        let project = Project::test(fs, [path!("/a").as_ref()], cx).await;
+        let project = Project::test(fs, ["/a".as_ref()], cx).await;
 
         let language_registry = project.read_with(cx, |project, _| project.languages().clone());
         let mut rs_fake_servers = None;
@@ -1571,9 +1575,9 @@ pub mod tests {
                     },
                     ..Default::default()
                 },
-                Some(tree_sitter_rust::LANGUAGE.into()),
+                Some(tree_sitter_rust::language()),
             )));
-            let fake_servers = language_registry.register_fake_lsp(
+            let fake_servers = language_registry.register_fake_lsp_adapter(
                 name,
                 FakeLspAdapter {
                     name,
@@ -1581,54 +1585,6 @@ pub mod tests {
                         inlay_hint_provider: Some(lsp::OneOf::Left(true)),
                         ..Default::default()
                     },
-                    initializer: Some(Box::new({
-                        move |fake_server| {
-                            let rs_lsp_request_count = Arc::new(AtomicU32::new(0));
-                            let md_lsp_request_count = Arc::new(AtomicU32::new(0));
-                            fake_server
-                                .set_request_handler::<lsp::request::InlayHintRequest, _, _>(
-                                    move |params, _| {
-                                        let i = match name {
-                                            "Rust" => {
-                                                assert_eq!(
-                                                    params.text_document.uri,
-                                                    lsp::Url::from_file_path(path!("/a/main.rs"))
-                                                        .unwrap(),
-                                                );
-                                                rs_lsp_request_count.fetch_add(1, Ordering::Release)
-                                                    + 1
-                                            }
-                                            "Markdown" => {
-                                                assert_eq!(
-                                                    params.text_document.uri,
-                                                    lsp::Url::from_file_path(path!("/a/other.md"))
-                                                        .unwrap(),
-                                                );
-                                                md_lsp_request_count.fetch_add(1, Ordering::Release)
-                                                    + 1
-                                            }
-                                            unexpected => {
-                                                panic!("Unexpected language: {unexpected}")
-                                            }
-                                        };
-
-                                        async move {
-                                            let query_start = params.range.start;
-                                            Ok(Some(vec![lsp::InlayHint {
-                                                position: query_start,
-                                                label: lsp::InlayHintLabel::String(i.to_string()),
-                                                kind: None,
-                                                text_edits: None,
-                                                tooltip: None,
-                                                padding_left: None,
-                                                padding_right: None,
-                                                data: None,
-                                            }]))
-                                        }
-                                    },
-                                );
-                        }
-                    })),
                     ..Default::default()
                 },
             );
@@ -1641,116 +1597,171 @@ pub mod tests {
 
         let rs_buffer = project
             .update(cx, |project, cx| {
-                project.open_local_buffer(path!("/a/main.rs"), cx)
+                project.open_local_buffer("/a/main.rs", cx)
             })
             .await
             .unwrap();
-        let rs_editor = cx.add_window(|window, cx| {
-            Editor::for_buffer(rs_buffer, Some(project.clone()), window, cx)
-        });
         cx.executor().run_until_parked();
-
-        let _rs_fake_server = rs_fake_servers.unwrap().next().await.unwrap();
+        cx.executor().start_waiting();
+        let rs_fake_server = rs_fake_servers.unwrap().next().await.unwrap();
+        let rs_editor =
+            cx.add_window(|cx| Editor::for_buffer(rs_buffer, Some(project.clone()), cx));
+        let rs_lsp_request_count = Arc::new(AtomicU32::new(0));
+        rs_fake_server
+            .handle_request::<lsp::request::InlayHintRequest, _, _>(move |params, _| {
+                let task_lsp_request_count = Arc::clone(&rs_lsp_request_count);
+                async move {
+                    assert_eq!(
+                        params.text_document.uri,
+                        lsp::Url::from_file_path("/a/main.rs").unwrap(),
+                    );
+                    let i = Arc::clone(&task_lsp_request_count).fetch_add(1, Ordering::SeqCst);
+                    Ok(Some(vec![lsp::InlayHint {
+                        position: lsp::Position::new(0, i),
+                        label: lsp::InlayHintLabel::String(i.to_string()),
+                        kind: None,
+                        text_edits: None,
+                        tooltip: None,
+                        padding_left: None,
+                        padding_right: None,
+                        data: None,
+                    }]))
+                }
+            })
+            .next()
+            .await;
         cx.executor().run_until_parked();
         rs_editor
-            .update(cx, |editor, _window, cx| {
-                let expected_hints = vec!["1".to_string()];
+            .update(cx, |editor, cx| {
+                let expected_hints = vec!["0".to_string()];
                 assert_eq!(
                     expected_hints,
                     cached_hint_labels(editor),
                     "Should get its first hints when opening the editor"
                 );
                 assert_eq!(expected_hints, visible_hint_labels(editor, cx));
+                assert_eq!(
+                    editor.inlay_hint_cache().version,
+                    1,
+                    "Rust editor update the cache version after every cache/view change"
+                );
             })
             .unwrap();
 
         cx.executor().run_until_parked();
         let md_buffer = project
             .update(cx, |project, cx| {
-                project.open_local_buffer(path!("/a/other.md"), cx)
+                project.open_local_buffer("/a/other.md", cx)
             })
             .await
             .unwrap();
-        let md_editor =
-            cx.add_window(|window, cx| Editor::for_buffer(md_buffer, Some(project), window, cx));
         cx.executor().run_until_parked();
-
-        let _md_fake_server = md_fake_servers.unwrap().next().await.unwrap();
+        cx.executor().start_waiting();
+        let md_fake_server = md_fake_servers.unwrap().next().await.unwrap();
+        let md_editor = cx.add_window(|cx| Editor::for_buffer(md_buffer, Some(project), cx));
+        let md_lsp_request_count = Arc::new(AtomicU32::new(0));
+        md_fake_server
+            .handle_request::<lsp::request::InlayHintRequest, _, _>(move |params, _| {
+                let task_lsp_request_count = Arc::clone(&md_lsp_request_count);
+                async move {
+                    assert_eq!(
+                        params.text_document.uri,
+                        lsp::Url::from_file_path("/a/other.md").unwrap(),
+                    );
+                    let i = Arc::clone(&task_lsp_request_count).fetch_add(1, Ordering::SeqCst);
+                    Ok(Some(vec![lsp::InlayHint {
+                        position: lsp::Position::new(0, i),
+                        label: lsp::InlayHintLabel::String(i.to_string()),
+                        kind: None,
+                        text_edits: None,
+                        tooltip: None,
+                        padding_left: None,
+                        padding_right: None,
+                        data: None,
+                    }]))
+                }
+            })
+            .next()
+            .await;
         cx.executor().run_until_parked();
         md_editor
-            .update(cx, |editor, _window, cx| {
-                let expected_hints = vec!["1".to_string()];
+            .update(cx, |editor, cx| {
+                let expected_hints = vec!["0".to_string()];
                 assert_eq!(
                     expected_hints,
                     cached_hint_labels(editor),
                     "Markdown editor should have a separate version, repeating Rust editor rules"
                 );
                 assert_eq!(expected_hints, visible_hint_labels(editor, cx));
+                assert_eq!(editor.inlay_hint_cache().version, 1);
             })
             .unwrap();
 
         rs_editor
-            .update(cx, |editor, window, cx| {
-                editor.change_selections(None, window, cx, |s| s.select_ranges([13..13]));
-                editor.handle_input("some rs change", window, cx);
+            .update(cx, |editor, cx| {
+                editor.change_selections(None, cx, |s| s.select_ranges([13..13]));
+                editor.handle_input("some rs change", cx);
             })
             .unwrap();
         cx.executor().run_until_parked();
         rs_editor
-            .update(cx, |editor, _window, cx| {
-                // TODO: Here, we do not get "2", because inserting another language server will trigger `RefreshInlayHints` event from the `LspStore`
-                // A project is listened in every editor, so each of them will react to this event.
-                //
-                // We do not have language server IDs for remote projects, so cannot easily say on the editor level,
-                // whether we should ignore a particular `RefreshInlayHints` event.
-                let expected_hints = vec!["3".to_string()];
+            .update(cx, |editor, cx| {
+                let expected_hints = vec!["1".to_string()];
                 assert_eq!(
                     expected_hints,
                     cached_hint_labels(editor),
                     "Rust inlay cache should change after the edit"
                 );
                 assert_eq!(expected_hints, visible_hint_labels(editor, cx));
+                assert_eq!(
+                    editor.inlay_hint_cache().version,
+                    2,
+                    "Every time hint cache changes, cache version should be incremented"
+                );
             })
             .unwrap();
         md_editor
-            .update(cx, |editor, _window, cx| {
-                let expected_hints = vec!["1".to_string()];
+            .update(cx, |editor, cx| {
+                let expected_hints = vec!["0".to_string()];
                 assert_eq!(
                     expected_hints,
                     cached_hint_labels(editor),
                     "Markdown editor should not be affected by Rust editor changes"
                 );
                 assert_eq!(expected_hints, visible_hint_labels(editor, cx));
+                assert_eq!(editor.inlay_hint_cache().version, 1);
             })
             .unwrap();
 
         md_editor
-            .update(cx, |editor, window, cx| {
-                editor.change_selections(None, window, cx, |s| s.select_ranges([13..13]));
-                editor.handle_input("some md change", window, cx);
+            .update(cx, |editor, cx| {
+                editor.change_selections(None, cx, |s| s.select_ranges([13..13]));
+                editor.handle_input("some md change", cx);
             })
             .unwrap();
         cx.executor().run_until_parked();
         md_editor
-            .update(cx, |editor, _window, cx| {
-                let expected_hints = vec!["2".to_string()];
+            .update(cx, |editor, cx| {
+                let expected_hints = vec!["1".to_string()];
                 assert_eq!(
                     expected_hints,
                     cached_hint_labels(editor),
                     "Rust editor should not be affected by Markdown editor changes"
                 );
                 assert_eq!(expected_hints, visible_hint_labels(editor, cx));
+                assert_eq!(editor.inlay_hint_cache().version, 2);
             })
             .unwrap();
         rs_editor
-            .update(cx, |editor, _window, cx| {
-                let expected_hints = vec!["3".to_string()];
+            .update(cx, |editor, cx| {
+                let expected_hints = vec!["1".to_string()];
                 assert_eq!(
                     expected_hints,
                     cached_hint_labels(editor),
                     "Markdown editor should also change independently"
                 );
                 assert_eq!(expected_hints, visible_hint_labels(editor, cx));
+                assert_eq!(editor.inlay_hint_cache().version, 2);
             })
             .unwrap();
     }
@@ -1766,68 +1777,62 @@ pub mod tests {
                 show_type_hints: allowed_hint_kinds.contains(&Some(InlayHintKind::Type)),
                 show_parameter_hints: allowed_hint_kinds.contains(&Some(InlayHintKind::Parameter)),
                 show_other_hints: allowed_hint_kinds.contains(&None),
-                show_background: false,
-                toggle_on_modifiers_press: None,
             })
         });
 
-        let lsp_request_count = Arc::new(AtomicUsize::new(0));
-        let (_, editor, fake_server) = prepare_test_objects(cx, {
-            let lsp_request_count = lsp_request_count.clone();
-            move |fake_server, file_with_hints| {
-                let lsp_request_count = lsp_request_count.clone();
-                fake_server.set_request_handler::<lsp::request::InlayHintRequest, _, _>(
-                    move |params, _| {
-                        lsp_request_count.fetch_add(1, Ordering::Release);
-                        async move {
-                            assert_eq!(
-                                params.text_document.uri,
-                                lsp::Url::from_file_path(file_with_hints).unwrap(),
-                            );
-                            Ok(Some(vec![
-                                lsp::InlayHint {
-                                    position: lsp::Position::new(0, 1),
-                                    label: lsp::InlayHintLabel::String("type hint".to_string()),
-                                    kind: Some(lsp::InlayHintKind::TYPE),
-                                    text_edits: None,
-                                    tooltip: None,
-                                    padding_left: None,
-                                    padding_right: None,
-                                    data: None,
-                                },
-                                lsp::InlayHint {
-                                    position: lsp::Position::new(0, 2),
-                                    label: lsp::InlayHintLabel::String(
-                                        "parameter hint".to_string(),
-                                    ),
-                                    kind: Some(lsp::InlayHintKind::PARAMETER),
-                                    text_edits: None,
-                                    tooltip: None,
-                                    padding_left: None,
-                                    padding_right: None,
-                                    data: None,
-                                },
-                                lsp::InlayHint {
-                                    position: lsp::Position::new(0, 3),
-                                    label: lsp::InlayHintLabel::String("other hint".to_string()),
-                                    kind: None,
-                                    text_edits: None,
-                                    tooltip: None,
-                                    padding_left: None,
-                                    padding_right: None,
-                                    data: None,
-                                },
-                            ]))
-                        }
-                    },
-                );
-            }
-        })
-        .await;
+        let (file_with_hints, editor, fake_server) = prepare_test_objects(cx).await;
+        let lsp_request_count = Arc::new(AtomicU32::new(0));
+        let another_lsp_request_count = Arc::clone(&lsp_request_count);
+        fake_server
+            .handle_request::<lsp::request::InlayHintRequest, _, _>(move |params, _| {
+                let task_lsp_request_count = Arc::clone(&another_lsp_request_count);
+                async move {
+                    Arc::clone(&task_lsp_request_count).fetch_add(1, Ordering::SeqCst);
+                    assert_eq!(
+                        params.text_document.uri,
+                        lsp::Url::from_file_path(file_with_hints).unwrap(),
+                    );
+                    Ok(Some(vec![
+                        lsp::InlayHint {
+                            position: lsp::Position::new(0, 1),
+                            label: lsp::InlayHintLabel::String("type hint".to_string()),
+                            kind: Some(lsp::InlayHintKind::TYPE),
+                            text_edits: None,
+                            tooltip: None,
+                            padding_left: None,
+                            padding_right: None,
+                            data: None,
+                        },
+                        lsp::InlayHint {
+                            position: lsp::Position::new(0, 2),
+                            label: lsp::InlayHintLabel::String("parameter hint".to_string()),
+                            kind: Some(lsp::InlayHintKind::PARAMETER),
+                            text_edits: None,
+                            tooltip: None,
+                            padding_left: None,
+                            padding_right: None,
+                            data: None,
+                        },
+                        lsp::InlayHint {
+                            position: lsp::Position::new(0, 3),
+                            label: lsp::InlayHintLabel::String("other hint".to_string()),
+                            kind: None,
+                            text_edits: None,
+                            tooltip: None,
+                            padding_left: None,
+                            padding_right: None,
+                            data: None,
+                        },
+                    ]))
+                }
+            })
+            .next()
+            .await;
         cx.executor().run_until_parked();
 
+        let mut edits_made = 1;
         editor
-            .update(cx, |editor, _, cx| {
+            .update(cx, |editor, cx| {
                 assert_eq!(
                     lsp_request_count.load(Ordering::Relaxed),
                     1,
@@ -1835,21 +1840,25 @@ pub mod tests {
                 );
                 assert_eq!(
                     vec![
-                        "type hint".to_string(),
-                        "parameter hint".to_string(),
                         "other hint".to_string(),
+                        "parameter hint".to_string(),
+                        "type hint".to_string(),
                     ],
                     cached_hint_labels(editor),
                     "Should get its first hints when opening the editor"
                 );
                 assert_eq!(
-                    vec!["type hint".to_string(), "other hint".to_string()],
+                    vec!["other hint".to_string(), "type hint".to_string()],
                     visible_hint_labels(editor, cx)
                 );
                 let inlay_cache = editor.inlay_hint_cache();
                 assert_eq!(
                     inlay_cache.allowed_hint_kinds, allowed_hint_kinds,
                     "Cache should use editor settings to get the allowed hint kinds"
+                );
+                assert_eq!(
+                    inlay_cache.version, edits_made,
+                    "The editor update the cache version after every cache/view change"
                 );
             })
             .unwrap();
@@ -1860,7 +1869,7 @@ pub mod tests {
             .expect("inlay refresh request failed");
         cx.executor().run_until_parked();
         editor
-            .update(cx, |editor, _, cx| {
+            .update(cx, |editor, cx| {
                 assert_eq!(
                     lsp_request_count.load(Ordering::Relaxed),
                     2,
@@ -1868,16 +1877,21 @@ pub mod tests {
                 );
                 assert_eq!(
                     vec![
-                        "type hint".to_string(),
-                        "parameter hint".to_string(),
                         "other hint".to_string(),
+                        "parameter hint".to_string(),
+                        "type hint".to_string(),
                     ],
                     cached_hint_labels(editor),
                     "Cached hints should not change due to allowed hint kinds settings update"
                 );
                 assert_eq!(
-                    vec!["type hint".to_string(), "other hint".to_string()],
+                    vec!["other hint".to_string(), "type hint".to_string()],
                     visible_hint_labels(editor, cx)
+                );
+                assert_eq!(
+                    editor.inlay_hint_cache().version,
+                    edits_made,
+                    "Should not update cache version due to new loaded hints being the same"
                 );
             })
             .unwrap();
@@ -1894,15 +1908,15 @@ pub mod tests {
             ),
             (
                 HashSet::from_iter([None, Some(InlayHintKind::Type)]),
-                vec!["type hint".to_string(), "other hint".to_string()],
+                vec!["other hint".to_string(), "type hint".to_string()],
             ),
             (
                 HashSet::from_iter([None, Some(InlayHintKind::Parameter)]),
-                vec!["parameter hint".to_string(), "other hint".to_string()],
+                vec!["other hint".to_string(), "parameter hint".to_string()],
             ),
             (
                 HashSet::from_iter([Some(InlayHintKind::Type), Some(InlayHintKind::Parameter)]),
-                vec!["type hint".to_string(), "parameter hint".to_string()],
+                vec!["parameter hint".to_string(), "type hint".to_string()],
             ),
             (
                 HashSet::from_iter([
@@ -1911,12 +1925,13 @@ pub mod tests {
                     Some(InlayHintKind::Parameter),
                 ]),
                 vec![
-                    "type hint".to_string(),
-                    "parameter hint".to_string(),
                     "other hint".to_string(),
+                    "parameter hint".to_string(),
+                    "type hint".to_string(),
                 ],
             ),
         ] {
+            edits_made += 1;
             update_test_language_settings(cx, |settings| {
                 settings.defaults.inlay_hints = Some(InlayHintSettings {
                     enabled: true,
@@ -1926,12 +1941,10 @@ pub mod tests {
                     show_parameter_hints: new_allowed_hint_kinds
                         .contains(&Some(InlayHintKind::Parameter)),
                     show_other_hints: new_allowed_hint_kinds.contains(&None),
-                    show_background: false,
-                    toggle_on_modifiers_press: None,
                 })
             });
             cx.executor().run_until_parked();
-            editor.update(cx, |editor, _, cx| {
+            editor.update(cx, |editor, cx| {
                 assert_eq!(
                     lsp_request_count.load(Ordering::Relaxed),
                     2,
@@ -1939,9 +1952,9 @@ pub mod tests {
                 );
                 assert_eq!(
                     vec![
-                        "type hint".to_string(),
-                        "parameter hint".to_string(),
                         "other hint".to_string(),
+                        "parameter hint".to_string(),
+                        "type hint".to_string(),
                     ],
                     cached_hint_labels(editor),
                     "Should get its cached hints unchanged after the settings change for hint kinds {new_allowed_hint_kinds:?}"
@@ -1956,9 +1969,14 @@ pub mod tests {
                     inlay_cache.allowed_hint_kinds, new_allowed_hint_kinds,
                     "Cache should use editor settings to get the allowed hint kinds for hint kinds {new_allowed_hint_kinds:?}"
                 );
+                assert_eq!(
+                    inlay_cache.version, edits_made,
+                    "The editor should update the cache version after every cache/view change for hint kinds {new_allowed_hint_kinds:?} due to visible hints change"
+                );
             }).unwrap();
         }
 
+        edits_made += 1;
         let another_allowed_hint_kinds = HashSet::from_iter([Some(InlayHintKind::Type)]);
         update_test_language_settings(cx, |settings| {
             settings.defaults.inlay_hints = Some(InlayHintSettings {
@@ -1969,13 +1987,11 @@ pub mod tests {
                 show_parameter_hints: another_allowed_hint_kinds
                     .contains(&Some(InlayHintKind::Parameter)),
                 show_other_hints: another_allowed_hint_kinds.contains(&None),
-                show_background: false,
-                toggle_on_modifiers_press: None,
             })
         });
         cx.executor().run_until_parked();
         editor
-            .update(cx, |editor, _, cx| {
+            .update(cx, |editor, cx| {
                 assert_eq!(
                     lsp_request_count.load(Ordering::Relaxed),
                     2,
@@ -1994,6 +2010,10 @@ pub mod tests {
                     inlay_cache.allowed_hint_kinds, another_allowed_hint_kinds,
                     "Should update its allowed hint kinds even when hints got disabled"
                 );
+                assert_eq!(
+                    inlay_cache.version, edits_made,
+                    "The editor should update the cache version after hints got disabled"
+                );
             })
             .unwrap();
 
@@ -2002,19 +2022,22 @@ pub mod tests {
             .await
             .expect("inlay refresh request failed");
         cx.executor().run_until_parked();
-        editor
-            .update(cx, |editor, _window, cx| {
-                assert_eq!(
-                    lsp_request_count.load(Ordering::Relaxed),
-                    2,
-                    "Should not load new hints when they got disabled"
-                );
-                assert!(cached_hint_labels(editor).is_empty());
-                assert!(visible_hint_labels(editor, cx).is_empty());
-            })
-            .unwrap();
+        editor.update(cx, |editor, cx| {
+            assert_eq!(
+                lsp_request_count.load(Ordering::Relaxed),
+                2,
+                "Should not load new hints when they got disabled"
+            );
+            assert!(cached_hint_labels(editor).is_empty());
+            assert!(visible_hint_labels(editor, cx).is_empty());
+            assert_eq!(
+                editor.inlay_hint_cache().version, edits_made,
+                "The editor should not update the cache version after /refresh query without updates"
+            );
+        }).unwrap();
 
         let final_allowed_hint_kinds = HashSet::from_iter([Some(InlayHintKind::Parameter)]);
+        edits_made += 1;
         update_test_language_settings(cx, |settings| {
             settings.defaults.inlay_hints = Some(InlayHintSettings {
                 enabled: true,
@@ -2024,13 +2047,11 @@ pub mod tests {
                 show_parameter_hints: final_allowed_hint_kinds
                     .contains(&Some(InlayHintKind::Parameter)),
                 show_other_hints: final_allowed_hint_kinds.contains(&None),
-                show_background: false,
-                toggle_on_modifiers_press: None,
             })
         });
         cx.executor().run_until_parked();
         editor
-            .update(cx, |editor, _, cx| {
+            .update(cx, |editor, cx| {
                 assert_eq!(
                     lsp_request_count.load(Ordering::Relaxed),
                     3,
@@ -2038,9 +2059,9 @@ pub mod tests {
                 );
                 assert_eq!(
                     vec![
-                        "type hint".to_string(),
-                        "parameter hint".to_string(),
                         "other hint".to_string(),
+                        "parameter hint".to_string(),
+                        "type hint".to_string(),
                     ],
                     cached_hint_labels(editor),
                     "Should get its cached hints fully repopulated after the hints got re-enabled"
@@ -2055,6 +2076,10 @@ pub mod tests {
                     inlay_cache.allowed_hint_kinds, final_allowed_hint_kinds,
                     "Cache should update editor settings when hints got re-enabled"
                 );
+                assert_eq!(
+                    inlay_cache.version, edits_made,
+                    "Cache should update its version after hints got re-enabled"
+                );
             })
             .unwrap();
 
@@ -2064,7 +2089,7 @@ pub mod tests {
             .expect("inlay refresh request failed");
         cx.executor().run_until_parked();
         editor
-            .update(cx, |editor, _, cx| {
+            .update(cx, |editor, cx| {
                 assert_eq!(
                     lsp_request_count.load(Ordering::Relaxed),
                     4,
@@ -2072,9 +2097,9 @@ pub mod tests {
                 );
                 assert_eq!(
                     vec![
-                        "type hint".to_string(),
-                        "parameter hint".to_string(),
                         "other hint".to_string(),
+                        "parameter hint".to_string(),
+                        "type hint".to_string(),
                     ],
                     cached_hint_labels(editor),
                 );
@@ -2082,6 +2107,7 @@ pub mod tests {
                     vec!["parameter hint".to_string()],
                     visible_hint_labels(editor, cx),
                 );
+                assert_eq!(editor.inlay_hint_cache().version, edits_made);
             })
             .unwrap();
     }
@@ -2096,41 +2122,36 @@ pub mod tests {
                 show_type_hints: true,
                 show_parameter_hints: true,
                 show_other_hints: true,
-                show_background: false,
-                toggle_on_modifiers_press: None,
             })
         });
 
+        let (file_with_hints, editor, fake_server) = prepare_test_objects(cx).await;
+        let fake_server = Arc::new(fake_server);
         let lsp_request_count = Arc::new(AtomicU32::new(0));
-        let (_, editor, _) = prepare_test_objects(cx, {
-            let lsp_request_count = lsp_request_count.clone();
-            move |fake_server, file_with_hints| {
-                let lsp_request_count = lsp_request_count.clone();
-                fake_server.set_request_handler::<lsp::request::InlayHintRequest, _, _>(
-                    move |params, _| {
-                        let lsp_request_count = lsp_request_count.clone();
-                        async move {
-                            let i = lsp_request_count.fetch_add(1, Ordering::SeqCst) + 1;
-                            assert_eq!(
-                                params.text_document.uri,
-                                lsp::Url::from_file_path(file_with_hints).unwrap(),
-                            );
-                            Ok(Some(vec![lsp::InlayHint {
-                                position: lsp::Position::new(0, i),
-                                label: lsp::InlayHintLabel::String(i.to_string()),
-                                kind: None,
-                                text_edits: None,
-                                tooltip: None,
-                                padding_left: None,
-                                padding_right: None,
-                                data: None,
-                            }]))
-                        }
-                    },
-                );
-            }
-        })
-        .await;
+        let another_lsp_request_count = Arc::clone(&lsp_request_count);
+        fake_server
+            .handle_request::<lsp::request::InlayHintRequest, _, _>(move |params, _| {
+                let task_lsp_request_count = Arc::clone(&another_lsp_request_count);
+                async move {
+                    let i = Arc::clone(&task_lsp_request_count).fetch_add(1, Ordering::SeqCst) + 1;
+                    assert_eq!(
+                        params.text_document.uri,
+                        lsp::Url::from_file_path(file_with_hints).unwrap(),
+                    );
+                    Ok(Some(vec![lsp::InlayHint {
+                        position: lsp::Position::new(0, i),
+                        label: lsp::InlayHintLabel::String(i.to_string()),
+                        kind: None,
+                        text_edits: None,
+                        tooltip: None,
+                        padding_left: None,
+                        padding_right: None,
+                        data: None,
+                    }]))
+                }
+            })
+            .next()
+            .await;
 
         let mut expected_changes = Vec::new();
         for change_after_opening in [
@@ -2139,9 +2160,9 @@ pub mod tests {
             "initial change #3",
         ] {
             editor
-                .update(cx, |editor, window, cx| {
-                    editor.change_selections(None, window, cx, |s| s.select_ranges([13..13]));
-                    editor.handle_input(change_after_opening, window, cx);
+                .update(cx, |editor, cx| {
+                    editor.change_selections(None, cx, |s| s.select_ranges([13..13]));
+                    editor.handle_input(change_after_opening, cx);
                 })
                 .unwrap();
             expected_changes.push(change_after_opening);
@@ -2149,29 +2170,31 @@ pub mod tests {
 
         cx.executor().run_until_parked();
 
-        editor
-            .update(cx, |editor, _window, cx| {
-                let current_text = editor.text(cx);
-                for change in &expected_changes {
-                    assert!(
-                        current_text.contains(change),
-                        "Should apply all changes made"
-                    );
-                }
-                assert_eq!(
-                    lsp_request_count.load(Ordering::Relaxed),
-                    2,
-                    "Should query new hints twice: for editor init and for the last edit that interrupted all others"
+        editor.update(cx, |editor, cx| {
+            let current_text = editor.text(cx);
+            for change in &expected_changes {
+                assert!(
+                    current_text.contains(change),
+                    "Should apply all changes made"
                 );
-                let expected_hints = vec!["2".to_string()];
-                assert_eq!(
-                    expected_hints,
-                    cached_hint_labels(editor),
-                    "Should get hints from the last edit landed only"
-                );
-                assert_eq!(expected_hints, visible_hint_labels(editor, cx));
-            })
-            .unwrap();
+            }
+            assert_eq!(
+                lsp_request_count.load(Ordering::Relaxed),
+                2,
+                "Should query new hints twice: for editor init and for the last edit that interrupted all others"
+            );
+            let expected_hints = vec!["2".to_string()];
+            assert_eq!(
+                expected_hints,
+                cached_hint_labels(editor),
+                "Should get hints from the last edit landed only"
+            );
+            assert_eq!(expected_hints, visible_hint_labels(editor, cx));
+            assert_eq!(
+                editor.inlay_hint_cache().version, 1,
+                "Only one update should be registered in the cache after all cancellations"
+            );
+        }).unwrap();
 
         let mut edits = Vec::new();
         for async_later_change in [
@@ -2183,9 +2206,9 @@ pub mod tests {
             let task_editor = editor;
             edits.push(cx.spawn(|mut cx| async move {
                 task_editor
-                    .update(&mut cx, |editor, window, cx| {
-                        editor.change_selections(None, window, cx, |s| s.select_ranges([13..13]));
-                        editor.handle_input(async_later_change, window, cx);
+                    .update(&mut cx, |editor, cx| {
+                        editor.change_selections(None, cx, |s| s.select_ranges([13..13]));
+                        editor.handle_input(async_later_change, cx);
                     })
                     .unwrap();
             }));
@@ -2194,7 +2217,7 @@ pub mod tests {
         cx.executor().run_until_parked();
 
         editor
-            .update(cx, |editor, _, cx| {
+            .update(cx, |editor, cx| {
                 let current_text = editor.text(cx);
                 for change in &expected_changes {
                     assert!(
@@ -2214,6 +2237,11 @@ pub mod tests {
                     "Should get hints from the last edit landed only"
                 );
                 assert_eq!(expected_hints, visible_hint_labels(editor, cx));
+                assert_eq!(
+                    editor.inlay_hint_cache().version,
+                    2,
+                    "Should update the cache version once more, for the new change"
+                );
             })
             .unwrap();
     }
@@ -2228,14 +2256,12 @@ pub mod tests {
                 show_type_hints: true,
                 show_parameter_hints: true,
                 show_other_hints: true,
-                show_background: false,
-                toggle_on_modifiers_press: None,
             })
         });
 
         let fs = FakeFs::new(cx.background_executor.clone());
         fs.insert_tree(
-            path!("/a"),
+            "/a",
             json!({
                 "main.rs": format!("fn main() {{\n{}\n}}", "let i = 5;\n".repeat(500)),
                 "other.rs": "// Test file",
@@ -2243,72 +2269,89 @@ pub mod tests {
         )
         .await;
 
-        let project = Project::test(fs, [path!("/a").as_ref()], cx).await;
+        let project = Project::test(fs, ["/a".as_ref()], cx).await;
 
         let language_registry = project.read_with(cx, |project, _| project.languages().clone());
-        language_registry.add(rust_lang());
-
-        let lsp_request_ranges = Arc::new(Mutex::new(Vec::new()));
-        let lsp_request_count = Arc::new(AtomicUsize::new(0));
-        let mut fake_servers = language_registry.register_fake_lsp(
+        language_registry.add(crate::editor_tests::rust_lang());
+        let mut fake_servers = language_registry.register_fake_lsp_adapter(
             "Rust",
             FakeLspAdapter {
                 capabilities: lsp::ServerCapabilities {
                     inlay_hint_provider: Some(lsp::OneOf::Left(true)),
                     ..Default::default()
                 },
-                initializer: Some(Box::new({
-                    let lsp_request_ranges = lsp_request_ranges.clone();
-                    let lsp_request_count = lsp_request_count.clone();
-                    move |fake_server| {
-                        let closure_lsp_request_ranges = Arc::clone(&lsp_request_ranges);
-                        let closure_lsp_request_count = Arc::clone(&lsp_request_count);
-                        fake_server.set_request_handler::<lsp::request::InlayHintRequest, _, _>(
-                            move |params, _| {
-                                let task_lsp_request_ranges =
-                                    Arc::clone(&closure_lsp_request_ranges);
-                                let task_lsp_request_count = Arc::clone(&closure_lsp_request_count);
-                                async move {
-                                    assert_eq!(
-                                        params.text_document.uri,
-                                        lsp::Url::from_file_path(path!("/a/main.rs")).unwrap(),
-                                    );
-
-                                    task_lsp_request_ranges.lock().push(params.range);
-                                    task_lsp_request_count.fetch_add(1, Ordering::Release);
-                                    Ok(Some(vec![lsp::InlayHint {
-                                        position: params.range.end,
-                                        label: lsp::InlayHintLabel::String(
-                                            params.range.end.line.to_string(),
-                                        ),
-                                        kind: None,
-                                        text_edits: None,
-                                        tooltip: None,
-                                        padding_left: None,
-                                        padding_right: None,
-                                        data: None,
-                                    }]))
-                                }
-                            },
-                        );
-                    }
-                })),
                 ..Default::default()
             },
         );
 
         let buffer = project
             .update(cx, |project, cx| {
-                project.open_local_buffer(path!("/a/main.rs"), cx)
+                project.open_local_buffer("/a/main.rs", cx)
             })
             .await
             .unwrap();
-        let editor =
-            cx.add_window(|window, cx| Editor::for_buffer(buffer, Some(project), window, cx));
-
         cx.executor().run_until_parked();
+        cx.executor().start_waiting();
+        let fake_server = fake_servers.next().await.unwrap();
+        let editor = cx.add_window(|cx| Editor::for_buffer(buffer, Some(project), cx));
+        let lsp_request_ranges = Arc::new(Mutex::new(Vec::new()));
+        let lsp_request_count = Arc::new(AtomicUsize::new(0));
+        let closure_lsp_request_ranges = Arc::clone(&lsp_request_ranges);
+        let closure_lsp_request_count = Arc::clone(&lsp_request_count);
+        fake_server
+            .handle_request::<lsp::request::InlayHintRequest, _, _>(move |params, _| {
+                let task_lsp_request_ranges = Arc::clone(&closure_lsp_request_ranges);
+                let task_lsp_request_count = Arc::clone(&closure_lsp_request_count);
+                async move {
+                    assert_eq!(
+                        params.text_document.uri,
+                        lsp::Url::from_file_path("/a/main.rs").unwrap(),
+                    );
 
-        let _fake_server = fake_servers.next().await.unwrap();
+                    task_lsp_request_ranges.lock().push(params.range);
+                    let i = Arc::clone(&task_lsp_request_count).fetch_add(1, Ordering::Release) + 1;
+                    Ok(Some(vec![lsp::InlayHint {
+                        position: params.range.end,
+                        label: lsp::InlayHintLabel::String(i.to_string()),
+                        kind: None,
+                        text_edits: None,
+                        tooltip: None,
+                        padding_left: None,
+                        padding_right: None,
+                        data: None,
+                    }]))
+                }
+            })
+            .next()
+            .await;
+
+        fn editor_visible_range(
+            editor: &WindowHandle<Editor>,
+            cx: &mut gpui::TestAppContext,
+        ) -> Range<Point> {
+            let ranges = editor
+                .update(cx, |editor, cx| {
+                    editor.excerpts_for_inlay_hints_query(None, cx)
+                })
+                .unwrap();
+            assert_eq!(
+                ranges.len(),
+                1,
+                "Single buffer should produce a single excerpt with visible range"
+            );
+            let (_, (excerpt_buffer, _, excerpt_visible_range)) =
+                ranges.into_iter().next().unwrap();
+            excerpt_buffer.update(cx, |buffer, _| {
+                let snapshot = buffer.snapshot();
+                let start = buffer
+                    .anchor_before(excerpt_visible_range.start)
+                    .to_point(&snapshot);
+                let end = buffer
+                    .anchor_after(excerpt_visible_range.end)
+                    .to_point(&snapshot);
+                start..end
+            })
+        }
 
         // in large buffers, requests are made for more than visible range of a buffer.
         // invisible parts are queried later, to avoid excessive requests on quick typing.
@@ -2332,7 +2375,7 @@ pub mod tests {
             lsp::Position::new(initial_visible_range.end.row * 2, 2);
         let mut expected_invisible_query_start = lsp_initial_visible_range.end;
         expected_invisible_query_start.character += 1;
-        editor.update(cx, |editor, _window, cx| {
+        editor.update(cx, |editor, cx| {
             let ranges = lsp_request_ranges.lock().drain(..).collect::<Vec<_>>();
             assert_eq!(ranges.len(), 2,
                 "When scroll is at the edge of a big document, its visible part and the same range further should be queried in order, but got: {ranges:?}");
@@ -2346,24 +2389,28 @@ pub mod tests {
 
             let requests_count = lsp_request_count.load(Ordering::Acquire);
             assert_eq!(requests_count, 2, "Visible + invisible request");
-            let expected_hints = vec!["47".to_string(), "94".to_string()];
+            let expected_hints = vec!["1".to_string(), "2".to_string()];
             assert_eq!(
                 expected_hints,
                 cached_hint_labels(editor),
                 "Should have hints from both LSP requests made for a big file"
             );
             assert_eq!(expected_hints, visible_hint_labels(editor, cx), "Should display only hints from the visible range");
+            assert_eq!(
+                editor.inlay_hint_cache().version, requests_count,
+                "LSP queries should've bumped the cache version"
+            );
         }).unwrap();
 
         editor
-            .update(cx, |editor, window, cx| {
-                editor.scroll_screen(&ScrollAmount::Page(1.0), window, cx);
+            .update(cx, |editor, cx| {
+                editor.scroll_screen(&ScrollAmount::Page(1.0), cx);
             })
             .unwrap();
         cx.executor().run_until_parked();
         editor
-            .update(cx, |editor, window, cx| {
-                editor.scroll_screen(&ScrollAmount::Page(1.0), window, cx);
+            .update(cx, |editor, cx| {
+                editor.scroll_screen(&ScrollAmount::Page(1.0), cx);
             })
             .unwrap();
         cx.executor().advance_clock(Duration::from_millis(
@@ -2372,12 +2419,10 @@ pub mod tests {
         cx.executor().run_until_parked();
         let visible_range_after_scrolls = editor_visible_range(&editor, cx);
         let visible_line_count = editor
-            .update(cx, |editor, _window, _| {
-                editor.visible_line_count().unwrap()
-            })
+            .update(cx, |editor, _| editor.visible_line_count().unwrap())
             .unwrap();
         let selection_in_cached_range = editor
-            .update(cx, |editor, _window, cx| {
+            .update(cx, |editor, cx| {
                 let ranges = lsp_request_ranges
                     .lock()
                     .drain(..)
@@ -2411,10 +2456,10 @@ pub mod tests {
                 let lsp_requests = lsp_request_count.load(Ordering::Acquire);
                 assert_eq!(lsp_requests, 4, "Should query for hints after every scroll");
                 let expected_hints = vec![
-                    "47".to_string(),
-                    "94".to_string(),
-                    "139".to_string(),
-                    "184".to_string(),
+                    "1".to_string(),
+                    "2".to_string(),
+                    "3".to_string(),
+                    "4".to_string(),
                 ];
                 assert_eq!(
                     expected_hints,
@@ -2422,6 +2467,11 @@ pub mod tests {
                     "Should have hints from the new LSP response after the edit"
                 );
                 assert_eq!(expected_hints, visible_hint_labels(editor, cx));
+                assert_eq!(
+                    editor.inlay_hint_cache().version,
+                    lsp_requests,
+                    "Should update the cache for every LSP response with hints added"
+                );
 
                 let mut selection_in_cached_range = visible_range_after_scrolls.end;
                 selection_in_cached_range.row -= visible_line_count.ceil() as u32;
@@ -2430,8 +2480,8 @@ pub mod tests {
             .unwrap();
 
         editor
-            .update(cx, |editor, window, cx| {
-                editor.change_selections(Some(Autoscroll::center()), window, cx, |s| {
+            .update(cx, |editor, cx| {
+                editor.change_selections(Some(Autoscroll::center()), cx, |s| {
                     s.select_ranges([selection_in_cached_range..selection_in_cached_range])
                 });
             })
@@ -2440,7 +2490,7 @@ pub mod tests {
             INVISIBLE_RANGES_HINTS_REQUEST_DELAY_MILLIS + 100,
         ));
         cx.executor().run_until_parked();
-        editor.update(cx, |_, _, _| {
+        editor.update(cx, |_, _| {
             let ranges = lsp_request_ranges
                 .lock()
                 .drain(..)
@@ -2451,15 +2501,15 @@ pub mod tests {
         }).unwrap();
 
         editor
-            .update(cx, |editor, window, cx| {
-                editor.handle_input("++++more text++++", window, cx);
+            .update(cx, |editor, cx| {
+                editor.handle_input("++++more text++++", cx);
             })
             .unwrap();
         cx.executor().advance_clock(Duration::from_millis(
             INVISIBLE_RANGES_HINTS_REQUEST_DELAY_MILLIS + 100,
         ));
         cx.executor().run_until_parked();
-        editor.update(cx, |editor, _window, cx| {
+        editor.update(cx, |editor, cx| {
             let mut ranges = lsp_request_ranges.lock().drain(..).collect::<Vec<_>>();
             ranges.sort_by_key(|r| r.start);
 
@@ -2483,41 +2533,15 @@ pub mod tests {
 
             let lsp_requests = lsp_request_count.load(Ordering::Acquire);
             assert_eq!(lsp_requests, 7, "There should be a visible range and two ranges above and below it queried");
-            let expected_hints = vec!["67".to_string(), "115".to_string(), "163".to_string()];
+            let expected_hints = vec!["5".to_string(), "6".to_string(), "7".to_string()];
             assert_eq!(expected_hints, cached_hint_labels(editor),
                 "Should have hints from the new LSP response after the edit");
             assert_eq!(expected_hints, visible_hint_labels(editor, cx));
+            assert_eq!(editor.inlay_hint_cache().version, lsp_requests, "Should update the cache for every LSP response with hints added");
         }).unwrap();
     }
 
-    fn editor_visible_range(
-        editor: &WindowHandle<Editor>,
-        cx: &mut gpui::TestAppContext,
-    ) -> Range<Point> {
-        let ranges = editor
-            .update(cx, |editor, _window, cx| {
-                editor.excerpts_for_inlay_hints_query(None, cx)
-            })
-            .unwrap();
-        assert_eq!(
-            ranges.len(),
-            1,
-            "Single buffer should produce a single excerpt with visible range"
-        );
-        let (_, (excerpt_buffer, _, excerpt_visible_range)) = ranges.into_iter().next().unwrap();
-        excerpt_buffer.update(cx, |buffer, _| {
-            let snapshot = buffer.snapshot();
-            let start = buffer
-                .anchor_before(excerpt_visible_range.start)
-                .to_point(&snapshot);
-            let end = buffer
-                .anchor_after(excerpt_visible_range.end)
-                .to_point(&snapshot);
-            start..end
-        })
-    }
-
-    #[gpui::test]
+    #[gpui::test(iterations = 30)]
     async fn test_multiple_excerpts_large_multibuffer(cx: &mut gpui::TestAppContext) {
         init_test(cx, |settings| {
             settings.defaults.inlay_hints = Some(InlayHintSettings {
@@ -2527,14 +2551,12 @@ pub mod tests {
                 show_type_hints: true,
                 show_parameter_hints: true,
                 show_other_hints: true,
-                show_background: false,
-                toggle_on_modifiers_press: None,
             })
         });
 
         let fs = FakeFs::new(cx.background_executor.clone());
         fs.insert_tree(
-                path!("/a"),
+                "/a",
                 json!({
                     "main.rs": format!("fn main() {{\n{}\n}}", (0..501).map(|i| format!("let i = {i};\n")).collect::<Vec<_>>().join("")),
                     "other.rs": format!("fn main() {{\n{}\n}}", (0..501).map(|j| format!("let j = {j};\n")).collect::<Vec<_>>().join("")),
@@ -2542,12 +2564,12 @@ pub mod tests {
             )
             .await;
 
-        let project = Project::test(fs, [path!("/a").as_ref()], cx).await;
+        let project = Project::test(fs, ["/a".as_ref()], cx).await;
 
         let language_registry = project.read_with(cx, |project, _| project.languages().clone());
-        let language = rust_lang();
+        let language = crate::editor_tests::rust_lang();
         language_registry.add(language);
-        let mut fake_servers = language_registry.register_fake_lsp(
+        let mut fake_servers = language_registry.register_fake_lsp_adapter(
             "Rust",
             FakeLspAdapter {
                 capabilities: lsp::ServerCapabilities {
@@ -2558,41 +2580,81 @@ pub mod tests {
             },
         );
 
-        let (buffer_1, _handle1) = project
+        let worktree_id = project.update(cx, |project, cx| {
+            project.worktrees(cx).next().unwrap().read(cx).id()
+        });
+
+        let buffer_1 = project
             .update(cx, |project, cx| {
-                project.open_local_buffer_with_lsp(path!("/a/main.rs"), cx)
+                project.open_buffer((worktree_id, "main.rs"), cx)
             })
             .await
             .unwrap();
-        let (buffer_2, _handle2) = project
+        let buffer_2 = project
             .update(cx, |project, cx| {
-                project.open_local_buffer_with_lsp(path!("/a/other.rs"), cx)
+                project.open_buffer((worktree_id, "other.rs"), cx)
             })
             .await
             .unwrap();
-        let multibuffer = cx.new(|cx| {
-            let mut multibuffer = MultiBuffer::new(Capability::ReadWrite);
+        let multibuffer = cx.new_model(|cx| {
+            let mut multibuffer = MultiBuffer::new(0, Capability::ReadWrite);
             multibuffer.push_excerpts(
                 buffer_1.clone(),
                 [
-                    ExcerptRange::new(Point::new(0, 0)..Point::new(2, 0)),
-                    ExcerptRange::new(Point::new(4, 0)..Point::new(11, 0)),
-                    ExcerptRange::new(Point::new(22, 0)..Point::new(33, 0)),
-                    ExcerptRange::new(Point::new(44, 0)..Point::new(55, 0)),
-                    ExcerptRange::new(Point::new(56, 0)..Point::new(66, 0)),
-                    ExcerptRange::new(Point::new(67, 0)..Point::new(77, 0)),
+                    ExcerptRange {
+                        context: Point::new(0, 0)..Point::new(2, 0),
+                        primary: None,
+                    },
+                    ExcerptRange {
+                        context: Point::new(4, 0)..Point::new(11, 0),
+                        primary: None,
+                    },
+                    ExcerptRange {
+                        context: Point::new(22, 0)..Point::new(33, 0),
+                        primary: None,
+                    },
+                    ExcerptRange {
+                        context: Point::new(44, 0)..Point::new(55, 0),
+                        primary: None,
+                    },
+                    ExcerptRange {
+                        context: Point::new(56, 0)..Point::new(66, 0),
+                        primary: None,
+                    },
+                    ExcerptRange {
+                        context: Point::new(67, 0)..Point::new(77, 0),
+                        primary: None,
+                    },
                 ],
                 cx,
             );
             multibuffer.push_excerpts(
                 buffer_2.clone(),
                 [
-                    ExcerptRange::new(Point::new(0, 1)..Point::new(2, 1)),
-                    ExcerptRange::new(Point::new(4, 1)..Point::new(11, 1)),
-                    ExcerptRange::new(Point::new(22, 1)..Point::new(33, 1)),
-                    ExcerptRange::new(Point::new(44, 1)..Point::new(55, 1)),
-                    ExcerptRange::new(Point::new(56, 1)..Point::new(66, 1)),
-                    ExcerptRange::new(Point::new(67, 1)..Point::new(77, 1)),
+                    ExcerptRange {
+                        context: Point::new(0, 1)..Point::new(2, 1),
+                        primary: None,
+                    },
+                    ExcerptRange {
+                        context: Point::new(4, 1)..Point::new(11, 1),
+                        primary: None,
+                    },
+                    ExcerptRange {
+                        context: Point::new(22, 1)..Point::new(33, 1),
+                        primary: None,
+                    },
+                    ExcerptRange {
+                        context: Point::new(44, 1)..Point::new(55, 1),
+                        primary: None,
+                    },
+                    ExcerptRange {
+                        context: Point::new(56, 1)..Point::new(66, 1),
+                        primary: None,
+                    },
+                    ExcerptRange {
+                        context: Point::new(67, 1)..Point::new(77, 1),
+                        primary: None,
+                    },
                 ],
                 cx,
             );
@@ -2600,23 +2662,22 @@ pub mod tests {
         });
 
         cx.executor().run_until_parked();
-        let editor = cx.add_window(|window, cx| {
-            Editor::for_multibuffer(multibuffer, Some(project.clone()), window, cx)
-        });
+        let editor = cx
+            .add_window(|cx| Editor::for_multibuffer(multibuffer, Some(project.clone()), true, cx));
 
         let editor_edited = Arc::new(AtomicBool::new(false));
         let fake_server = fake_servers.next().await.unwrap();
         let closure_editor_edited = Arc::clone(&editor_edited);
         fake_server
-            .set_request_handler::<lsp::request::InlayHintRequest, _, _>(move |params, _| {
+            .handle_request::<lsp::request::InlayHintRequest, _, _>(move |params, _| {
                 let task_editor_edited = Arc::clone(&closure_editor_edited);
                 async move {
                     let hint_text = if params.text_document.uri
-                        == lsp::Url::from_file_path(path!("/a/main.rs")).unwrap()
+                        == lsp::Url::from_file_path("/a/main.rs").unwrap()
                     {
                         "main hint"
                     } else if params.text_document.uri
-                        == lsp::Url::from_file_path(path!("/a/other.rs")).unwrap()
+                        == lsp::Url::from_file_path("/a/other.rs").unwrap()
                     {
                         "other hint"
                     } else {
@@ -2655,8 +2716,8 @@ pub mod tests {
                                 lsp::InlayHint {
                                     position,
                                     label: lsp::InlayHintLabel::String(format!(
-                                        "{hint_text}{E} #{i}",
-                                        E = if edited { "(edited)" } else { "" },
+                                        "{hint_text}{} #{i}",
+                                        if edited { "(edited)" } else { "" },
                                     )),
                                     kind: None,
                                     text_edits: None,
@@ -2674,8 +2735,7 @@ pub mod tests {
             .await;
         cx.executor().run_until_parked();
 
-        editor
-            .update(cx, |editor, _window, cx| {
+        editor.update(cx, |editor, cx| {
                 let expected_hints = vec![
                     "main hint #0".to_string(),
                     "main hint #1".to_string(),
@@ -2686,29 +2746,28 @@ pub mod tests {
                 ];
                 assert_eq!(
                     expected_hints,
-                    sorted_cached_hint_labels(editor),
+                    cached_hint_labels(editor),
                     "When scroll is at the edge of a multibuffer, its visible excerpts only should be queried for inlay hints"
                 );
                 assert_eq!(expected_hints, visible_hint_labels(editor, cx));
-            })
-            .unwrap();
+                assert_eq!(editor.inlay_hint_cache().version, expected_hints.len(), "Every visible excerpt hints should bump the version");
+            }).unwrap();
 
         editor
-            .update(cx, |editor, window, cx| {
-                editor.change_selections(Some(Autoscroll::Next), window, cx, |s| {
+            .update(cx, |editor, cx| {
+                editor.change_selections(Some(Autoscroll::Next), cx, |s| {
                     s.select_ranges([Point::new(4, 0)..Point::new(4, 0)])
                 });
-                editor.change_selections(Some(Autoscroll::Next), window, cx, |s| {
+                editor.change_selections(Some(Autoscroll::Next), cx, |s| {
                     s.select_ranges([Point::new(22, 0)..Point::new(22, 0)])
                 });
-                editor.change_selections(Some(Autoscroll::Next), window, cx, |s| {
+                editor.change_selections(Some(Autoscroll::Next), cx, |s| {
                     s.select_ranges([Point::new(50, 0)..Point::new(50, 0)])
                 });
             })
             .unwrap();
         cx.executor().run_until_parked();
-        editor
-            .update(cx, |editor, _window, cx| {
+        editor.update(cx, |editor, cx| {
                 let expected_hints = vec![
                     "main hint #0".to_string(),
                     "main hint #1".to_string(),
@@ -2720,15 +2779,16 @@ pub mod tests {
                     "other hint #1".to_string(),
                     "other hint #2".to_string(),
                 ];
-                assert_eq!(expected_hints, sorted_cached_hint_labels(editor),
+                assert_eq!(expected_hints, cached_hint_labels(editor),
                     "With more scrolls of the multibuffer, more hints should be added into the cache and nothing invalidated without edits");
                 assert_eq!(expected_hints, visible_hint_labels(editor, cx));
-            })
-            .unwrap();
+                assert_eq!(editor.inlay_hint_cache().version, expected_hints.len(),
+                    "Due to every excerpt having one hint, we update cache per new excerpt scrolled");
+            }).unwrap();
 
         editor
-            .update(cx, |editor, window, cx| {
-                editor.change_selections(Some(Autoscroll::Next), window, cx, |s| {
+            .update(cx, |editor, cx| {
+                editor.change_selections(Some(Autoscroll::Next), cx, |s| {
                     s.select_ranges([Point::new(100, 0)..Point::new(100, 0)])
                 });
             })
@@ -2737,8 +2797,7 @@ pub mod tests {
             INVISIBLE_RANGES_HINTS_REQUEST_DELAY_MILLIS + 100,
         ));
         cx.executor().run_until_parked();
-        editor
-            .update(cx, |editor, _window, cx| {
+        let last_scroll_update_version = editor.update(cx, |editor, cx| {
                 let expected_hints = vec![
                     "main hint #0".to_string(),
                     "main hint #1".to_string(),
@@ -2753,15 +2812,16 @@ pub mod tests {
                     "other hint #4".to_string(),
                     "other hint #5".to_string(),
                 ];
-                assert_eq!(expected_hints, sorted_cached_hint_labels(editor),
+                assert_eq!(expected_hints, cached_hint_labels(editor),
                     "After multibuffer was scrolled to the end, all hints for all excerpts should be fetched");
                 assert_eq!(expected_hints, visible_hint_labels(editor, cx));
-            })
-            .unwrap();
+                assert_eq!(editor.inlay_hint_cache().version, expected_hints.len());
+                expected_hints.len()
+            }).unwrap();
 
         editor
-            .update(cx, |editor, window, cx| {
-                editor.change_selections(Some(Autoscroll::Next), window, cx, |s| {
+            .update(cx, |editor, cx| {
+                editor.change_selections(Some(Autoscroll::Next), cx, |s| {
                     s.select_ranges([Point::new(4, 0)..Point::new(4, 0)])
                 });
             })
@@ -2770,8 +2830,7 @@ pub mod tests {
             INVISIBLE_RANGES_HINTS_REQUEST_DELAY_MILLIS + 100,
         ));
         cx.executor().run_until_parked();
-        editor
-            .update(cx, |editor, _window, cx| {
+        editor.update(cx, |editor, cx| {
                 let expected_hints = vec![
                     "main hint #0".to_string(),
                     "main hint #1".to_string(),
@@ -2786,43 +2845,51 @@ pub mod tests {
                     "other hint #4".to_string(),
                     "other hint #5".to_string(),
                 ];
-                assert_eq!(expected_hints, sorted_cached_hint_labels(editor),
+                assert_eq!(expected_hints, cached_hint_labels(editor),
                     "After multibuffer was scrolled to the end, further scrolls up should not bring more hints");
                 assert_eq!(expected_hints, visible_hint_labels(editor, cx));
-            })
-            .unwrap();
+                assert_eq!(editor.inlay_hint_cache().version, last_scroll_update_version, "No updates should happen during scrolling already scrolled buffer");
+            }).unwrap();
 
         editor_edited.store(true, Ordering::Release);
         editor
-            .update(cx, |editor, window, cx| {
-                editor.change_selections(None, window, cx, |s| {
+            .update(cx, |editor, cx| {
+                editor.change_selections(None, cx, |s| {
                     s.select_ranges([Point::new(57, 0)..Point::new(57, 0)])
                 });
-                editor.handle_input("++++more text++++", window, cx);
+                editor.handle_input("++++more text++++", cx);
             })
             .unwrap();
         cx.executor().run_until_parked();
-        editor
-            .update(cx, |editor, _window, cx| {
-                let expected_hints = vec![
-                    "main hint #0".to_string(),
-                    "main hint #1".to_string(),
-                    "main hint #2".to_string(),
-                    "main hint #3".to_string(),
-                    "main hint #4".to_string(),
-                    "main hint #5".to_string(),
-                    "other hint(edited) #0".to_string(),
-                    "other hint(edited) #1".to_string(),
-                ];
-                assert_eq!(
-                    expected_hints,
-                    sorted_cached_hint_labels(editor),
-                    "After multibuffer edit, editor gets scrolled back to the last selection; \
-                all hints should be invalidated and required for all of its visible excerpts"
-                );
-                assert_eq!(expected_hints, visible_hint_labels(editor, cx));
-            })
-            .unwrap();
+        editor.update(cx, |editor, cx| {
+            let expected_hints = vec![
+                "main hint #0".to_string(),
+                "main hint #1".to_string(),
+                "main hint #2".to_string(),
+                "main hint #3".to_string(),
+                "main hint #4".to_string(),
+                "main hint #5".to_string(),
+                "other hint(edited) #0".to_string(),
+                "other hint(edited) #1".to_string(),
+                "other hint(edited) #2".to_string(),
+            ];
+            assert_eq!(
+                expected_hints,
+                cached_hint_labels(editor),
+                "After multibuffer edit, editor gets scrolled back to the last selection; \
+    all hints should be invalidated and required for all of its visible excerpts"
+            );
+            assert_eq!(expected_hints, visible_hint_labels(editor, cx));
+
+            let current_cache_version = editor.inlay_hint_cache().version;
+            // We expect three new hints for the excerpts from `other.rs`:
+            let expected_version = last_scroll_update_version + 3;
+            assert_eq!(
+                current_cache_version,
+                expected_version,
+                "We should have updated cache N times == N of new hints arrived (separately from each edited excerpt)"
+            );
+        }).unwrap();
     }
 
     #[gpui::test]
@@ -2835,14 +2902,12 @@ pub mod tests {
                 show_type_hints: false,
                 show_parameter_hints: false,
                 show_other_hints: false,
-                show_background: false,
-                toggle_on_modifiers_press: None,
             })
         });
 
         let fs = FakeFs::new(cx.background_executor.clone());
         fs.insert_tree(
-            path!("/a"),
+            "/a",
             json!({
                 "main.rs": format!("fn main() {{\n{}\n}}", (0..501).map(|i| format!("let i = {i};\n")).collect::<Vec<_>>().join("")),
                 "other.rs": format!("fn main() {{\n{}\n}}", (0..501).map(|j| format!("let j = {j};\n")).collect::<Vec<_>>().join("")),
@@ -2850,11 +2915,11 @@ pub mod tests {
         )
         .await;
 
-        let project = Project::test(fs, [path!("/a").as_ref()], cx).await;
+        let project = Project::test(fs, ["/a".as_ref()], cx).await;
 
         let language_registry = project.read_with(cx, |project, _| project.languages().clone());
-        language_registry.add(rust_lang());
-        let mut fake_servers = language_registry.register_fake_lsp(
+        language_registry.add(crate::editor_tests::rust_lang());
+        let mut fake_servers = language_registry.register_fake_lsp_adapter(
             "Rust",
             FakeLspAdapter {
                 capabilities: lsp::ServerCapabilities {
@@ -2865,28 +2930,38 @@ pub mod tests {
             },
         );
 
-        let (buffer_1, _handle) = project
+        let worktree_id = project.update(cx, |project, cx| {
+            project.worktrees(cx).next().unwrap().read(cx).id()
+        });
+
+        let buffer_1 = project
             .update(cx, |project, cx| {
-                project.open_local_buffer_with_lsp(path!("/a/main.rs"), cx)
+                project.open_buffer((worktree_id, "main.rs"), cx)
             })
             .await
             .unwrap();
-        let (buffer_2, _handle2) = project
+        let buffer_2 = project
             .update(cx, |project, cx| {
-                project.open_local_buffer_with_lsp(path!("/a/other.rs"), cx)
+                project.open_buffer((worktree_id, "other.rs"), cx)
             })
             .await
             .unwrap();
-        let multibuffer = cx.new(|_| MultiBuffer::new(Capability::ReadWrite));
+        let multibuffer = cx.new_model(|_| MultiBuffer::new(0, Capability::ReadWrite));
         let (buffer_1_excerpts, buffer_2_excerpts) = multibuffer.update(cx, |multibuffer, cx| {
             let buffer_1_excerpts = multibuffer.push_excerpts(
                 buffer_1.clone(),
-                [ExcerptRange::new(Point::new(0, 0)..Point::new(2, 0))],
+                [ExcerptRange {
+                    context: Point::new(0, 0)..Point::new(2, 0),
+                    primary: None,
+                }],
                 cx,
             );
             let buffer_2_excerpts = multibuffer.push_excerpts(
                 buffer_2.clone(),
-                [ExcerptRange::new(Point::new(0, 1)..Point::new(2, 1))],
+                [ExcerptRange {
+                    context: Point::new(0, 1)..Point::new(2, 1),
+                    primary: None,
+                }],
                 cx,
             );
             (buffer_1_excerpts, buffer_2_excerpts)
@@ -2896,22 +2971,21 @@ pub mod tests {
         assert!(!buffer_2_excerpts.is_empty());
 
         cx.executor().run_until_parked();
-        let editor = cx.add_window(|window, cx| {
-            Editor::for_multibuffer(multibuffer, Some(project.clone()), window, cx)
-        });
+        let editor = cx
+            .add_window(|cx| Editor::for_multibuffer(multibuffer, Some(project.clone()), true, cx));
         let editor_edited = Arc::new(AtomicBool::new(false));
         let fake_server = fake_servers.next().await.unwrap();
         let closure_editor_edited = Arc::clone(&editor_edited);
         fake_server
-            .set_request_handler::<lsp::request::InlayHintRequest, _, _>(move |params, _| {
+            .handle_request::<lsp::request::InlayHintRequest, _, _>(move |params, _| {
                 let task_editor_edited = Arc::clone(&closure_editor_edited);
                 async move {
                     let hint_text = if params.text_document.uri
-                        == lsp::Url::from_file_path(path!("/a/main.rs")).unwrap()
+                        == lsp::Url::from_file_path("/a/main.rs").unwrap()
                     {
                         "main hint"
                     } else if params.text_document.uri
-                        == lsp::Url::from_file_path(path!("/a/other.rs")).unwrap()
+                        == lsp::Url::from_file_path("/a/other.rs").unwrap()
                     {
                         "other hint"
                     } else {
@@ -2967,22 +3041,28 @@ pub mod tests {
             .next()
             .await;
         cx.executor().run_until_parked();
+
         editor
-            .update(cx, |editor, _, cx| {
+            .update(cx, |editor, cx| {
                 assert_eq!(
                     vec!["main hint #0".to_string(), "other hint #0".to_string()],
-                    sorted_cached_hint_labels(editor),
+                    cached_hint_labels(editor),
                     "Cache should update for both excerpts despite hints display was disabled"
                 );
                 assert!(
                 visible_hint_labels(editor, cx).is_empty(),
                 "All hints are disabled and should not be shown despite being present in the cache"
             );
+                assert_eq!(
+                    editor.inlay_hint_cache().version,
+                    2,
+                    "Cache should update once per excerpt query"
+                );
             })
             .unwrap();
 
         editor
-            .update(cx, |editor, _, cx| {
+            .update(cx, |editor, cx| {
                 editor.buffer().update(cx, |multibuffer, cx| {
                     multibuffer.remove_excerpts(buffer_2_excerpts, cx)
                 })
@@ -2990,7 +3070,7 @@ pub mod tests {
             .unwrap();
         cx.executor().run_until_parked();
         editor
-            .update(cx, |editor, _, cx| {
+            .update(cx, |editor, cx| {
                 assert_eq!(
                     vec!["main hint #0".to_string()],
                     cached_hint_labels(editor),
@@ -3000,6 +3080,11 @@ pub mod tests {
                 visible_hint_labels(editor, cx).is_empty(),
                 "All hints are disabled and should not be shown despite being present in the cache"
             );
+                assert_eq!(
+                    editor.inlay_hint_cache().version,
+                    3,
+                    "Excerpt removal should trigger a cache update"
+                );
             })
             .unwrap();
 
@@ -3011,13 +3096,11 @@ pub mod tests {
                 show_type_hints: true,
                 show_parameter_hints: true,
                 show_other_hints: true,
-                show_background: false,
-                toggle_on_modifiers_press: None,
             })
         });
         cx.executor().run_until_parked();
         editor
-            .update(cx, |editor, _, cx| {
+            .update(cx, |editor, cx| {
                 let expected_hints = vec!["main hint #0".to_string()];
                 assert_eq!(
                     expected_hints,
@@ -3028,6 +3111,11 @@ pub mod tests {
                     expected_hints,
                     visible_hint_labels(editor, cx),
                     "Settings change should make cached hints visible"
+                );
+                assert_eq!(
+                    editor.inlay_hint_cache().version,
+                    4,
+                    "Settings change should trigger a cache update"
                 );
             })
             .unwrap();
@@ -3043,14 +3131,12 @@ pub mod tests {
                 show_type_hints: true,
                 show_parameter_hints: true,
                 show_other_hints: true,
-                show_background: false,
-                toggle_on_modifiers_press: None,
             })
         });
 
         let fs = FakeFs::new(cx.background_executor.clone());
         fs.insert_tree(
-            path!("/a"),
+            "/a",
             json!({
                 "main.rs": format!(r#"fn main() {{\n{}\n}}"#, format!("let i = {};\n", "√".repeat(10)).repeat(500)),
                 "other.rs": "// Test file",
@@ -3058,69 +3144,73 @@ pub mod tests {
         )
         .await;
 
-        let project = Project::test(fs, [path!("/a").as_ref()], cx).await;
+        let project = Project::test(fs, ["/a".as_ref()], cx).await;
 
         let language_registry = project.read_with(cx, |project, _| project.languages().clone());
-        language_registry.add(rust_lang());
-        language_registry.register_fake_lsp(
+        language_registry.add(crate::editor_tests::rust_lang());
+        let mut fake_servers = language_registry.register_fake_lsp_adapter(
             "Rust",
             FakeLspAdapter {
                 capabilities: lsp::ServerCapabilities {
                     inlay_hint_provider: Some(lsp::OneOf::Left(true)),
                     ..Default::default()
                 },
-                initializer: Some(Box::new(move |fake_server| {
-                    let lsp_request_count = Arc::new(AtomicU32::new(0));
-                    fake_server.set_request_handler::<lsp::request::InlayHintRequest, _, _>(
-                        move |params, _| {
-                            let i = lsp_request_count.fetch_add(1, Ordering::Release) + 1;
-                            async move {
-                                assert_eq!(
-                                    params.text_document.uri,
-                                    lsp::Url::from_file_path(path!("/a/main.rs")).unwrap(),
-                                );
-                                let query_start = params.range.start;
-                                Ok(Some(vec![lsp::InlayHint {
-                                    position: query_start,
-                                    label: lsp::InlayHintLabel::String(i.to_string()),
-                                    kind: None,
-                                    text_edits: None,
-                                    tooltip: None,
-                                    padding_left: None,
-                                    padding_right: None,
-                                    data: None,
-                                }]))
-                            }
-                        },
-                    );
-                })),
                 ..Default::default()
             },
         );
 
         let buffer = project
             .update(cx, |project, cx| {
-                project.open_local_buffer(path!("/a/main.rs"), cx)
+                project.open_local_buffer("/a/main.rs", cx)
             })
             .await
             .unwrap();
-        let editor =
-            cx.add_window(|window, cx| Editor::for_buffer(buffer, Some(project), window, cx));
+        cx.executor().run_until_parked();
+        cx.executor().start_waiting();
+        let fake_server = fake_servers.next().await.unwrap();
+        let editor = cx.add_window(|cx| Editor::for_buffer(buffer, Some(project), cx));
+        let lsp_request_count = Arc::new(AtomicU32::new(0));
+        let closure_lsp_request_count = Arc::clone(&lsp_request_count);
+        fake_server
+            .handle_request::<lsp::request::InlayHintRequest, _, _>(move |params, _| {
+                let task_lsp_request_count = Arc::clone(&closure_lsp_request_count);
+                async move {
+                    assert_eq!(
+                        params.text_document.uri,
+                        lsp::Url::from_file_path("/a/main.rs").unwrap(),
+                    );
+                    let query_start = params.range.start;
+                    let i = Arc::clone(&task_lsp_request_count).fetch_add(1, Ordering::Release) + 1;
+                    Ok(Some(vec![lsp::InlayHint {
+                        position: query_start,
+                        label: lsp::InlayHintLabel::String(i.to_string()),
+                        kind: None,
+                        text_edits: None,
+                        tooltip: None,
+                        padding_left: None,
+                        padding_right: None,
+                        data: None,
+                    }]))
+                }
+            })
+            .next()
+            .await;
 
         cx.executor().run_until_parked();
         editor
-            .update(cx, |editor, window, cx| {
-                editor.change_selections(None, window, cx, |s| {
+            .update(cx, |editor, cx| {
+                editor.change_selections(None, cx, |s| {
                     s.select_ranges([Point::new(10, 0)..Point::new(10, 0)])
                 })
             })
             .unwrap();
         cx.executor().run_until_parked();
         editor
-            .update(cx, |editor, _, cx| {
+            .update(cx, |editor, cx| {
                 let expected_hints = vec!["1".to_string()];
                 assert_eq!(expected_hints, cached_hint_labels(editor));
                 assert_eq!(expected_hints, visible_hint_labels(editor, cx));
+                assert_eq!(editor.inlay_hint_cache().version, 1);
             })
             .unwrap();
     }
@@ -3135,48 +3225,46 @@ pub mod tests {
                 show_type_hints: true,
                 show_parameter_hints: true,
                 show_other_hints: true,
-                show_background: false,
-                toggle_on_modifiers_press: None,
             })
         });
 
-        let (_, editor, _fake_server) = prepare_test_objects(cx, |fake_server, file_with_hints| {
-            let lsp_request_count = Arc::new(AtomicU32::new(0));
-            fake_server.set_request_handler::<lsp::request::InlayHintRequest, _, _>(
-                move |params, _| {
-                    let lsp_request_count = lsp_request_count.clone();
-                    async move {
-                        assert_eq!(
-                            params.text_document.uri,
-                            lsp::Url::from_file_path(file_with_hints).unwrap(),
-                        );
-
-                        let i = lsp_request_count.fetch_add(1, Ordering::SeqCst) + 1;
-                        Ok(Some(vec![lsp::InlayHint {
-                            position: lsp::Position::new(0, i),
-                            label: lsp::InlayHintLabel::String(i.to_string()),
-                            kind: None,
-                            text_edits: None,
-                            tooltip: None,
-                            padding_left: None,
-                            padding_right: None,
-                            data: None,
-                        }]))
-                    }
-                },
-            );
-        })
-        .await;
+        let (file_with_hints, editor, fake_server) = prepare_test_objects(cx).await;
 
         editor
-            .update(cx, |editor, window, cx| {
-                editor.toggle_inlay_hints(&crate::ToggleInlayHints, window, cx)
+            .update(cx, |editor, cx| {
+                editor.toggle_inlay_hints(&crate::ToggleInlayHints, cx)
             })
             .unwrap();
+        cx.executor().start_waiting();
+        let lsp_request_count = Arc::new(AtomicU32::new(0));
+        let closure_lsp_request_count = Arc::clone(&lsp_request_count);
+        fake_server
+            .handle_request::<lsp::request::InlayHintRequest, _, _>(move |params, _| {
+                let task_lsp_request_count = Arc::clone(&closure_lsp_request_count);
+                async move {
+                    assert_eq!(
+                        params.text_document.uri,
+                        lsp::Url::from_file_path(file_with_hints).unwrap(),
+                    );
 
+                    let i = Arc::clone(&task_lsp_request_count).fetch_add(1, Ordering::SeqCst) + 1;
+                    Ok(Some(vec![lsp::InlayHint {
+                        position: lsp::Position::new(0, i),
+                        label: lsp::InlayHintLabel::String(i.to_string()),
+                        kind: None,
+                        text_edits: None,
+                        tooltip: None,
+                        padding_left: None,
+                        padding_right: None,
+                        data: None,
+                    }]))
+                }
+            })
+            .next()
+            .await;
         cx.executor().run_until_parked();
         editor
-            .update(cx, |editor, _, cx| {
+            .update(cx, |editor, cx| {
                 let expected_hints = vec!["1".to_string()];
                 assert_eq!(
                     expected_hints,
@@ -3184,22 +3272,28 @@ pub mod tests {
                     "Should display inlays after toggle despite them disabled in settings"
                 );
                 assert_eq!(expected_hints, visible_hint_labels(editor, cx));
+                assert_eq!(
+                    editor.inlay_hint_cache().version,
+                    1,
+                    "First toggle should be cache's first update"
+                );
             })
             .unwrap();
 
         editor
-            .update(cx, |editor, window, cx| {
-                editor.toggle_inlay_hints(&crate::ToggleInlayHints, window, cx)
+            .update(cx, |editor, cx| {
+                editor.toggle_inlay_hints(&crate::ToggleInlayHints, cx)
             })
             .unwrap();
         cx.executor().run_until_parked();
         editor
-            .update(cx, |editor, _, cx| {
+            .update(cx, |editor, cx| {
                 assert!(
                     cached_hint_labels(editor).is_empty(),
                     "Should clear hints after 2nd toggle"
                 );
                 assert!(visible_hint_labels(editor, cx).is_empty());
+                assert_eq!(editor.inlay_hint_cache().version, 2);
             })
             .unwrap();
 
@@ -3211,13 +3305,11 @@ pub mod tests {
                 show_type_hints: true,
                 show_parameter_hints: true,
                 show_other_hints: true,
-                show_background: false,
-                toggle_on_modifiers_press: None,
             })
         });
         cx.executor().run_until_parked();
         editor
-            .update(cx, |editor, _, cx| {
+            .update(cx, |editor, cx| {
                 let expected_hints = vec!["2".to_string()];
                 assert_eq!(
                     expected_hints,
@@ -3225,32 +3317,34 @@ pub mod tests {
                     "Should query LSP hints for the 2nd time after enabling hints in settings"
                 );
                 assert_eq!(expected_hints, visible_hint_labels(editor, cx));
+                assert_eq!(editor.inlay_hint_cache().version, 3);
             })
             .unwrap();
 
         editor
-            .update(cx, |editor, window, cx| {
-                editor.toggle_inlay_hints(&crate::ToggleInlayHints, window, cx)
+            .update(cx, |editor, cx| {
+                editor.toggle_inlay_hints(&crate::ToggleInlayHints, cx)
             })
             .unwrap();
         cx.executor().run_until_parked();
         editor
-            .update(cx, |editor, _, cx| {
+            .update(cx, |editor, cx| {
                 assert!(
                     cached_hint_labels(editor).is_empty(),
                     "Should clear hints after enabling in settings and a 3rd toggle"
                 );
                 assert!(visible_hint_labels(editor, cx).is_empty());
+                assert_eq!(editor.inlay_hint_cache().version, 4);
             })
             .unwrap();
 
         editor
-            .update(cx, |editor, window, cx| {
-                editor.toggle_inlay_hints(&crate::ToggleInlayHints, window, cx)
+            .update(cx, |editor, cx| {
+                editor.toggle_inlay_hints(&crate::ToggleInlayHints, cx)
             })
             .unwrap();
         cx.executor().run_until_parked();
-        editor.update(cx, |editor, _, cx| {
+        editor.update(cx, |editor, cx| {
             let expected_hints = vec!["3".to_string()];
             assert_eq!(
                 expected_hints,
@@ -3258,160 +3352,8 @@ pub mod tests {
                 "Should query LSP hints for the 3rd time after enabling hints in settings and toggling them back on"
             );
             assert_eq!(expected_hints, visible_hint_labels(editor, cx));
+            assert_eq!(editor.inlay_hint_cache().version, 5);
         }).unwrap();
-    }
-
-    #[gpui::test]
-    async fn test_inlays_at_the_same_place(cx: &mut gpui::TestAppContext) {
-        init_test(cx, |settings| {
-            settings.defaults.inlay_hints = Some(InlayHintSettings {
-                enabled: true,
-                edit_debounce_ms: 0,
-                scroll_debounce_ms: 0,
-                show_type_hints: true,
-                show_parameter_hints: true,
-                show_other_hints: true,
-                show_background: false,
-                toggle_on_modifiers_press: None,
-            })
-        });
-
-        let fs = FakeFs::new(cx.background_executor.clone());
-        fs.insert_tree(
-            path!("/a"),
-            json!({
-                "main.rs": "fn main() {
-                    let x = 42;
-                    std::thread::scope(|s| {
-                        s.spawn(|| {
-                            let _x = x;
-                        });
-                    });
-                }",
-                "other.rs": "// Test file",
-            }),
-        )
-        .await;
-
-        let project = Project::test(fs, [path!("/a").as_ref()], cx).await;
-
-        let language_registry = project.read_with(cx, |project, _| project.languages().clone());
-        language_registry.add(rust_lang());
-        language_registry.register_fake_lsp(
-            "Rust",
-            FakeLspAdapter {
-                capabilities: lsp::ServerCapabilities {
-                    inlay_hint_provider: Some(lsp::OneOf::Left(true)),
-                    ..Default::default()
-                },
-                initializer: Some(Box::new(move |fake_server| {
-                    fake_server.set_request_handler::<lsp::request::InlayHintRequest, _, _>(
-                        move |params, _| async move {
-                            assert_eq!(
-                                params.text_document.uri,
-                                lsp::Url::from_file_path(path!("/a/main.rs")).unwrap(),
-                            );
-                            Ok(Some(
-                                serde_json::from_value(json!([
-                                    {
-                                        "position": {
-                                            "line": 3,
-                                            "character": 16
-                                        },
-                                        "label": "move",
-                                        "paddingLeft": false,
-                                        "paddingRight": false
-                                    },
-                                    {
-                                        "position": {
-                                            "line": 3,
-                                            "character": 16
-                                        },
-                                        "label": "(",
-                                        "paddingLeft": false,
-                                        "paddingRight": false
-                                    },
-                                    {
-                                        "position": {
-                                            "line": 3,
-                                            "character": 16
-                                        },
-                                        "label": [
-                                            {
-                                                "value": "&x"
-                                            }
-                                        ],
-                                        "paddingLeft": false,
-                                        "paddingRight": false,
-                                        "data": {
-                                            "file_id": 0
-                                        }
-                                    },
-                                    {
-                                        "position": {
-                                            "line": 3,
-                                            "character": 16
-                                        },
-                                        "label": ")",
-                                        "paddingLeft": false,
-                                        "paddingRight": true
-                                    },
-                                    // not a correct syntax, but checks that same symbols at the same place
-                                    // are not deduplicated
-                                    {
-                                        "position": {
-                                            "line": 3,
-                                            "character": 16
-                                        },
-                                        "label": ")",
-                                        "paddingLeft": false,
-                                        "paddingRight": true
-                                    },
-                                ]))
-                                .unwrap(),
-                            ))
-                        },
-                    );
-                })),
-                ..FakeLspAdapter::default()
-            },
-        );
-
-        let buffer = project
-            .update(cx, |project, cx| {
-                project.open_local_buffer(path!("/a/main.rs"), cx)
-            })
-            .await
-            .unwrap();
-        let editor =
-            cx.add_window(|window, cx| Editor::for_buffer(buffer, Some(project), window, cx));
-
-        cx.executor().run_until_parked();
-        editor
-            .update(cx, |editor, window, cx| {
-                editor.change_selections(None, window, cx, |s| {
-                    s.select_ranges([Point::new(10, 0)..Point::new(10, 0)])
-                })
-            })
-            .unwrap();
-        cx.executor().run_until_parked();
-        editor
-            .update(cx, |editor, _window, cx| {
-                let expected_hints = vec![
-                    "move".to_string(),
-                    "(".to_string(),
-                    "&x".to_string(),
-                    ") ".to_string(),
-                    ") ".to_string(),
-                ];
-                assert_eq!(
-                    expected_hints,
-                    cached_hint_labels(editor),
-                    "Editor inlay hints should repeat server's order when placed at the same spot"
-                );
-                assert_eq!(expected_hints, visible_hint_labels(editor, cx));
-            })
-            .unwrap();
     }
 
     pub(crate) fn init_test(cx: &mut TestAppContext, f: impl Fn(&mut AllLanguageSettingsContent)) {
@@ -3432,11 +3374,10 @@ pub mod tests {
 
     async fn prepare_test_objects(
         cx: &mut TestAppContext,
-        initialize: impl 'static + Send + Fn(&mut FakeLanguageServer, &'static str) + Send + Sync,
     ) -> (&'static str, WindowHandle<Editor>, FakeLanguageServer) {
         let fs = FakeFs::new(cx.background_executor.clone());
         fs.insert_tree(
-            path!("/a"),
+            "/a",
             json!({
                 "main.rs": "fn main() { a } // and some long comment to ensure inlays are not trimmed out",
                 "other.rs": "// Test file",
@@ -3444,50 +3385,41 @@ pub mod tests {
         )
         .await;
 
-        let project = Project::test(fs, [path!("/a").as_ref()], cx).await;
-        let file_path = path!("/a/main.rs");
+        let project = Project::test(fs, ["/a".as_ref()], cx).await;
 
         let language_registry = project.read_with(cx, |project, _| project.languages().clone());
-        language_registry.add(rust_lang());
-        let mut fake_servers = language_registry.register_fake_lsp(
+        language_registry.add(crate::editor_tests::rust_lang());
+        let mut fake_servers = language_registry.register_fake_lsp_adapter(
             "Rust",
             FakeLspAdapter {
                 capabilities: lsp::ServerCapabilities {
                     inlay_hint_provider: Some(lsp::OneOf::Left(true)),
                     ..Default::default()
                 },
-                initializer: Some(Box::new(move |server| initialize(server, file_path))),
                 ..Default::default()
             },
         );
 
         let buffer = project
             .update(cx, |project, cx| {
-                project.open_local_buffer(path!("/a/main.rs"), cx)
+                project.open_local_buffer("/a/main.rs", cx)
             })
             .await
             .unwrap();
-        let editor =
-            cx.add_window(|window, cx| Editor::for_buffer(buffer, Some(project), window, cx));
+        cx.executor().run_until_parked();
+        cx.executor().start_waiting();
+        let fake_server = fake_servers.next().await.unwrap();
+        let editor = cx.add_window(|cx| Editor::for_buffer(buffer, Some(project), cx));
 
         editor
-            .update(cx, |editor, _, cx| {
+            .update(cx, |editor, cx| {
                 assert!(cached_hint_labels(editor).is_empty());
                 assert!(visible_hint_labels(editor, cx).is_empty());
+                assert_eq!(editor.inlay_hint_cache().version, 0);
             })
             .unwrap();
 
-        cx.executor().run_until_parked();
-        let fake_server = fake_servers.next().await.unwrap();
-        (file_path, editor, fake_server)
-    }
-
-    // Inlay hints in the cache are stored per excerpt as a key, and those keys are guaranteed to be ordered same as in the multi buffer.
-    // Ensure a stable order for testing.
-    fn sorted_cached_hint_labels(editor: &Editor) -> Vec<String> {
-        let mut labels = cached_hint_labels(editor);
-        labels.sort();
-        labels
+        ("/a/main.rs", editor, fake_server)
     }
 
     pub fn cached_hint_labels(editor: &Editor) -> Vec<String> {
@@ -3495,26 +3427,21 @@ pub mod tests {
         for excerpt_hints in editor.inlay_hint_cache().hints.values() {
             let excerpt_hints = excerpt_hints.read();
             for id in &excerpt_hints.ordered_hints {
-                let hint = &excerpt_hints.hints_by_id[id];
-                let mut label = hint.text();
-                if hint.padding_left {
-                    label.insert(0, ' ');
-                }
-                if hint.padding_right {
-                    label.push_str(" ");
-                }
-                labels.push(label);
+                labels.push(excerpt_hints.hints_by_id[id].text());
             }
         }
 
+        labels.sort();
         labels
     }
 
-    pub fn visible_hint_labels(editor: &Editor, cx: &Context<Editor>) -> Vec<String> {
-        editor
+    pub fn visible_hint_labels(editor: &Editor, cx: &ViewContext<'_, Editor>) -> Vec<String> {
+        let mut hints = editor
             .visible_inlay_hints(cx)
             .into_iter()
             .map(|hint| hint.text.to_string())
-            .collect()
+            .collect::<Vec<_>>();
+        hints.sort();
+        hints
     }
 }

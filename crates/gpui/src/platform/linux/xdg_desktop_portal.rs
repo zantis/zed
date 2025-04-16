@@ -11,9 +11,7 @@ use crate::{BackgroundExecutor, WindowAppearance};
 
 pub enum Event {
     WindowAppearance(WindowAppearance),
-    #[cfg_attr(feature = "x11", allow(dead_code))]
     CursorTheme(String),
-    #[cfg_attr(feature = "x11", allow(dead_code))]
     CursorSize(u32),
 }
 
@@ -42,13 +40,11 @@ impl XDPEventSource {
                 {
                     sender.send(Event::CursorTheme(initial_theme))?;
                 }
-
-                // If u32 is used here, it throws invalid type error
                 if let Ok(initial_size) = settings
-                    .read::<i32>("org.gnome.desktop.interface", "cursor-size")
+                    .read::<u32>("org.gnome.desktop.interface", "cursor-size")
                     .await
                 {
-                    sender.send(Event::CursorSize(initial_size as u32))?;
+                    sender.send(Event::CursorSize(initial_size))?;
                 }
 
                 if let Ok(mut cursor_theme_changed) = settings
@@ -71,7 +67,7 @@ impl XDPEventSource {
                 }
 
                 if let Ok(mut cursor_size_changed) = settings
-                    .receive_setting_changed_with_args::<i32>(
+                    .receive_setting_changed_with_args::<u32>(
                         "org.gnome.desktop.interface",
                         "cursor-size",
                     )
@@ -82,7 +78,7 @@ impl XDPEventSource {
                         .spawn(async move {
                             while let Some(size) = cursor_size_changed.next().await {
                                 let size = size?;
-                                sender.send(Event::CursorSize(size as u32))?;
+                                sender.send(Event::CursorSize(size))?;
                             }
                             anyhow::Ok(())
                         })
@@ -164,7 +160,7 @@ impl WindowAppearance {
         }
     }
 
-    #[cfg_attr(any(target_os = "linux", target_os = "freebsd"), allow(dead_code))]
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     fn set_native(&mut self, cs: ColorScheme) {
         *self = Self::from_native(cs);
     }

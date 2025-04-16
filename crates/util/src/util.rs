@@ -1,17 +1,14 @@
 pub mod arc_cow;
-pub mod command;
 pub mod fs;
-pub mod markdown;
 pub mod paths;
 pub mod serde;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test;
 
-use anyhow::Result;
 use futures::Future;
-use itertools::Either;
+
 use regex::Regex;
-use std::sync::{LazyLock, OnceLock};
+use std::sync::OnceLock;
 use std::{
     borrow::Cow,
     cmp::{self, Ordering},
@@ -24,12 +21,7 @@ use std::{
 };
 use unicase::UniCase;
 
-#[cfg(unix)]
-use anyhow::{Context as _, anyhow};
-
 pub use take_until::*;
-#[cfg(any(test, feature = "test-support"))]
-pub use util_macros::{line_endings, separator, uri};
 
 #[macro_export]
 macro_rules! debug_panic {
@@ -43,48 +35,140 @@ macro_rules! debug_panic {
     };
 }
 
-/// A macro to add "C:" to the beginning of a path literal on Windows, and replace all
-/// the separator from `/` to `\`.
-/// But on non-Windows platforms, it will return the path literal as is.
-///
-/// # Examples
-/// ```rust
-/// use util::path;
-///
-/// let path = path!("/Users/user/file.txt");
-/// #[cfg(target_os = "windows")]
-/// assert_eq!(path, "C:\\Users\\user\\file.txt");
-/// #[cfg(not(target_os = "windows"))]
-/// assert_eq!(path, "/Users/user/file.txt");
-/// ```
-#[cfg(all(any(test, feature = "test-support"), target_os = "windows"))]
 #[macro_export]
-macro_rules! path {
-    ($path:literal) => {
-        concat!("C:", util::separator!($path))
-    };
+macro_rules! with_clone {
+    ($i:ident, move ||$l:expr) => {{
+        let $i = $i.clone();
+        move || {
+            $l
+        }
+    }};
+    ($i:ident, move |$($k:pat_param),*|$l:expr) => {{
+        let $i = $i.clone();
+        move |$( $k ),*| {
+            $l
+        }
+    }};
+
+    (($($i:ident),+), move ||$l:expr) => {{
+        let ($($i),+) = ($($i.clone()),+);
+        move || {
+            $l
+        }
+    }};
+    (($($i:ident),+), move |$($k:pat_param),*|$l:expr) => {{
+        let ($($i),+) = ($($i.clone()),+);
+        move |$( $k ),*| {
+            $l
+        }
+    }};
 }
 
-/// A macro to add "C:" to the beginning of a path literal on Windows, and replace all
-/// the separator from `/` to `\`.
-/// But on non-Windows platforms, it will return the path literal as is.
-///
-/// # Examples
-/// ```rust
-/// use util::path;
-///
-/// let path = path!("/Users/user/file.txt");
-/// #[cfg(target_os = "windows")]
-/// assert_eq!(path, "C:\\Users\\user\\file.txt");
-/// #[cfg(not(target_os = "windows"))]
-/// assert_eq!(path, "/Users/user/file.txt");
-/// ```
-#[cfg(all(any(test, feature = "test-support"), not(target_os = "windows")))]
-#[macro_export]
-macro_rules! path {
-    ($path:literal) => {
-        $path
-    };
+mod test_with_clone {
+
+    // If this test compiles, it works
+    #[test]
+    fn test() {
+        let x = "String".to_string();
+        let y = std::sync::Arc::new(5);
+
+        fn no_arg(f: impl FnOnce()) {
+            f()
+        }
+
+        no_arg(with_clone!(x, move || {
+            drop(x);
+        }));
+
+        no_arg(with_clone!((x, y), move || {
+            drop(x);
+            drop(y);
+        }));
+
+        fn one_arg(f: impl FnOnce(usize)) {
+            f(1)
+        }
+
+        one_arg(with_clone!(x, move |_| {
+            drop(x);
+        }));
+        one_arg(with_clone!((x, y), move |b| {
+            drop(x);
+            drop(y);
+            println!("{}", b);
+        }));
+
+        fn two_arg(f: impl FnOnce(usize, bool)) {
+            f(5, true)
+        }
+
+        two_arg(with_clone!((x, y), move |a, b| {
+            drop(x);
+            drop(y);
+            println!("{}{}", a, b)
+        }));
+        two_arg(with_clone!((x, y), move |a, _| {
+            drop(x);
+            drop(y);
+            println!("{}", a)
+        }));
+        two_arg(with_clone!((x, y), move |_, b| {
+            drop(x);
+            drop(y);
+            println!("{}", b)
+        }));
+
+        struct Example {
+            z: usize,
+        }
+
+        fn destructuring_example(f: impl FnOnce(Example)) {
+            f(Example { z: 10 })
+        }
+
+        destructuring_example(with_clone!(x, move |Example { z }| {
+            drop(x);
+            println!("{}", z);
+        }));
+
+        let a_long_variable_1 = "".to_string();
+        let a_long_variable_2 = "".to_string();
+        let a_long_variable_3 = "".to_string();
+        let a_long_variable_4 = "".to_string();
+        two_arg(with_clone!(
+            (
+                x,
+                y,
+                a_long_variable_1,
+                a_long_variable_2,
+                a_long_variable_3,
+                a_long_variable_4
+            ),
+            move |a, b| {
+                drop(x);
+                drop(y);
+                drop(a_long_variable_1);
+                drop(a_long_variable_2);
+                drop(a_long_variable_3);
+                drop(a_long_variable_4);
+                println!("{}{}", a, b)
+            }
+        ));
+
+        fn single_expression_body(f: impl FnOnce(usize) -> usize) -> usize {
+            f(20)
+        }
+
+        let _result = single_expression_body(with_clone!(y, move |z| *y + z));
+
+        // Explicitly move all variables
+        drop(x);
+        drop(y);
+        drop(a_long_variable_1);
+        drop(a_long_variable_2);
+        drop(a_long_variable_3);
+        drop(a_long_variable_4);
+    }
 }
 
 pub fn truncate(s: &str, max_chars: usize) -> &str {
@@ -99,15 +183,10 @@ pub fn truncate(s: &str, max_chars: usize) -> &str {
 pub fn truncate_and_trailoff(s: &str, max_chars: usize) -> String {
     debug_assert!(max_chars >= 5);
 
-    // If the string's byte length is <= max_chars, walking the string can be skipped since the
-    // number of chars is <= the number of bytes.
-    if s.len() <= max_chars {
-        return s.to_string();
-    }
     let truncation_ix = s.char_indices().map(|(i, _)| i).nth(max_chars);
     match truncation_ix {
-        Some(index) => s[..index].to_string() + "…",
-        _ => s.to_string(),
+        Some(length) => s[..length].to_string() + "…",
+        None => s.to_string(),
     }
 }
 
@@ -116,19 +195,10 @@ pub fn truncate_and_trailoff(s: &str, max_chars: usize) -> String {
 pub fn truncate_and_remove_front(s: &str, max_chars: usize) -> String {
     debug_assert!(max_chars >= 5);
 
-    // If the string's byte length is <= max_chars, walking the string can be skipped since the
-    // number of chars is <= the number of bytes.
-    if s.len() <= max_chars {
-        return s.to_string();
-    }
-    let suffix_char_length = max_chars.saturating_sub(1);
-    let truncation_ix = s
-        .char_indices()
-        .map(|(i, _)| i)
-        .nth_back(suffix_char_length);
+    let truncation_ix = s.char_indices().map(|(i, _)| i).nth_back(max_chars);
     match truncation_ix {
-        Some(index) if index > 0 => "…".to_string() + &s[index..],
-        _ => s.to_string(),
+        Some(length) => "…".to_string() + &s[length..],
+        None => s.to_string(),
     }
 }
 
@@ -143,66 +213,6 @@ pub fn truncate_lines_and_trailoff(s: &str, max_lines: usize) -> String {
     } else {
         lines.join("\n")
     }
-}
-
-/// Truncates the string at a character boundary, such that the result is less than `max_bytes` in
-/// length.
-pub fn truncate_to_byte_limit(s: &str, max_bytes: usize) -> &str {
-    if s.len() < max_bytes {
-        return s;
-    }
-
-    for i in (0..max_bytes).rev() {
-        if s.is_char_boundary(i) {
-            return &s[..i];
-        }
-    }
-
-    ""
-}
-
-/// Takes a prefix of complete lines which fit within the byte limit. If the first line is longer
-/// than the limit, truncates at a character boundary.
-pub fn truncate_lines_to_byte_limit(s: &str, max_bytes: usize) -> &str {
-    if s.len() < max_bytes {
-        return s;
-    }
-
-    for i in (0..max_bytes).rev() {
-        if s.is_char_boundary(i) {
-            if s.as_bytes()[i] == b'\n' {
-                // Since the i-th character is \n, valid to slice at i + 1.
-                return &s[..i + 1];
-            }
-        }
-    }
-
-    truncate_to_byte_limit(s, max_bytes)
-}
-
-#[test]
-fn test_truncate_lines_to_byte_limit() {
-    let text = "Line 1\nLine 2\nLine 3\nLine 4";
-
-    // Limit that includes all lines
-    assert_eq!(truncate_lines_to_byte_limit(text, 100), text);
-
-    // Exactly the first line
-    assert_eq!(truncate_lines_to_byte_limit(text, 7), "Line 1\n");
-
-    // Limit between lines
-    assert_eq!(truncate_lines_to_byte_limit(text, 13), "Line 1\n");
-    assert_eq!(truncate_lines_to_byte_limit(text, 20), "Line 1\nLine 2\n");
-
-    // Limit before first newline
-    assert_eq!(truncate_lines_to_byte_limit(text, 6), "Line ");
-
-    // Test with non-ASCII characters
-    let text_utf8 = "Line 1\nLíne 2\nLine 3";
-    assert_eq!(
-        truncate_lines_to_byte_limit(text_utf8, 15),
-        "Line 1\nLíne 2\n"
-    );
 }
 
 pub fn post_inc<T: From<u8> + AddAssign<T> + Copy>(value: &mut T) -> T {
@@ -232,129 +242,6 @@ where
             start_index = index;
         }
     }
-}
-
-pub fn truncate_to_bottom_n_sorted_by<T, F>(items: &mut Vec<T>, limit: usize, compare: &F)
-where
-    F: Fn(&T, &T) -> Ordering,
-{
-    if limit == 0 {
-        items.truncate(0);
-    }
-    if items.len() <= limit {
-        items.sort_by(compare);
-        return;
-    }
-    // When limit is near to items.len() it may be more efficient to sort the whole list and
-    // truncate, rather than always doing selection first as is done below. It's hard to analyze
-    // where the threshold for this should be since the quickselect style algorithm used by
-    // `select_nth_unstable_by` makes the prefix partially sorted, and so its work is not wasted -
-    // the expected number of comparisons needed by `sort_by` is less than it is for some arbitrary
-    // unsorted input.
-    items.select_nth_unstable_by(limit, compare);
-    items.truncate(limit);
-    items.sort_by(compare);
-}
-
-#[cfg(unix)]
-pub fn load_shell_from_passwd() -> Result<()> {
-    let buflen = match unsafe { libc::sysconf(libc::_SC_GETPW_R_SIZE_MAX) } {
-        n if n < 0 => 1024,
-        n => n as usize,
-    };
-    let mut buffer = Vec::with_capacity(buflen);
-
-    let mut pwd: std::mem::MaybeUninit<libc::passwd> = std::mem::MaybeUninit::uninit();
-    let mut result: *mut libc::passwd = std::ptr::null_mut();
-
-    let uid = unsafe { libc::getuid() };
-    let status = unsafe {
-        libc::getpwuid_r(
-            uid,
-            pwd.as_mut_ptr(),
-            buffer.as_mut_ptr() as *mut libc::c_char,
-            buflen,
-            &mut result,
-        )
-    };
-    let entry = unsafe { pwd.assume_init() };
-
-    anyhow::ensure!(
-        status == 0,
-        "call to getpwuid_r failed. uid: {}, status: {}",
-        uid,
-        status
-    );
-    anyhow::ensure!(!result.is_null(), "passwd entry for uid {} not found", uid);
-    anyhow::ensure!(
-        entry.pw_uid == uid,
-        "passwd entry has different uid ({}) than getuid ({}) returned",
-        entry.pw_uid,
-        uid,
-    );
-
-    let shell = unsafe { std::ffi::CStr::from_ptr(entry.pw_shell).to_str().unwrap() };
-    if env::var("SHELL").map_or(true, |shell_env| shell_env != shell) {
-        log::info!(
-            "updating SHELL environment variable to value from passwd entry: {:?}",
-            shell,
-        );
-        unsafe { env::set_var("SHELL", shell) };
-    }
-
-    Ok(())
-}
-
-#[cfg(unix)]
-pub fn load_login_shell_environment() -> Result<()> {
-    let marker = "ZED_LOGIN_SHELL_START";
-    let shell = env::var("SHELL").context(
-        "SHELL environment variable is not assigned so we can't source login environment variables",
-    )?;
-
-    // If possible, we want to `cd` in the user's `$HOME` to trigger programs
-    // such as direnv, asdf, mise, ... to adjust the PATH. These tools often hook
-    // into shell's `cd` command (and hooks) to manipulate env.
-    // We do this so that we get the env a user would have when spawning a shell
-    // in home directory.
-    let shell_cmd_prefix = std::env::var_os("HOME")
-        .and_then(|home| home.into_string().ok())
-        .map(|home| format!("cd '{home}';"));
-
-    // The `exit 0` is the result of hours of debugging, trying to find out
-    // why running this command here, without `exit 0`, would mess
-    // up signal process for our process so that `ctrl-c` doesn't work
-    // anymore.
-    // We still don't know why `$SHELL -l -i -c '/usr/bin/env -0'`  would
-    // do that, but it does, and `exit 0` helps.
-    let shell_cmd = format!(
-        "{}printf '%s' {marker}; /usr/bin/env; exit 0;",
-        shell_cmd_prefix.as_deref().unwrap_or("")
-    );
-
-    let output = std::process::Command::new(&shell)
-        .args(["-l", "-i", "-c", &shell_cmd])
-        .output()
-        .context("failed to spawn login shell to source login environment variables")?;
-    if !output.status.success() {
-        Err(anyhow!("login shell exited with error"))?;
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
-    if let Some(env_output_start) = stdout.find(marker) {
-        let env_output = &stdout[env_output_start + marker.len()..];
-
-        parse_env_output(env_output, |key, value| unsafe { env::set_var(key, value) });
-
-        log::info!(
-            "set environment variables from shell:{}, path:{}",
-            shell,
-            env::var("PATH").unwrap_or_default(),
-        );
-    }
-
-    Ok(())
 }
 
 /// Parse the result of calling `usr/bin/env` with no arguments
@@ -392,14 +279,8 @@ pub fn merge_json_value_into(source: serde_json::Value, target: &mut serde_json:
                 if let Some(target) = target.get_mut(&key) {
                     merge_json_value_into(value, target);
                 } else {
-                    target.insert(key, value);
+                    target.insert(key.clone(), value);
                 }
-            }
-        }
-
-        (Value::Array(source), Value::Array(target)) => {
-            for value in source {
-                target.push(value);
             }
         }
 
@@ -420,7 +301,7 @@ pub fn merge_non_null_json_value_into(source: serde_json::Value, target: &mut se
             if let Some(target) = target_object.get_mut(&key) {
                 merge_non_null_json_value_into(value, target);
             } else if !value.is_null() {
-                target_object.insert(key, value);
+                target_object.insert(key.clone(), value);
             }
         }
     } else if !source.is_null() {
@@ -447,137 +328,6 @@ pub fn measure<R>(label: &str, f: impl FnOnce() -> R) -> R {
     }
 }
 
-pub fn iterate_expanded_and_wrapped_usize_range(
-    range: Range<usize>,
-    additional_before: usize,
-    additional_after: usize,
-    wrap_length: usize,
-) -> impl Iterator<Item = usize> {
-    let start_wraps = range.start < additional_before;
-    let end_wraps = wrap_length < range.end + additional_after;
-    if start_wraps && end_wraps {
-        Either::Left(0..wrap_length)
-    } else if start_wraps {
-        let wrapped_start = (range.start + wrap_length).saturating_sub(additional_before);
-        if wrapped_start <= range.end {
-            Either::Left(0..wrap_length)
-        } else {
-            Either::Right((0..range.end + additional_after).chain(wrapped_start..wrap_length))
-        }
-    } else if end_wraps {
-        let wrapped_end = range.end + additional_after - wrap_length;
-        if range.start <= wrapped_end {
-            Either::Left(0..wrap_length)
-        } else {
-            Either::Right((0..wrapped_end).chain(range.start - additional_before..wrap_length))
-        }
-    } else {
-        Either::Left((range.start - additional_before)..(range.end + additional_after))
-    }
-}
-
-#[cfg(target_os = "windows")]
-pub fn get_windows_system_shell() -> String {
-    use std::path::PathBuf;
-
-    fn find_pwsh_in_programfiles(find_alternate: bool, find_preview: bool) -> Option<PathBuf> {
-        #[cfg(target_pointer_width = "64")]
-        let env_var = if find_alternate {
-            "ProgramFiles(x86)"
-        } else {
-            "ProgramFiles"
-        };
-
-        #[cfg(target_pointer_width = "32")]
-        let env_var = if find_alternate {
-            "ProgramW6432"
-        } else {
-            "ProgramFiles"
-        };
-
-        let install_base_dir = PathBuf::from(std::env::var_os(env_var)?).join("PowerShell");
-        install_base_dir
-            .read_dir()
-            .ok()?
-            .filter_map(Result::ok)
-            .filter(|entry| matches!(entry.file_type(), Ok(ft) if ft.is_dir()))
-            .filter_map(|entry| {
-                let dir_name = entry.file_name();
-                let dir_name = dir_name.to_string_lossy();
-
-                let version = if find_preview {
-                    let dash_index = dir_name.find('-')?;
-                    if &dir_name[dash_index + 1..] != "preview" {
-                        return None;
-                    };
-                    dir_name[..dash_index].parse::<u32>().ok()?
-                } else {
-                    dir_name.parse::<u32>().ok()?
-                };
-
-                let exe_path = entry.path().join("pwsh.exe");
-                if exe_path.exists() {
-                    Some((version, exe_path))
-                } else {
-                    None
-                }
-            })
-            .max_by_key(|(version, _)| *version)
-            .map(|(_, path)| path)
-    }
-
-    fn find_pwsh_in_msix(find_preview: bool) -> Option<PathBuf> {
-        let msix_app_dir =
-            PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("Microsoft\\WindowsApps");
-        if !msix_app_dir.exists() {
-            return None;
-        }
-
-        let prefix = if find_preview {
-            "Microsoft.PowerShellPreview_"
-        } else {
-            "Microsoft.PowerShell_"
-        };
-        msix_app_dir
-            .read_dir()
-            .ok()?
-            .filter_map(|entry| {
-                let entry = entry.ok()?;
-                if !matches!(entry.file_type(), Ok(ft) if ft.is_dir()) {
-                    return None;
-                }
-
-                if !entry.file_name().to_string_lossy().starts_with(prefix) {
-                    return None;
-                }
-
-                let exe_path = entry.path().join("pwsh.exe");
-                exe_path.exists().then_some(exe_path)
-            })
-            .next()
-    }
-
-    fn find_pwsh_in_scoop() -> Option<PathBuf> {
-        let pwsh_exe =
-            PathBuf::from(std::env::var_os("USERPROFILE")?).join("scoop\\shims\\pwsh.exe");
-        pwsh_exe.exists().then_some(pwsh_exe)
-    }
-
-    static SYSTEM_SHELL: LazyLock<String> = LazyLock::new(|| {
-        find_pwsh_in_programfiles(false, false)
-            .or_else(|| find_pwsh_in_programfiles(true, false))
-            .or_else(|| find_pwsh_in_msix(false))
-            .or_else(|| find_pwsh_in_programfiles(false, true))
-            .or_else(|| find_pwsh_in_msix(true))
-            .or_else(|| find_pwsh_in_programfiles(true, true))
-            .or_else(find_pwsh_in_scoop)
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or("powershell.exe".to_string())
-    });
-
-    (*SYSTEM_SHELL).clone()
-}
-
 pub trait ResultExt<E> {
     type Ok;
 
@@ -585,10 +335,6 @@ pub trait ResultExt<E> {
     /// Assert that this result should never be an error in development or tests.
     fn debug_assert_ok(self, reason: &str) -> Self;
     fn warn_on_err(self) -> Option<Self::Ok>;
-    fn log_with_level(self, level: log::Level) -> Option<Self::Ok>;
-    fn anyhow(self) -> anyhow::Result<Self::Ok>
-    where
-        E: Into<anyhow::Error>;
 }
 
 impl<T, E> ResultExt<E> for Result<T, E>
@@ -599,7 +345,13 @@ where
 
     #[track_caller]
     fn log_err(self) -> Option<T> {
-        self.log_with_level(log::Level::Error)
+        match self {
+            Ok(value) => Some(value),
+            Err(error) => {
+                log_error_with_caller(*Location::caller(), error, log::Level::Error);
+                None
+            }
+        }
     }
 
     #[track_caller]
@@ -612,25 +364,13 @@ where
 
     #[track_caller]
     fn warn_on_err(self) -> Option<T> {
-        self.log_with_level(log::Level::Warn)
-    }
-
-    #[track_caller]
-    fn log_with_level(self, level: log::Level) -> Option<T> {
         match self {
             Ok(value) => Some(value),
             Err(error) => {
-                log_error_with_caller(*Location::caller(), error, level);
+                log_error_with_caller(*Location::caller(), error, log::Level::Warn);
                 None
             }
         }
-    }
-
-    fn anyhow(self) -> anyhow::Result<T>
-    where
-        E: Into<anyhow::Error>,
-    {
-        self.map_err(Into::into)
     }
 }
 
@@ -638,13 +378,9 @@ fn log_error_with_caller<E>(caller: core::panic::Location<'_>, error: E, level: 
 where
     E: std::fmt::Debug,
 {
-    #[cfg(not(target_os = "windows"))]
-    let file = caller.file();
-    #[cfg(target_os = "windows")]
-    let file = caller.file().replace('\\', "/");
     // In this codebase, the first segment of the file path is
     // the 'crates' folder, followed by the crate name.
-    let target = file.split('/').nth(1);
+    let target = caller.file().split('/').nth(1);
 
     log::logger().log(
         &log::Record::builder()
@@ -656,10 +392,6 @@ where
             .level(level)
             .build(),
     );
-}
-
-pub fn log_err<E: std::fmt::Debug>(error: &E) {
-    log_error_with_caller(*Location::caller(), error, log::Level::Warn);
 }
 
 pub trait TryFutureExt {
@@ -787,7 +519,7 @@ pub fn defer<F: FnOnce()>(f: F) -> Deferred<F> {
 
 #[cfg(any(test, feature = "test-support"))]
 mod rng {
-    use rand::{Rng, seq::SliceRandom};
+    use rand::{seq::SliceRandom, Rng};
     pub struct RandomCharIter<T: Rng> {
         rng: T,
         simple_text: bool,
@@ -840,7 +572,7 @@ mod rng {
 pub use rng::RandomCharIter;
 /// Get an embedded file as a string.
 pub fn asset_str<A: rust_embed::RustEmbed>(path: &str) -> Cow<'static, str> {
-    match A::get(path).expect(path).data {
+    match A::get(path).unwrap().data {
         Cow::Borrowed(bytes) => Cow::Borrowed(std::str::from_utf8(bytes).unwrap()),
         Cow::Owned(bytes) => Cow::Owned(String::from_utf8(bytes).unwrap()),
     }
@@ -923,58 +655,28 @@ impl<'a> NumericPrefixWithSuffix<'a> {
         Self(prefix, remainder)
     }
 }
-
-/// When dealing with equality, we need to consider the case of the strings to achieve strict equality
-/// to handle cases like "a" < "A" instead of "a" == "A".
 impl Ord for NumericPrefixWithSuffix<'_> {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self.0, other.0) {
-            (None, None) => UniCase::new(self.1)
-                .cmp(&UniCase::new(other.1))
-                .then_with(|| self.1.cmp(other.1).reverse()),
+            (None, None) => UniCase::new(self.1).cmp(&UniCase::new(other.1)),
             (None, Some(_)) => Ordering::Greater,
             (Some(_), None) => Ordering::Less,
-            (Some(a), Some(b)) => a.cmp(&b).then_with(|| {
-                UniCase::new(self.1)
-                    .cmp(&UniCase::new(other.1))
-                    .then_with(|| self.1.cmp(other.1).reverse())
-            }),
+            (Some(a), Some(b)) => a
+                .cmp(&b)
+                .then_with(|| UniCase::new(self.1).cmp(&UniCase::new(other.1))),
         }
     }
 }
 
-impl PartialOrd for NumericPrefixWithSuffix<'_> {
+impl<'a> PartialOrd for NumericPrefixWithSuffix<'a> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-/// Capitalizes the first character of a string.
-///
-/// This function takes a string slice as input and returns a new `String` with the first character
-/// capitalized.
-///
-/// # Examples
-///
-/// ```
-/// use util::capitalize;
-///
-/// assert_eq!(capitalize("hello"), "Hello");
-/// assert_eq!(capitalize("WORLD"), "WORLD");
-/// assert_eq!(capitalize(""), "");
-/// ```
-pub fn capitalize(str: &str) -> String {
-    let mut chars = str.chars();
-    match chars.next() {
-        None => String::new(),
-        Some(first_char) => first_char.to_uppercase().collect::<String>() + chars.as_str(),
-    }
-}
-
 fn emoji_regex() -> &'static Regex {
-    static EMOJI_REGEX: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new("(\\p{Emoji}|\u{200D})").unwrap());
-    &EMOJI_REGEX
+    static EMOJI_REGEX: OnceLock<Regex> = OnceLock::new();
+    EMOJI_REGEX.get_or_init(|| Regex::new("(\\p{Emoji}|\u{200D})").unwrap())
 }
 
 /// Returns true if the given string consists of emojis only.
@@ -988,22 +690,6 @@ pub fn word_consists_of_emojis(s: &str) -> bool {
         prev_end = capture.end();
     }
     prev_end == s.len()
-}
-
-pub fn default<D: Default>() -> D {
-    Default::default()
-}
-
-pub fn get_system_shell() -> String {
-    #[cfg(target_os = "windows")]
-    {
-        get_windows_system_shell()
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        std::env::var("SHELL").unwrap_or("/bin/sh".to_string())
-    }
 }
 
 #[cfg(test)]
@@ -1025,29 +711,6 @@ mod tests {
     }
 
     #[test]
-    fn test_truncate_to_bottom_n_sorted_by() {
-        let mut vec: Vec<u32> = vec![5, 2, 3, 4, 1];
-        truncate_to_bottom_n_sorted_by(&mut vec, 10, &u32::cmp);
-        assert_eq!(vec, &[1, 2, 3, 4, 5]);
-
-        vec = vec![5, 2, 3, 4, 1];
-        truncate_to_bottom_n_sorted_by(&mut vec, 5, &u32::cmp);
-        assert_eq!(vec, &[1, 2, 3, 4, 5]);
-
-        vec = vec![5, 2, 3, 4, 1];
-        truncate_to_bottom_n_sorted_by(&mut vec, 4, &u32::cmp);
-        assert_eq!(vec, &[1, 2, 3, 4]);
-
-        vec = vec![5, 2, 3, 4, 1];
-        truncate_to_bottom_n_sorted_by(&mut vec, 1, &u32::cmp);
-        assert_eq!(vec, &[1]);
-
-        vec = vec![5, 2, 3, 4, 1];
-        truncate_to_bottom_n_sorted_by(&mut vec, 0, &u32::cmp);
-        assert!(vec.is_empty());
-    }
-
-    #[test]
     fn test_iife() {
         fn option_returning_function() -> Option<()> {
             None
@@ -1062,25 +725,11 @@ mod tests {
     }
 
     #[test]
-    fn test_truncate_and_trailoff() {
+    fn test_trancate_and_trailoff() {
         assert_eq!(truncate_and_trailoff("", 5), "");
-        assert_eq!(truncate_and_trailoff("aaaaaa", 7), "aaaaaa");
-        assert_eq!(truncate_and_trailoff("aaaaaa", 6), "aaaaaa");
-        assert_eq!(truncate_and_trailoff("aaaaaa", 5), "aaaaa…");
         assert_eq!(truncate_and_trailoff("èèèèèè", 7), "èèèèèè");
         assert_eq!(truncate_and_trailoff("èèèèèè", 6), "èèèèèè");
         assert_eq!(truncate_and_trailoff("èèèèèè", 5), "èèèèè…");
-    }
-
-    #[test]
-    fn test_truncate_and_remove_front() {
-        assert_eq!(truncate_and_remove_front("", 5), "");
-        assert_eq!(truncate_and_remove_front("aaaaaa", 7), "aaaaaa");
-        assert_eq!(truncate_and_remove_front("aaaaaa", 6), "aaaaaa");
-        assert_eq!(truncate_and_remove_front("aaaaaa", 5), "…aaaaa");
-        assert_eq!(truncate_and_remove_front("èèèèèè", 7), "èèèèèè");
-        assert_eq!(truncate_and_remove_front("èèèèèè", 6), "èèèèèè");
-        assert_eq!(truncate_and_remove_front("èèèèèè", 5), "…èèèèè");
     }
 
     #[test]
@@ -1190,50 +839,6 @@ Line 2
             r#"Line 1
 Line 2
 Line 3"#
-        );
-    }
-
-    #[test]
-    fn test_iterate_expanded_and_wrapped_usize_range() {
-        // Neither wrap
-        assert_eq!(
-            iterate_expanded_and_wrapped_usize_range(2..4, 1, 1, 8).collect::<Vec<usize>>(),
-            (1..5).collect::<Vec<usize>>()
-        );
-        // Start wraps
-        assert_eq!(
-            iterate_expanded_and_wrapped_usize_range(2..4, 3, 1, 8).collect::<Vec<usize>>(),
-            ((0..5).chain(7..8)).collect::<Vec<usize>>()
-        );
-        // Start wraps all the way around
-        assert_eq!(
-            iterate_expanded_and_wrapped_usize_range(2..4, 5, 1, 8).collect::<Vec<usize>>(),
-            (0..8).collect::<Vec<usize>>()
-        );
-        // Start wraps all the way around and past 0
-        assert_eq!(
-            iterate_expanded_and_wrapped_usize_range(2..4, 10, 1, 8).collect::<Vec<usize>>(),
-            (0..8).collect::<Vec<usize>>()
-        );
-        // End wraps
-        assert_eq!(
-            iterate_expanded_and_wrapped_usize_range(3..5, 1, 4, 8).collect::<Vec<usize>>(),
-            (0..1).chain(2..8).collect::<Vec<usize>>()
-        );
-        // End wraps all the way around
-        assert_eq!(
-            iterate_expanded_and_wrapped_usize_range(3..5, 1, 5, 8).collect::<Vec<usize>>(),
-            (0..8).collect::<Vec<usize>>()
-        );
-        // End wraps all the way around and past the end
-        assert_eq!(
-            iterate_expanded_and_wrapped_usize_range(3..5, 1, 10, 8).collect::<Vec<usize>>(),
-            (0..8).collect::<Vec<usize>>()
-        );
-        // Both start and end wrap
-        assert_eq!(
-            iterate_expanded_and_wrapped_usize_range(3..5, 4, 4, 8).collect::<Vec<usize>>(),
-            (0..8).collect::<Vec<usize>>()
         );
     }
 }

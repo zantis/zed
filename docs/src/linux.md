@@ -16,7 +16,7 @@ The Zed installed by the script works best on systems that:
 
 - have a Vulkan compatible GPU available (for example Linux on an M-series macBook)
 - have a system-wide glibc (NixOS and Alpine do not by default)
-  - x86_64 (Intel/AMD): glibc version >= 2.31 (Ubuntu 20 and newer)
+  - x86_64 (Intel/AMD): glibc version >= 2.29 (Ubuntu 20 and newer; Amazon Linux >2023)
   - aarch64 (ARM): glibc version >= 2.35 (Ubuntu 22 and newer)
 
 Both Nix and Alpine have third-party Zed packages available (though they are currently a few weeks out of date). If you'd like to use our builds they do work if you install a glibc compatibility layer. On NixOS you can try [nix-ld](https://github.com/Mic92/nix-ld), and on Alpine [gcompat](https://wiki.alpinelinux.org/wiki/Running_glibc_programs).
@@ -24,8 +24,8 @@ Both Nix and Alpine have third-party Zed packages available (though they are cur
 You will need to build from source for:
 
 - architectures other than 64-bit Intel or 64-bit ARM (for example a 32-bit or RISC-V machine)
-- Redhat Enterprise Linux 8.x, Rocky Linux 8, AlmaLinux 8, Amazon Linux 2 on all architectures
-- Redhat Enterprise Linux 9.x, Rocky Linux 9.3, AlmaLinux 8, Amazon Linux 2023 on aarch64 (x86_x64 OK)
+- Amazon Linux 2 on x86_64
+- Rocky Linux 9.3
 
 ## Other ways to install Zed on Linux
 
@@ -89,11 +89,13 @@ Linux works on a large variety of systems configured in many different ways. We 
 
 If you see an error like "/lib64/libc.so.6: version 'GLIBC_2.29' not found" it means that your distribution's version of glibc is too old. You can either upgrade your system, or [install Zed from source](./development/linux.md).
 
-### Graphics issues
-
 ### Zed fails to open windows
 
+### Zed is very slow
+
 Zed requires a GPU to run effectively. Under the hood, we use [Vulkan](https://www.vulkan.org/) to communicate with your GPU. If you are seeing problems with performance, or Zed fails to load, it is possible that Vulkan is the culprit.
+
+If you're using an AMD GPU, you might get a 'Broken Pipe' error. Try using the RADV or Mesa drivers. (See the following GitHub issue for more details: [#13880](https://github.com/zed-industries/zed/issues/13880)).
 
 If you see a notification saying `Zed failed to open a window: NoSupportedDeviceFound` this means that Vulkan cannot find a compatible GPU. You can begin troubleshooting Vulkan by installing the `vulkan-tools` package and running:
 
@@ -103,46 +105,34 @@ vkcube
 
 This should output a line describing your current graphics setup and show a rotating cube. If this does not work, you should be able to fix it by installing Vulkan compatible GPU drivers, however in some cases (for example running Linux on an Arm-based MacBook) there is no Vulkan support yet.
 
-You can find out which graphics card Zed is using by looking in the Zed log (`~/.local/share/zed/logs/Zed.log`) for `Using GPU: ...`.
+If you see errors like `ERROR_INITIALIZATION_FAILED` or `GPU Crashed` or `ERROR_SURFACE_LOST_KHR` then you may be able to work around this by installing different drivers for your GPU, or by selecting a different GPU to run on. (See the following GitHub issue for more details: [#14225](https://github.com/zed-industries/zed/issues/14225))
 
-If you see errors like `ERROR_INITIALIZATION_FAILED` or `GPU Crashed` or `ERROR_SURFACE_LOST_KHR` then you may be able to work around this by installing different drivers for your GPU, or by selecting a different GPU to run on. (See [#14225](https://github.com/zed-industries/zed/issues/14225))
+As of Zed v0.146.x we log the selected GPU driver and you should see `Using GPU: ...` in the Zed log (`~/.local/share/zed/logs/Zed.log`).
 
-On some systems the file `/etc/prime-discrete` can be used to enforce the use of a discrete GPU using [PRIME](https://wiki.archlinux.org/title/PRIME). Depending on the details of your setup, you may need to change the contents of this file to "on" (to force discrete graphics) or "off" (to force integrated graphics).
-
-On others, you may be able to the environment variable `DRI_PRIME=1` when running Zed to force the use of the discrete GPU.
-
-If you're using an AMD GPU and Zed crashes when selecting long lines, try setting the `ZED_PATH_SAMPLE_COUNT=0` environment variable. (See [#26143](https://github.com/zed-industries/zed/issues/26143))
-If you're using an AMD GPU, you might get a 'Broken Pipe' error. Try using the RADV or Mesa drivers. (See [#13880](https://github.com/zed-industries/zed/issues/13880))
+If Zed is selecting your integrated GPU instead of your discrete GPU, you can fix this by exporting the environment variable `DRI_PRIME=1` before running Zed.
 
 If you are using Mesa, and want more control over which GPU is selected you can run `MESA_VK_DEVICE_SELECT=list zed --foreground` to get a list of available GPUs and then export `MESA_VK_DEVICE_SELECT=xxxx:yyyy` to choose a specific device.
 
-If you are using `amdvlk` you may find that zed only opens when run with `sudo $(which zed)`. To fix this, remove the `amdvlk` and `lib32-amdvlk` packages and install mesa/vulkan instead. ([#14141](https://github.com/zed-industries/zed/issues/14141)).
+If you are using `amdvlk` you may find that zed only opens when run with `sudo $(which zed)`. To fix this, remove the `amdvlk` and `lib32-amdvlk` packages and install mesa/vulkan instead. ([#14141](https://github.com/zed-industries/zed/issues/14141).
+
+If you have a discrete GPU and you are using [PRIME](https://wiki.archlinux.org/title/PRIME) you may be able to configure Zed to work by setting `/etc/prime-discrete` to 'on'.
 
 For more information, the [Arch guide to Vulkan](https://wiki.archlinux.org/title/Vulkan) has some good steps that translate well to most distributions.
 
-If Vulkan is configured correctly, and Zed is still not working for you, please [file an issue](https://github.com/zed-industries/zed) with as much information as possible.
+If Vulkan is configured correctly, and Zed is still slow for you, please [file an issue](https://github.com/zed-industries/zed) with as much information as possible.
 
 ### I can't open any files
 
+### Zed isn't remembering my login
+
 ### Clicking links isn't working
 
-These features are provided by XDG desktop portals, specifically:
+All of these features are provided by XDG desktop portals, specifically:
 
 - `org.freedesktop.portal.FileChooser`
 - `org.freedesktop.portal.OpenURI`
 
 Some window managers, such as `Hyprland`, don't provide a file picker by default. See [this list](https://wiki.archlinux.org/title/XDG_Desktop_Portal#List_of_backends_and_interfaces) as a starting point for alternatives.
-
-### Zed isn't remembering my API keys
-
-### Zed isn't remembering my login
-
-These feature also requires XDG desktop portals, specifically:
-
-- `org.freedesktop.portal.Secret` or
-- `org.freedesktop.Secrets`
-
-Zed needs a place to securely store secrets such as your Zed login cookie or your OpenAI API Keys and we use a system provided keychain to do this. Examples of packages that provide this are `gnome-keyring`, `KWallet` and `keepassxc` among others.
 
 ### Could not start inotify
 
@@ -154,33 +144,3 @@ If you are seeing "too many open files" then first try `sysctl fs.inotify`.
 - You should see that `max_user_watches` is 8000 or higher (you can change the limit with `sudo sysctl fs.inotify.max_user_watches=64000`). Zed needs one watch per directory in all your open projects + one per git repository + a handful more for settings, themes, keymaps, extensions.
 
 It is also possible that you are running out of file descriptors. You can check the limits with `ulimit` and update them by editing `/etc/security/limits.conf`.
-
-### No sound or wrong output device
-
-If you're not hearing any sound in Zed or the audio is routed to the wrong device, it could be due to a mismatch between audio systems. Zed relies on ALSA, while your system may be using PipeWire or PulseAudio. To resolve this, you need to configure ALSA to route audio through PipeWire/PulseAudio.
-
-If your system uses PipeWire:
-
-1. **Install the PipeWire ALSA plugin**
-
-   On Debian-based systems, run:
-
-   ```bash
-   sudo apt install pipewire-alsa
-   ```
-
-2. **Configure ALSA to use PipeWire**
-
-   Add the following configuration to your ALSA settings file. You can use either `~/.asoundrc` (user-level) or `/etc/asound.conf` (system-wide):
-
-   ```bash
-   pcm.!default {
-       type pipewire
-   }
-
-   ctl.!default {
-       type pipewire
-   }
-   ```
-
-3. **Restart your system**

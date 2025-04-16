@@ -1,11 +1,9 @@
-#![allow(missing_docs)]
-
 use gpui::Hsla;
 use refineable::Refineable;
 
 use crate::{blue, grass, neutral, red, yellow};
 
-#[derive(Refineable, Clone, Debug, PartialEq)]
+#[derive(Refineable, Clone, Debug)]
 #[refineable(Debug, serde::Deserialize)]
 pub struct StatusColors {
     /// Indicates some kind of conflict, like a file changed on disk while it was open, or
@@ -86,6 +84,15 @@ pub struct DiagnosticColors {
     pub info: Hsla,
 }
 
+pub struct GitStatusColors {
+    pub created: Hsla,
+    pub deleted: Hsla,
+    pub modified: Hsla,
+    pub renamed: Hsla,
+    pub conflict: Hsla,
+    pub ignored: Hsla,
+}
+
 impl StatusColors {
     pub fn dark() -> Self {
         Self {
@@ -93,10 +100,10 @@ impl StatusColors {
             conflict_background: red().dark().step_9(),
             conflict_border: red().dark().step_9(),
             created: grass().dark().step_9(),
-            created_background: grass().dark().step_9().opacity(0.25),
+            created_background: grass().dark().step_9(),
             created_border: grass().dark().step_9(),
             deleted: red().dark().step_9(),
-            deleted_background: red().dark().step_9().opacity(0.25),
+            deleted_background: red().dark().step_9(),
             deleted_border: red().dark().step_9(),
             error: red().dark().step_9(),
             error_background: red().dark().step_9(),
@@ -114,7 +121,7 @@ impl StatusColors {
             info_background: blue().dark().step_9(),
             info_border: blue().dark().step_9(),
             modified: yellow().dark().step_9(),
-            modified_background: yellow().dark().step_9().opacity(0.25),
+            modified_background: yellow().dark().step_9(),
             modified_border: yellow().dark().step_9(),
             predictive: neutral().dark_alpha().step_9(),
             predictive_background: neutral().dark_alpha().step_9(),
@@ -186,6 +193,17 @@ impl StatusColors {
             error: self.error,
             warning: self.warning,
             info: self.info,
+        }
+    }
+
+    pub fn git(&self) -> GitStatusColors {
+        GitStatusColors {
+            created: self.created,
+            deleted: self.deleted,
+            modified: self.modified,
+            renamed: self.renamed,
+            conflict: self.conflict,
+            ignored: self.ignored,
         }
     }
 }

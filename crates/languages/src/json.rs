@@ -1,21 +1,21 @@
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{anyhow, bail, Context, Result};
 use async_compression::futures::bufread::GzipDecoder;
 use async_tar::Archive;
 use async_trait::async_trait;
 use collections::HashMap;
+use feature_flags::FeatureFlagAppExt;
 use futures::StreamExt;
-use gpui::{App, AsyncApp};
-use http_client::github::{GitHubLspBinaryVersion, latest_github_release};
-use language::{LanguageRegistry, LanguageToolchainStore, LspAdapter, LspAdapterDelegate};
-use lsp::{LanguageServerBinary, LanguageServerName};
+use gpui::{AppContext, AsyncAppContext};
+use http_client::github::{latest_github_release, GitHubLspBinaryVersion};
+use language::{LanguageRegistry, LanguageServerName, LspAdapter, LspAdapterDelegate};
+use lsp::LanguageServerBinary;
 use node_runtime::NodeRuntime;
-use project::{ContextProviderWithTasks, Fs, lsp_store::language_server_settings};
-use serde_json::{Value, json};
+use project::ContextProviderWithTasks;
+use serde_json::{json, Value};
 use settings::{KeymapFile, SettingsJsonSchemaParams, SettingsStore};
 use smol::{
     fs::{self},
     io::BufReader,
-    lock::RwLock,
 };
 use std::{
     any::Any,
@@ -23,10 +23,10 @@ use std::{
     ffi::OsString,
     path::{Path, PathBuf},
     str::FromStr,
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 use task::{TaskTemplate, TaskTemplates, VariableName};
-use util::{ResultExt, fs::remove_matching, maybe, merge_json_value_into};
+use util::{fs::remove_matching, maybe, ResultExt};
 
 const SERVER_PATH: &str =
     "node_modules/vscode-langservers-extracted/bin/vscode-json-language-server";
@@ -59,15 +59,13 @@ fn server_binary_arguments(server_path: &Path) -> Vec<OsString> {
 }
 
 pub struct JsonLspAdapter {
-    node: NodeRuntime,
+    node: Arc<dyn NodeRuntime>,
     languages: Arc<LanguageRegistry>,
-    workspace_config: RwLock<Option<Value>>,
+    workspace_config: OnceLock<Value>,
 }
 
 impl JsonLspAdapter {
-    const PACKAGE_NAME: &str = "vscode-langservers-extracted";
-
-    pub fn new(node: NodeRuntime, languages: Arc<LanguageRegistry>) -> Self {
+    pub fn new(node: Arc<dyn NodeRuntime>, languages: Arc<LanguageRegistry>) -> Self {
         Self {
             node,
             languages,
@@ -75,24 +73,23 @@ impl JsonLspAdapter {
         }
     }
 
-    fn get_workspace_config(language_names: Vec<String>, cx: &mut App) -> Value {
-        let keymap_schema = KeymapFile::generate_json_schema_for_registered_actions(cx);
+    fn get_workspace_config(language_names: Vec<String>, cx: &mut AppContext) -> Value {
+        let action_names = cx.all_action_names();
+        let staff_mode = cx.is_staff();
+
         let font_names = &cx.text_system().all_font_names();
         let settings_schema = cx.global::<SettingsStore>().json_schema(
             &SettingsJsonSchemaParams {
                 language_names: &language_names,
+                staff_mode,
                 font_names,
             },
             cx,
         );
         let tasks_schema = task::TaskTemplates::generate_json_schema();
-        let debug_schema = task::DebugTaskFile::generate_json_schema();
-        let snippets_schema = snippet_provider::format::VSSnippetsFile::generate_json_schema();
         let tsconfig_schema = serde_json::Value::from_str(TSCONFIG_SCHEMA).unwrap();
         let package_json_schema = serde_json::Value::from_str(PACKAGE_JSON_SCHEMA).unwrap();
 
-        // This can be viewed via `debug: open language server logs` -> `json-language-server` ->
-        // `Server Info`
         serde_json::json!({
             "json": {
                 "format": {
@@ -120,7 +117,7 @@ impl JsonLspAdapter {
                     },
                     {
                         "fileMatch": [schema_file_match(paths::keymap_file())],
-                        "schema": keymap_schema,
+                        "schema": KeymapFile::generate_json_schema(action_names),
                     },
                     {
                         "fileMatch": [
@@ -128,42 +125,11 @@ impl JsonLspAdapter {
                             paths::local_tasks_file_relative_path()
                         ],
                         "schema": tasks_schema,
-                    },
-                    {
-                        "fileMatch": [
-                            schema_file_match(
-                                paths::snippets_dir()
-                                    .join("*.json")
-                                    .as_path()
-                            )
-                        ],
-                        "schema": snippets_schema,
-                    },
-                    {
-                        "fileMatch": [
-                            schema_file_match(paths::debug_tasks_file()),
-                            paths::local_debug_file_relative_path()
-                        ],
-                        "schema": debug_schema,
+                    }
 
-                    },
                 ]
             }
         })
-    }
-
-    async fn get_or_init_workspace_config(&self, cx: &mut AsyncApp) -> Result<Value> {
-        {
-            let reader = self.workspace_config.read().await;
-            if let Some(config) = reader.as_ref() {
-                return Ok(config.clone());
-            }
-        }
-        let mut writer = self.workspace_config.write().await;
-        let config =
-            cx.update(|cx| Self::get_workspace_config(self.languages.language_names(), cx))?;
-        writer.replace(config.clone());
-        return Ok(config);
     }
 }
 
@@ -173,58 +139,15 @@ impl LspAdapter for JsonLspAdapter {
         LanguageServerName("json-language-server".into())
     }
 
-    async fn check_if_user_installed(
-        &self,
-        delegate: &dyn LspAdapterDelegate,
-        _: Arc<dyn LanguageToolchainStore>,
-        _: &AsyncApp,
-    ) -> Option<LanguageServerBinary> {
-        let path = delegate
-            .which("vscode-json-language-server".as_ref())
-            .await?;
-        let env = delegate.shell_env().await;
-
-        Some(LanguageServerBinary {
-            path,
-            env: Some(env),
-            arguments: vec!["--stdio".into()],
-        })
-    }
-
     async fn fetch_latest_server_version(
         &self,
         _: &dyn LspAdapterDelegate,
     ) -> Result<Box<dyn 'static + Send + Any>> {
         Ok(Box::new(
             self.node
-                .npm_package_latest_version(Self::PACKAGE_NAME)
+                .npm_package_latest_version("vscode-langservers-extracted")
                 .await?,
         ) as Box<_>)
-    }
-
-    async fn check_if_version_installed(
-        &self,
-        version: &(dyn 'static + Send + Any),
-        container_dir: &PathBuf,
-        _: &dyn LspAdapterDelegate,
-    ) -> Option<LanguageServerBinary> {
-        let version = version.downcast_ref::<String>().unwrap();
-        let server_path = container_dir.join(SERVER_PATH);
-
-        let should_install_language_server = self
-            .node
-            .should_install_npm_package(Self::PACKAGE_NAME, &server_path, &container_dir, &version)
-            .await;
-
-        if should_install_language_server {
-            None
-        } else {
-            Some(LanguageServerBinary {
-                path: self.node.binary_path().await.ok()?,
-                env: None,
-                arguments: server_binary_arguments(&server_path),
-            })
-        }
     }
 
     async fn fetch_server_binary(
@@ -235,13 +158,18 @@ impl LspAdapter for JsonLspAdapter {
     ) -> Result<LanguageServerBinary> {
         let latest_version = latest_version.downcast::<String>().unwrap();
         let server_path = container_dir.join(SERVER_PATH);
+        let package_name = "vscode-langservers-extracted";
 
-        self.node
-            .npm_install_packages(
-                &container_dir,
-                &[(Self::PACKAGE_NAME, latest_version.as_str())],
-            )
-            .await?;
+        let should_install_language_server = self
+            .node
+            .should_install_npm_package(package_name, &server_path, &container_dir, &latest_version)
+            .await;
+
+        if should_install_language_server {
+            self.node
+                .npm_install_packages(&container_dir, &[(package_name, latest_version.as_str())])
+                .await?;
+        }
 
         Ok(LanguageServerBinary {
             path: self.node.binary_path().await?,
@@ -255,12 +183,18 @@ impl LspAdapter for JsonLspAdapter {
         container_dir: PathBuf,
         _: &dyn LspAdapterDelegate,
     ) -> Option<LanguageServerBinary> {
-        get_cached_server_binary(container_dir, &self.node).await
+        get_cached_server_binary(container_dir, &*self.node).await
+    }
+
+    async fn installation_test_binary(
+        &self,
+        container_dir: PathBuf,
+    ) -> Option<LanguageServerBinary> {
+        get_cached_server_binary(container_dir, &*self.node).await
     }
 
     async fn initialization_options(
         self: Arc<Self>,
-        _: &dyn Fs,
         _: &Arc<dyn LspAdapterDelegate>,
     ) -> Result<Option<serde_json::Value>> {
         Ok(Some(json!({
@@ -270,23 +204,14 @@ impl LspAdapter for JsonLspAdapter {
 
     async fn workspace_configuration(
         self: Arc<Self>,
-        _: &dyn Fs,
-        delegate: &Arc<dyn LspAdapterDelegate>,
-        _: Arc<dyn LanguageToolchainStore>,
-        cx: &mut AsyncApp,
+        _: &Arc<dyn LspAdapterDelegate>,
+        cx: &mut AsyncAppContext,
     ) -> Result<Value> {
-        let mut config = self.get_or_init_workspace_config(cx).await?;
-
-        let project_options = cx.update(|cx| {
-            language_server_settings(delegate.as_ref(), &self.name(), cx)
-                .and_then(|s| s.settings.clone())
-        })?;
-
-        if let Some(override_options) = project_options {
-            merge_json_value_into(override_options, &mut config);
-        }
-
-        Ok(config)
+        cx.update(|cx| {
+            self.workspace_config
+                .get_or_init(|| Self::get_workspace_config(self.languages.language_names(), cx))
+                .clone()
+        })
     }
 
     fn language_ids(&self) -> HashMap<String, String> {
@@ -297,19 +222,11 @@ impl LspAdapter for JsonLspAdapter {
         .into_iter()
         .collect()
     }
-
-    fn is_primary_zed_json_schema_adapter(&self) -> bool {
-        true
-    }
-
-    async fn clear_zed_json_schema_cache(&self) {
-        self.workspace_config.write().await.take();
-    }
 }
 
 async fn get_cached_server_binary(
     container_dir: PathBuf,
-    node: &NodeRuntime,
+    node: &dyn NodeRuntime,
 ) -> Option<LanguageServerBinary> {
     maybe!(async {
         let mut last_version_dir = None;
@@ -349,17 +266,12 @@ fn schema_file_match(path: &Path) -> String {
         .replace('\\', "/")
 }
 
-pub struct NodeVersionAdapter;
-
-impl NodeVersionAdapter {
-    const SERVER_NAME: LanguageServerName =
-        LanguageServerName::new_static("package-version-server");
-}
+pub(super) struct NodeVersionAdapter;
 
 #[async_trait(?Send)]
 impl LspAdapter for NodeVersionAdapter {
     fn name(&self) -> LanguageServerName {
-        Self::SERVER_NAME.clone()
+        LanguageServerName("package-version-server".into())
     }
 
     async fn fetch_latest_server_version(
@@ -384,7 +296,7 @@ impl LspAdapter for NodeVersionAdapter {
         } else {
             ".tar.gz"
         };
-        let asset_name = format!("{}-{}-{os}{suffix}", Self::SERVER_NAME, consts::ARCH);
+        let asset_name = format!("package-version-server-{}-{os}{suffix}", consts::ARCH);
         let asset = release
             .assets
             .iter()
@@ -396,20 +308,6 @@ impl LspAdapter for NodeVersionAdapter {
         }))
     }
 
-    async fn check_if_user_installed(
-        &self,
-        delegate: &dyn LspAdapterDelegate,
-        _: Arc<dyn LanguageToolchainStore>,
-        _: &AsyncApp,
-    ) -> Option<LanguageServerBinary> {
-        let path = delegate.which(Self::SERVER_NAME.as_ref()).await?;
-        Some(LanguageServerBinary {
-            path,
-            env: None,
-            arguments: Default::default(),
-        })
-    }
-
     async fn fetch_server_binary(
         &self,
         latest_version: Box<dyn 'static + Send + Any>,
@@ -418,13 +316,12 @@ impl LspAdapter for NodeVersionAdapter {
     ) -> Result<LanguageServerBinary> {
         let version = latest_version.downcast::<GitHubLspBinaryVersion>().unwrap();
         let destination_path = container_dir.join(format!(
-            "{}-{}{}",
-            Self::SERVER_NAME,
+            "package-version-server-{}{}",
             version.name,
             std::env::consts::EXE_SUFFIX
         ));
         let destination_container_path =
-            container_dir.join(format!("{}-{}-tmp", Self::SERVER_NAME, version.name));
+            container_dir.join(format!("package-version-server-{}-tmp", version.name));
         if fs::metadata(&destination_path).await.is_err() {
             let mut response = delegate
                 .http_client()
@@ -445,8 +342,7 @@ impl LspAdapter for NodeVersionAdapter {
 
             fs::copy(
                 destination_container_path.join(format!(
-                    "{}{}",
-                    Self::SERVER_NAME,
+                    "package-version-server{}",
                     std::env::consts::EXE_SUFFIX
                 )),
                 &destination_path,
@@ -463,6 +359,7 @@ impl LspAdapter for NodeVersionAdapter {
             }
             remove_matching(&container_dir, |entry| entry != destination_path).await;
         }
+
         Ok(LanguageServerBinary {
             path: destination_path,
             env: None,
@@ -476,6 +373,18 @@ impl LspAdapter for NodeVersionAdapter {
         _delegate: &dyn LspAdapterDelegate,
     ) -> Option<LanguageServerBinary> {
         get_cached_version_server_binary(container_dir).await
+    }
+
+    async fn installation_test_binary(
+        &self,
+        container_dir: PathBuf,
+    ) -> Option<LanguageServerBinary> {
+        get_cached_version_server_binary(container_dir)
+            .await
+            .map(|mut binary| {
+                binary.arguments = vec!["--version".into()];
+                binary
+            })
     }
 }
 

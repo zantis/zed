@@ -1,5 +1,5 @@
 use gpui::AnyElement;
-use ui::{Indicator, ListItem, prelude::*};
+use ui::{prelude::*, Indicator, ListItem};
 
 use crate::KernelSpecification;
 
@@ -45,8 +45,8 @@ impl ParentElement for KernelListItem {
 }
 
 impl RenderOnce for KernelListItem {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
-        ListItem::new(self.kernel_specification.name())
+    fn render(self, _cx: &mut WindowContext) -> impl IntoElement {
+        ListItem::new(SharedString::from(self.kernel_specification.name.clone()))
             .selectable(false)
             .start_slot(
                 h_flex()

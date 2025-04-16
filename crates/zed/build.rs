@@ -4,6 +4,15 @@ fn main() {
     if cfg!(target_os = "macos") {
         println!("cargo:rustc-env=MACOSX_DEPLOYMENT_TARGET=10.15.7");
 
+        println!("cargo:rerun-if-env-changed=ZED_BUNDLE");
+        if std::env::var("ZED_BUNDLE").ok().as_deref() == Some("true") {
+            // Find WebRTC.framework in the Frameworks folder when running as part of an application bundle.
+            println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path/../Frameworks");
+        } else {
+            // Find WebRTC.framework as a sibling of the executable when running outside of an application bundle.
+            println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path");
+        }
+
         // Weakly link ReplayKit to ensure Zed can be used on macOS 10.15+.
         println!("cargo:rustc-link-arg=-Wl,-weak_framework,ReplayKit");
 
@@ -12,17 +21,10 @@ fn main() {
 
         // Register exported Objective-C selectors, protocols, etc
         println!("cargo:rustc-link-arg=-Wl,-ObjC");
-
-        // weak link to support Catalina
-        println!("cargo:rustc-link-arg=-Wl,-weak_framework,ScreenCaptureKit");
     }
 
     // Populate git sha environment variable if git is available
     println!("cargo:rerun-if-changed=../../.git/logs/HEAD");
-    println!(
-        "cargo:rustc-env=TARGET={}",
-        std::env::var("TARGET").unwrap()
-    );
     if let Ok(output) = Command::new("git").args(["rev-parse", "HEAD"]).output() {
         if output.status.success() {
             let git_sha = String::from_utf8_lossy(&output.stdout);
@@ -54,13 +56,6 @@ fn main() {
         println!("cargo:rerun-if-changed={}", icon.display());
 
         let mut res = winresource::WindowsResource::new();
-
-        // Depending on the security applied to the computer, winresource might fail
-        // fetching the RC path. Therefore, we add a way to explicitly specify the
-        // toolkit path, allowing winresource to use a valid RC path.
-        if let Some(explicit_rc_toolkit_path) = std::env::var("ZED_RC_TOOLKIT_PATH").ok() {
-            res.set_toolkit_path(explicit_rc_toolkit_path.as_str());
-        }
         res.set_icon(icon.to_str().unwrap());
         res.set("FileDescription", "Zed");
         res.set("ProductName", "Zed");

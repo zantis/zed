@@ -2,37 +2,27 @@
 
 #![deny(missing_docs)]
 
-use std::{env, str::FromStr, sync::LazyLock};
+use std::{env, str::FromStr};
 
-use gpui::{App, Global, SemanticVersion};
+use gpui::{AppContext, Global, SemanticVersion};
+use once_cell::sync::Lazy;
 
 /// stable | dev | nightly | preview
-pub static RELEASE_CHANNEL_NAME: LazyLock<String> = LazyLock::new(|| {
-    if cfg!(debug_assertions) {
+pub static RELEASE_CHANNEL_NAME: Lazy<String> = if cfg!(debug_assertions) {
+    Lazy::new(|| {
         env::var("ZED_RELEASE_CHANNEL")
             .unwrap_or_else(|_| include_str!("../../zed/RELEASE_CHANNEL").trim().to_string())
-    } else {
-        include_str!("../../zed/RELEASE_CHANNEL").trim().to_string()
-    }
-});
+    })
+} else {
+    Lazy::new(|| include_str!("../../zed/RELEASE_CHANNEL").trim().to_string())
+};
 
 #[doc(hidden)]
-pub static RELEASE_CHANNEL: LazyLock<ReleaseChannel> =
-    LazyLock::new(|| match ReleaseChannel::from_str(&RELEASE_CHANNEL_NAME) {
+pub static RELEASE_CHANNEL: Lazy<ReleaseChannel> =
+    Lazy::new(|| match ReleaseChannel::from_str(&RELEASE_CHANNEL_NAME) {
         Ok(channel) => channel,
         _ => panic!("invalid release channel {}", *RELEASE_CHANNEL_NAME),
     });
-
-/// The app identifier for the current release channel, Windows only.
-#[cfg(target_os = "windows")]
-pub fn app_identifier() -> &'static str {
-    match *RELEASE_CHANNEL {
-        ReleaseChannel::Dev => "Zed-Editor-Dev",
-        ReleaseChannel::Nightly => "Zed-Editor-Nightly",
-        ReleaseChannel::Preview => "Zed-Editor-Preview",
-        ReleaseChannel::Stable => "Zed-Editor-Stable",
-    }
-}
 
 /// The Git commit SHA that Zed was built at.
 #[derive(Clone)]
@@ -44,13 +34,13 @@ impl Global for GlobalAppCommitSha {}
 
 impl AppCommitSha {
     /// Returns the global [`AppCommitSha`], if one is set.
-    pub fn try_global(cx: &App) -> Option<AppCommitSha> {
+    pub fn try_global(cx: &AppContext) -> Option<AppCommitSha> {
         cx.try_global::<GlobalAppCommitSha>()
             .map(|sha| sha.0.clone())
     }
 
     /// Sets the global [`AppCommitSha`].
-    pub fn set_global(sha: AppCommitSha, cx: &mut App) {
+    pub fn set_global(sha: AppCommitSha, cx: &mut AppContext) {
         cx.set_global(GlobalAppCommitSha(sha))
     }
 }
@@ -64,6 +54,11 @@ pub struct AppVersion;
 
 impl AppVersion {
     /// Initializes the global [`AppVersion`].
+    ///
+    /// Attempts to read the version number from the following locations, in order:
+    /// 1. the `ZED_APP_VERSION` environment variable,
+    /// 2. the [`AppContext::app_metadata`],
+    /// 3. the passed in `pkg_version`.
     pub fn init(pkg_version: &str) -> SemanticVersion {
         if let Ok(from_env) = env::var("ZED_APP_VERSION") {
             from_env.parse().expect("invalid ZED_APP_VERSION")
@@ -73,7 +68,7 @@ impl AppVersion {
     }
 
     /// Returns the global version number.
-    pub fn global(cx: &App) -> SemanticVersion {
+    pub fn global(cx: &AppContext) -> SemanticVersion {
         if cx.has_global::<GlobalAppVersion>() {
             cx.global::<GlobalAppVersion>().0
         } else {
@@ -106,19 +101,19 @@ struct GlobalReleaseChannel(ReleaseChannel);
 impl Global for GlobalReleaseChannel {}
 
 /// Initializes the release channel.
-pub fn init(app_version: SemanticVersion, cx: &mut App) {
+pub fn init(app_version: SemanticVersion, cx: &mut AppContext) {
     cx.set_global(GlobalAppVersion(app_version));
     cx.set_global(GlobalReleaseChannel(*RELEASE_CHANNEL))
 }
 
 impl ReleaseChannel {
     /// Returns the global [`ReleaseChannel`].
-    pub fn global(cx: &App) -> Self {
+    pub fn global(cx: &AppContext) -> Self {
         cx.global::<GlobalReleaseChannel>().0
     }
 
     /// Returns the global [`ReleaseChannel`], if one is set.
-    pub fn try_global(cx: &App) -> Option<Self> {
+    pub fn try_global(cx: &AppContext) -> Option<Self> {
         cx.try_global::<GlobalReleaseChannel>()
             .map(|channel| channel.0)
     }

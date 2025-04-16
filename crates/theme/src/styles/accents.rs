@@ -2,12 +2,12 @@ use gpui::Hsla;
 use serde_derive::Deserialize;
 
 use crate::{
-    AccentContent, amber, blue, cyan, gold, grass, indigo, iris, jade, lime, orange, pink, purple,
-    tomato, try_parse_color,
+    amber, blue, cyan, gold, grass, indigo, iris, jade, lime, orange, pink, purple, tomato,
+    try_parse_color, AccentContent,
 };
 
 /// A collection of colors that are used to color indent aware lines in the editor.
-#[derive(Clone, Deserialize, PartialEq)]
+#[derive(Clone, Deserialize)]
 pub struct AccentColors(pub Vec<Hsla>);
 
 impl Default for AccentColors {
@@ -20,7 +20,6 @@ impl Default for AccentColors {
 }
 
 impl AccentColors {
-    /// Returns the set of dark accent colors.
     pub fn dark() -> Self {
         Self(vec![
             blue().dark().step_9(),
@@ -39,7 +38,6 @@ impl AccentColors {
         ])
     }
 
-    /// Returns the set of light accent colors.
     pub fn light() -> Self {
         Self(vec![
             blue().light().step_9(),
@@ -60,7 +58,6 @@ impl AccentColors {
 }
 
 impl AccentColors {
-    /// Returns the color for the given index.
     pub fn color_for_index(&self, index: u32) -> Hsla {
         self.0[index as usize % self.0.len()]
     }

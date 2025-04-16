@@ -15,7 +15,7 @@ TBD: Add settings documentation about how settings are merged as overlays. E.g. 
 
 Your settings file can be opened with {#kb zed::OpenSettings}. By default it is located at `~/.config/zed/settings.json`, though if you have XDG_CONFIG_HOME in your environment on Linux it will be at `$XDG_CONFIG_HOME/zed/settings.json` instead.
 
-This configuration is merged with any local configuration inside your projects. You can open the project settings by running {#action zed::OpenProjectSettings} from the command palette. This will create a `.zed` directory containing`.zed/settings.json`.
+This configuration is merged with any local configuration inside your projects. You can open the project settings by running {#action zed::OpenLocalSettings} from the command palette. This will create a `.zed` directory containing`.zed/settings.json`.
 
 Although most projects will only need one settings file at the root, you can add more local settings files for subdirectories as needed. Not all settings can be set in local files, just those that impact the behavior of the editor and language tooling. For example you can set `tab_size`, `formatter` etc. but not `theme`, `vim_mode` and similar.
 
@@ -29,125 +29,15 @@ Extensions that provide language servers may also provide default settings for t
 
 # Settings
 
-## Active Pane Modifiers
-
-- Description: Styling settings applied to the active pane.
-- Setting: `active_pane_modifiers`
-- Default:
-
-```json
-{
-  "active_pane_modifiers": {
-    "magnification": 1.0,
-    "border_size": 0.0,
-    "inactive_opacity": 1.0
-  }
-}
-```
-
-### Magnification
+## Active Pane Magnification
 
 - Description: Scale by which to zoom the active pane. When set to `1.0`, the active pane has the same size as others, but when set to a larger value, the active pane takes up more space.
-- Setting: `magnification`
+- Setting: `active_pane_magnification`
 - Default: `1.0`
 
 **Options**
 
 `float` values
-
-### Border size
-
-- Description: Size of the border surrounding the active pane. When set to 0, the active pane doesn't have any border. The border is drawn inset.
-- Setting: `border_size`
-- Default: `0.0`
-
-**Options**
-
-Non-negative `float` values
-
-### Inactive Opacity
-
-- Description: Opacity of inactive panels. When set to 1.0, the inactive panes have the same opacity as the active one. If set to 0, the inactive panes content will not be visible at all. Values are clamped to the [0.0, 1.0] range.
-- Setting: `inactive_opacity`
-- Default: `1.0`
-
-**Options**
-
-`float` values
-
-## Bottom Dock Layout
-
-- Description: Control the layout of the bottom dock, relative to the left and right docks
-- Setting: `bottom_dock_layout`
-- Default: `"contained"`
-
-**Options**
-
-1. Contain the bottom dock, giving the full height of the window to the left and right docks
-
-```json
-{
-  "bottom_dock_layout": "contained"
-}
-```
-
-2. Give the bottom dock the full width of the window, truncating the left and right docks
-
-```json
-{
-  "bottom_dock_layout": "full"
-}
-```
-
-3. Left align the bottom dock, truncating the left dock and giving the right dock the full height of the window
-
-```json
-{
-  "bottom_dock_layout": "left_aligned"
-}
-```
-
-3. Right align the bottom dock, giving the left dock the full height of the window and truncating the right dock.
-
-```json
-{
-  "bottom_dock_layout": "right_aligned"
-}
-```
-
-## Auto Install extensions
-
-- Description: Define extensions to be autoinstalled or never be installed.
-- Setting: `auto_install_extension`
-- Default: `{ "html": true }`
-
-**Options**
-
-You can find the names of your currently installed extensions by listing the subfolders under the [extension installation location](./extensions/installing-extensions#installation-location):
-
-On MacOS:
-
-```sh
-ls ~/Library/Application\ Support/Zed/extensions/installed/
-```
-
-On Linux:
-
-```sh
-ls ~/.local/share/zed/extensions/installed
-```
-
-Define extensions which should be installed (`true`) or never installed (`false`).
-
-```json
-{
-  "auto_install_extensions": {
-    "html": true,
-    "dockerfile": true,
-    "docker-compose": false
-  }
-}
-```
 
 ## Autosave
 
@@ -193,48 +83,6 @@ Define extensions which should be installed (`true`) or never installed (`false`
 }
 ```
 
-## Restore on Startup
-
-- Description: Controls session restoration on startup.
-- Setting: `restore_on_startup`
-- Default: `last_session`
-
-**Options**
-
-1. Restore all workspaces that were open when quitting Zed:
-
-```json
-{
-  "restore_on_startup": "last_session"
-}
-```
-
-2. Restore the workspace that was closed last:
-
-```json
-{
-  "restore_on_startup": "last_workspace"
-}
-```
-
-3. Always start with an empty editor:
-
-```json
-{
-  "restore_on_startup": "none"
-}
-```
-
-## Autoscroll on Clicks
-
-- Description: Whether to scroll when clicking near the edge of the visible text area.
-- Setting: `autoscroll_on_clicks`
-- Default: `false`
-
-**Options**
-
-`boolean` values
-
 ## Auto Update
 
 - Description: Whether or not to automatically check for updates.
@@ -244,62 +92,6 @@ Define extensions which should be installed (`true`) or never installed (`false`
 **Options**
 
 `boolean` values
-
-## Base Keymap
-
-- Description: Base key bindings scheme. Base keymaps can be overridden with user keymaps.
-- Setting: `base_keymap`
-- Default: `VSCode`
-
-**Options**
-
-1. VSCode
-
-```json
-{
-  "base_keymap": "VSCode"
-}
-```
-
-2. Atom
-
-```json
-{
-  "base_keymap": "Atom"
-}
-```
-
-3. JetBrains
-
-```json
-{
-  "base_keymap": "JetBrains"
-}
-```
-
-4. None
-
-```json
-{
-  "base_keymap": "None"
-}
-```
-
-5. SublimeText
-
-```json
-{
-  "base_keymap": "SublimeText"
-}
-```
-
-6. TextMate
-
-```json
-{
-  "base_keymap": "TextMate"
-}
-```
 
 ## Buffer Font Family
 
@@ -367,7 +159,7 @@ For example, to use `Nerd Font` as a fallback, add the following to your setting
 
 **Options**
 
-`integer` values from `6` to `100` pixels (inclusive)
+`integer` values
 
 ## Buffer Font Weight
 
@@ -387,7 +179,7 @@ For example, to use `Nerd Font` as a fallback, add the following to your setting
 
 **Options**
 
-`"standard"`, `"comfortable"` or `{ "custom": float }` (`1` is compact, `2` is loose)
+`"standard"`, `"comfortable"` or `{"custom": float}` (`1` is very compact, `2` very loose)
 
 ## Confirm Quit
 
@@ -419,84 +211,45 @@ left and right padding of the central pane from the workspace when the centered 
 
 ## Direnv Integration
 
-- Description: Settings for [direnv](https://direnv.net/) integration. Requires `direnv` to be installed.
-  `direnv` integration make it possible to use the environment variables set by a `direnv` configuration to detect some language servers in `$PATH` instead of installing them.
-  It also allows for those environment variables to be used in tasks.
+- Description: Settings for [direnv](https://direnv.net/) integration. Requires `direnv` to be installed. `direnv` integration currently only means that the environment variables set by a `direnv` configuration can be used to detect some language servers in `$PATH` instead of installing them.
 - Setting: `load_direnv`
-- Default: `"direct"`
+- Default:
+
+```json
+"load_direnv": "shell_hook"
+```
 
 **Options**
-
 There are two options to choose from:
 
 1. `shell_hook`: Use the shell hook to load direnv. This relies on direnv to activate upon entering the directory. Supports POSIX shells and fish.
 2. `direct`: Use `direnv export json` to load direnv. This will load direnv directly without relying on the shell hook and might cause some inconsistencies. This allows direnv to work with any shell.
 
-## Edit Predictions
+## Inline Completions
 
-- Description: Settings for edit predictions.
-- Setting: `edit_predictions`
+- Description: Settings for inline completions.
+- Setting: `inline_completions`
 - Default:
 
 ```json
-  "edit_predictions": {
-    "disabled_globs": [
-      "**/.env*",
-      "**/*.pem",
-      "**/*.key",
-      "**/*.cert",
-      "**/*.crt",
-      "**/.dev.vars",
-      "**/secrets.yml"
-    ]
-  }
+"inline_completions": {
+  "disabled_globs": [
+    ".env"
+  ]
+}
 ```
 
 **Options**
 
 ### Disabled Globs
 
-- Description: A list of globs for which edit predictions should be disabled for. This list adds to a pre-existing, sensible default set of globs. Any additional ones you add are combined with them.
+- Description: A list of globs representing files that inline completions should be disabled for.
 - Setting: `disabled_globs`
-- Default: `["**/.env*", "**/*.pem", "**/*.key", "**/*.cert", "**/*.crt", "**/.dev.vars", "**/secrets.yml"]`
-
-**Options**
-
-List of `string` values.
-
-## Edit Predictions Disabled in
-
-- Description: A list of language scopes in which edit predictions should be disabled.
-- Setting: `edit_predictions_disabled_in`
-- Default: `[]`
+- Default: `[".env"]`
 
 **Options**
 
 List of `string` values
-
-1. Don't show edit predictions in comments:
-
-```json
-"disabled_in": ["comment"]
-```
-
-2. Don't show edit predictions in strings and comments:
-
-```json
-"disabled_in": ["comment", "string"]
-```
-
-3. Only in Go, don't show edit predictions in strings and comments:
-
-```json
-{
-  "languages": {
-    "Go": {
-      "edit_predictions_disabled_in": ["comment", "string"]
-    }
-  }
-}
-```
 
 ## Current Line Highlight
 
@@ -530,25 +283,6 @@ List of `string` values
 "current_line_highlight": "all"
 ```
 
-## Selection Highlight
-
-- Description: Whether to highlight all occurrences of the selected text in an editor.
-- Setting: `selection_highlight`
-- Default: `true`
-
-## Selection Highlight Debounce
-
-- Description: The debounce delay before querying highlights based on the selected text.
-
-- Setting: `selection_highlight_debounce`
-- Default: `50`
-
-## LSP Highlight Debounce
-
-- Description: The debounce delay before querying highlights from the language server based on the current cursor location.
-- Setting: `lsp_highlight_debounce`
-- Default: `75`
-
 ## Cursor Blink
 
 - Description: Whether or not the cursor blinks.
@@ -559,47 +293,17 @@ List of `string` values
 
 `boolean` values
 
-## Cursor Shape
+## Default Dock Anchor
 
-- Description: Cursor shape for the default editor.
-- Setting: `cursor_shape`
-- Default: `bar`
-
-**Options**
-
-1. A vertical bar:
-
-```json
-"cursor_shape": "bar"
-```
-
-2. A block that surrounds the following character:
-
-```json
-"cursor_shape": "block"
-```
-
-3. An underline / underscore that runs along the following character:
-
-```json
-"cursor_shape": "underline"
-```
-
-4. An box drawn around the following character:
-
-```json
-"cursor_shape": "hollow"
-```
-
-## Hide Mouse
-
-- Description: Determines when the mouse cursor should be hidden in an editor or input box.
-- Setting: `hide_mouse`
-- Default: `on_typing_and_movement`
+- Description: The default anchor for new docks.
+- Setting: `default_dock_anchor`
+- Default: `bottom`
 
 **Options**
 
-`boolean` values
+1. Position the dock attached to the bottom of the workspace: `bottom`
+2. Position the dock to the right of the workspace like a side panel: `right`
+3. Position the dock full screen over the entire workspace: `expanded`
 
 ## Editor Scrollbar
 
@@ -613,13 +317,8 @@ List of `string` values
   "cursors": true,
   "git_diff": true,
   "search_results": true,
-  "selected_text": true,
   "selected_symbol": true,
-  "diagnostics": "all",
-  "axes": {
-    "horizontal": true,
-    "vertical": true,
-  },
+  "diagnostics": true
 },
 ```
 
@@ -693,16 +392,6 @@ List of `string` values
 
 `boolean` values
 
-### Selected Text Indicators
-
-- Description: Whether to show selected text occurrences in the scrollbar.
-- Setting: `selected_text`
-- Default: `true`
-
-**Options**
-
-`boolean` values
-
 ### Selected Symbols Indicators
 
 - Description: Whether to show selected symbol occurrences in the scrollbar.
@@ -715,81 +404,8 @@ List of `string` values
 
 ### Diagnostics
 
-- Description: Which diagnostic indicators to show in the scrollbar.
+- Description: Whether to show diagnostic indicators in the scrollbar.
 - Setting: `diagnostics`
-- Default: `all`
-
-**Options**
-
-1. Show all diagnostics:
-
-```json
-{
-  "diagnostics": "all"
-}
-```
-
-2. Do not show any diagnostics:
-
-```json
-{
-  "diagnostics": "none"
-}
-```
-
-3. Show only errors:
-
-```json
-{
-  "diagnostics": "error"
-}
-```
-
-4. Show only errors and warnings:
-
-```json
-{
-  "diagnostics": "warning"
-}
-```
-
-5. Show only errors, warnings, and information:
-
-```json
-{
-  "diagnostics": "information"
-}
-```
-
-### Axes
-
-- Description: Forcefully enable or disable the scrollbar for each axis
-- Setting: `axes`
-- Default:
-
-```json
-"scrollbar": {
-  "axes": {
-    "horizontal": true,
-    "vertical": true,
-  },
-}
-```
-
-#### Horizontal
-
-- Description: When false, forcefully disables the horizontal scrollbar. Otherwise, obey other settings.
-- Setting: `horizontal`
-- Default: `true`
-
-**Options**
-
-`boolean` values
-
-#### Vertical
-
-- Description: When false, forcefully disables the vertical scrollbar. Otherwise, obey other settings.
-- Setting: `vertical`
 - Default: `true`
 
 **Options**
@@ -805,8 +421,7 @@ List of `string` values
 ```json
 "tab_bar": {
   "show": true,
-  "show_nav_history_buttons": true,
-  "show_tab_bar_buttons": true
+  "show_nav_history_buttons": true
 }
 ```
 
@@ -830,16 +445,6 @@ List of `string` values
 
 `boolean` values
 
-### Tab Bar Buttons
-
-- Description: Whether or not to show the tab bar buttons.
-- Setting: `show_tab_bar_buttons`
-- Default: `true`
-
-**Options**
-
-`boolean` values
-
 ## Editor Tabs
 
 - Description: Configuration for the editor tabs.
@@ -850,10 +455,7 @@ List of `string` values
 "tabs": {
   "close_position": "right",
   "file_icons": false,
-  "git_status": false,
-  "activate_on_close": "history",
-  "show_close_button": "hover",
-  "show_diagnostics": "off"
+  "git_status": false
 },
 ```
 
@@ -893,102 +495,6 @@ List of `string` values
 - Setting: `git_status`
 - Default: `false`
 
-### Activate on close
-
-- Description: What to do after closing the current tab.
-- Setting: `activate_on_close`
-- Default: `history`
-
-**Options**
-
-1.  Activate the tab that was open previously:
-
-```json
-{
-  "activate_on_close": "history"
-}
-```
-
-2. Activate the right neighbour tab if present:
-
-```json
-{
-  "activate_on_close": "neighbour"
-}
-```
-
-3. Activate the left neighbour tab if present:
-
-```json
-{
-  "activate_on_close": "left_neighbour"
-}
-```
-
-### Show close button
-
-- Description: Controls the appearance behavior of the tab's close button.
-- Setting: `show_close_button`
-- Default: `hover`
-
-**Options**
-
-1.  Show it just upon hovering the tab:
-
-```json
-{
-  "show_close_button": "hover"
-}
-```
-
-2. Show it persistently:
-
-```json
-{
-  "show_close_button": "always"
-}
-```
-
-3. Never show it, even if hovering it:
-
-```json
-{
-  "show_close_button": "hidden"
-}
-```
-
-### Show Diagnostics
-
-- Description: Whether to show diagnostics indicators in tabs. This setting only works when file icons are active and controls which files with diagnostic issues to mark.
-- Setting: `show_diagnostics`
-- Default: `off`
-
-**Options**
-
-1. Do not mark any files:
-
-```json
-{
-  "show_diagnostics": "off"
-}
-```
-
-2. Only mark files with errors:
-
-```json
-{
-  "show_diagnostics": "errors"
-}
-```
-
-3. Mark files with errors and warnings:
-
-```json
-{
-  "show_diagnostics": "all"
-}
-```
-
 ## Editor Toolbar
 
 - Description: Whether or not to show various elements in the editor toolbar.
@@ -998,8 +504,7 @@ List of `string` values
 ```json
 "toolbar": {
   "breadcrumbs": true,
-  "quick_actions": true,
-  "selections_menu": true
+  "quick_actions": true
 },
 ```
 
@@ -1019,7 +524,7 @@ Each option controls displaying of a particular toolbar element. If all elements
 
 ## Ensure Final Newline On Save
 
-- Description: Removes any lines containing only whitespace at the end of the file and ensures just one newline at the end.
+- Description: Whether or not to ensure there's a single newline at the end of a buffer when saving it.
 - Setting: `ensure_final_newline_on_save`
 - Default: `true`
 
@@ -1038,13 +543,8 @@ Each option controls displaying of a particular toolbar element. If all elements
 The following settings can be overridden for specific language servers:
 
 - `initialization_options`
-- `settings`
 
-To override configuration for a language server, add an entry for that language server's name to the `lsp` value.
-
-Some options are passed via `initialization_options` to the language server. These are for options which must be specified at language server startup and when changed will require restarting the language server.
-
-For example to pass the `check` option to `rust-analyzer`, use the following configuration:
+To override settings for a language, add an entry for that language server's name to the `lsp` value. Example:
 
 ```json
 "lsp": {
@@ -1057,30 +557,6 @@ For example to pass the `check` option to `rust-analyzer`, use the following con
   }
 }
 ```
-
-While other options may be changed at a runtime and should be placed under `settings`:
-
-```json
-"lsp": {
-  "yaml-language-server": {
-    "settings": {
-      "yaml": {
-        "keyOrdering": true // Enforces alphabetical ordering of keys in maps
-      }
-    }
-  }
-}
-```
-
-## LSP Highlight Debounce
-
-- Description: The debounce delay in milliseconds before querying highlights from the language server based on the current cursor location.
-- Setting: `lsp_highlight_debounce`
-- Default: `75`
-
-**Options**
-
-`integer` values representing milliseconds
 
 ## Format On Save
 
@@ -1135,20 +611,7 @@ While other options may be changed at a runtime and should be placed under `sett
 }
 ```
 
-3. External formatters may optionally include a `{buffer_path}` placeholder which at runtime will include the path of the buffer being formatted. Formatters operate by receiving file content via standard input, reformatting it and then outputting it to standard output and so normally don't know the filename of what they are formatting. Tools like prettier support receiving the file path via a command line argument which can then used to impact formatting decisions.
-
-WARNING: `{buffer_path}` should not be used to direct your formatter to read from a filename. Your formatter should only read from standard input and should not read or write files directly.
-
-```json
-  "formatter": {
-    "external": {
-      "command": "prettier",
-      "arguments": ["--stdin-filepath", "{buffer_path}"]
-    }
-  }
-```
-
-4. Or to use code actions provided by the connected language servers, use `"code_actions"`:
+3. Or to use code actions provided by the connected language servers, use `"code_actions"`:
 
 ```json
 {
@@ -1163,17 +626,15 @@ WARNING: `{buffer_path}` should not be used to direct your formatter to read fro
 }
 ```
 
-5. Or to use multiple formatters consecutively, use an array of formatters:
+4. Or to use multiple formatters consecutively, use an array of formatters:
 
 ```json
 {
   "formatter": [
-    { "language_server": { "name": "rust-analyzer" } },
-    {
-      "external": {
-        "command": "sed",
-        "arguments": ["-e", "s/ *$//"]
-      }
+    {"language_server": {"name": "rust-analyzer"}},
+    {"external": {
+      "command": "sed",
+      "arguments": ["-e", "s/ *$//"]
     }
   ]
 }
@@ -1280,50 +741,11 @@ If the setting is set to `true`:
 
 The result is still `)))` and not `))))))`, which is what it would be by default.
 
-## File Scan Exclusions
-
-- Setting: `file_scan_exclusions`
-- Description: Files or globs of files that will be excluded by Zed entirely. They will be skipped during file scans, file searches, and not be displayed in the project file tree. Overrides `file_scan_inclusions`.
-- Default:
-
-```json
-"file_scan_exclusions": [
-  "**/.git",
-  "**/.svn",
-  "**/.hg",
-  "**/.jj",
-  "**/CVS",
-  "**/.DS_Store",
-  "**/Thumbs.db",
-  "**/.classpath",
-  "**/.settings"
-],
-```
-
-Note, specifying `file_scan_exclusions` in settings.json will override the defaults (shown above). If you are looking to exclude additional items you will need to include all the default values in your settings.
-
-## File Scan Inclusions
-
-- Setting: `file_scan_inclusions`
-- Description: Files or globs of files that will be included by Zed, even when ignored by git. This is useful for files that are not tracked by git, but are still important to your project. Note that globs that are overly broad can slow down Zed's file scanning. `file_scan_exclusions` takes precedence over these inclusions.
-- Default:
-
-```json
-"file_scan_inclusions": [".env*"],
-```
-
 ## File Types
 
 - Setting: `file_types`
 - Description: Configure how Zed selects a language for a file based on its filename or extension. Supports glob entries.
-- Default:
-
-```json
-"file_types": {
-  "JSONC": ["**/.zed/**/*.json", "**/zed/**/*.json", "**/Zed/**/*.json", "**/.vscode/**/*.json"],
-  "Shell Script": [".env.*"]
-}
-```
+- Default: `{}`
 
 **Examples**
 
@@ -1335,112 +757,6 @@ To interpret all `.c` files as C++, files called `MyLockFile` as TOML and files 
     "C++": ["c"],
     "TOML": ["MyLockFile"],
     "Dockerfile": ["Dockerfile*"]
-  }
-}
-```
-
-## Diagnostics
-
-- Description: Configuration for diagnostics-related features.
-- Setting: `diagnostics`
-- Default:
-
-```json
-{
-  "diagnostics": {
-    "include_warnings": true,
-    "inline": {
-      "enabled": false
-    },
-    "update_with_cursor": false,
-    "primary_only": false,
-    "use_rendered": false
-  }
-}
-```
-
-### Inline Diagnostics
-
-- Description: Whether or not to show diagnostics information inline.
-- Setting: `inline`
-- Default:
-
-```json
-{
-  "diagnostics": {
-    "inline": {
-      "enabled": false,
-      "update_debounce_ms": 150,
-      "padding": 4,
-      "min_column": 0,
-      "max_severity": null
-    }
-  }
-}
-```
-
-**Options**
-
-1. Enable inline diagnostics.
-
-```json
-{
-  "diagnostics": {
-    "inline": {
-      "enabled": true
-    }
-  }
-}
-```
-
-2. Delay diagnostic updates until some time after the last diagnostic update.
-
-```json
-{
-  "diagnostics": {
-    "inline": {
-      "enabled": true,
-      "update_debounce_ms": 150
-    }
-  }
-}
-```
-
-3. Set padding between the end of the source line and the start of the diagnostic.
-
-```json
-{
-  "diagnostics": {
-    "inline": {
-      "enabled": true,
-      "padding": 4
-    }
-  }
-}
-```
-
-4. Horizontally align inline diagnostics at the given column.
-
-```json
-{
-  "diagnostics": {
-    "inline": {
-      "enabled": true,
-      "min_column": 80
-    }
-  }
-}
-```
-
-5. Show only warning and error diagnostics.
-
-```json
-{
-  "diagnostics": {
-    "inline": {
-      "enabled": true,
-      "max_severity": "warning"
-    }
   }
 }
 ```
@@ -1457,8 +773,7 @@ To interpret all `.c` files as C++, files called `MyLockFile` as TOML and files 
     "git_gutter": "tracked_files",
     "inline_blame": {
       "enabled": true
-    },
-    "hunk_style": "staged_hollow"
+    }
   }
 }
 ```
@@ -1491,132 +806,7 @@ To interpret all `.c` files as C++, files called `MyLockFile` as TOML and files 
 }
 ```
 
-### Gutter Debounce
-
-- Description: Sets the debounce threshold (in milliseconds) after which changes are reflected in the git gutter.
-- Setting: `gutter_debounce`
-- Default: `null`
-
-**Options**
-
-`integer` values representing milliseconds
-
-Example:
-
-```json
-{
-  "git": {
-    "gutter_debounce": 100
-  }
-}
-```
-
-### Inline Git Blame
-
-- Description: Whether or not to show git blame information inline, on the currently focused line.
-- Setting: `inline_blame`
-- Default:
-
-```json
-{
-  "git": {
-    "inline_blame": {
-      "enabled": true
-    }
-  }
-}
-```
-
-### Hunk Style
-
-- Description: What styling we should use for the diff hunks.
-- Setting: `hunk_style`
-- Default:
-
-```json
-{
-  "git": {
-    "hunk_style": "staged_hollow"
-  }
-}
-```
-
-**Options**
-
-1. Show the staged hunks faded out and with a border:
-
-```json
-{
-  "git": {
-    "hunk_style": "staged_hollow"
-  }
-}
-```
-
-2. Show unstaged hunks faded out and with a border:
-
-```json
-{
-  "git": {
-    "hunk_style": "unstaged_hollow"
-  }
-}
-```
-
-**Options**
-
-1. Disable inline git blame:
-
-```json
-{
-  "git": {
-    "inline_blame": {
-      "enabled": false
-    }
-  }
-}
-```
-
-2. Only show inline git blame after a delay (that starts after cursor stops moving):
-
-```json
-{
-  "git": {
-    "inline_blame": {
-      "enabled": true,
-      "delay_ms": 500
-    }
-  }
-}
-```
-
-3. Show a commit summary next to the commit date and author:
-
-```json
-{
-  "git": {
-    "inline_blame": {
-      "enabled": true,
-      "show_commit_summary": true
-    }
-  }
-}
-```
-
-4. Use this as the minimum column at which to display inline blame information:
-
-```json
-{
-  "git": {
-    "inline_blame": {
-      "enabled": true,
-      "min_column": 80
-    }
-  }
-}
-```
-
-## Indent Guides
+### Indent Guides
 
 - Description: Configuration related to indent guides. Indent guides can be configured separately for each language.
 - Setting: `indent_guides`
@@ -1685,6 +875,49 @@ Example:
 }
 ```
 
+### Inline Git Blame
+
+- Description: Whether or not to show git blame information inline, on the currently focused line.
+- Setting: `inline_blame`
+- Default:
+
+```json
+{
+  "git": {
+    "inline_blame": {
+      "enabled": true
+    }
+  }
+}
+```
+
+**Options**
+
+1. Disable inline git blame:
+
+```json
+{
+  "git": {
+    "inline_blame": {
+      "enabled": false
+    }
+  }
+}
+```
+
+2. Only show inline git blame after a delay (that starts after cursor stops moving):
+
+```json
+{
+  "git": {
+    "inline_blame": {
+      "enabled": true,
+      "delay_ms": 500
+    }
+  }
+}
+```
+
 ## Hard Tabs
 
 - Description: Whether to indent lines using tab characters or multiple spaces.
@@ -1705,78 +938,6 @@ Example:
 
 `boolean` values
 
-## Icon Theme
-
-- Description: The icon theme setting can be specified in two forms - either as the name of an icon theme or as an object containing the `mode`, `dark`, and `light` icon themes for files/folders inside Zed.
-- Setting: `icon_theme`
-- Default: `Zed (Default)`
-
-### Icon Theme Object
-
-- Description: Specify the icon theme using an object that includes the `mode`, `dark`, and `light`.
-- Setting: `icon_theme`
-- Default:
-
-```json
-"icon_theme": {
-  "mode": "system",
-  "dark": "Zed (Default)",
-  "light": "Zed (Default)"
-},
-```
-
-### Mode
-
-- Description: Specify the icon theme mode.
-- Setting: `mode`
-- Default: `system`
-
-**Options**
-
-1. Set the icon theme to dark mode
-
-```json
-{
-  "mode": "dark"
-}
-```
-
-2. Set the icon theme to light mode
-
-```json
-{
-  "mode": "light"
-}
-```
-
-3. Set the icon theme to system mode
-
-```json
-{
-  "mode": "system"
-}
-```
-
-### Dark
-
-- Description: The name of the dark icon theme.
-- Setting: `dark`
-- Default: `Zed (Default)`
-
-**Options**
-
-Run the `icon theme selector: toggle` action in the command palette to see a current list of valid icon themes names.
-
-### Light
-
-- Description: The name of the light icon theme.
-- Setting: `light`
-- Default: `Zed (Default)`
-
-**Options**
-
-Run the `icon theme selector: toggle` action in the command palette to see a current list of valid icon themes names.
-
 ## Inlay hints
 
 - Description: Configuration for displaying extra text with hints in the editor.
@@ -1789,10 +950,8 @@ Run the `icon theme selector: toggle` action in the command palette to see a cur
   "show_type_hints": true,
   "show_parameter_hints": true,
   "show_other_hints": true,
-  "show_background": false,
   "edit_debounce_ms": 700,
-  "scroll_debounce_ms": 50,
-  "toggle_on_modifiers_press": null
+  "scroll_debounce_ms": 50
 }
 ```
 
@@ -1813,22 +972,6 @@ Use the `lsp` section for the server configuration. Examples are provided in the
 
 Hints are not instantly queried in Zed, two kinds of debounces are used, either may be set to 0 to be disabled.
 Settings-related hint updates are not debounced.
-
-All possible config values for `toggle_on_modifiers_press` are:
-
-```json
-"inlay_hints": {
-  "toggle_on_modifiers_press": {
-    "control": true,
-    "shift": true,
-    "alt": true,
-    "platform": true,
-    "function": true
-  }
-}
-```
-
-Unspecified values have a `false` value, hints won't be toggled if all the modifiers are `false` or not all the modifiers are pressed.
 
 ## Journal
 
@@ -1902,60 +1045,21 @@ To override settings for a language, add an entry for that languages name to the
 
 The following settings can be overridden for each specific language:
 
-- [`enable_language_server`](#enable-language-server)
-- [`ensure_final_newline_on_save`](#ensure-final-newline-on-save)
-- [`format_on_save`](#format-on-save)
-- [`formatter`](#formatter)
-- [`hard_tabs`](#hard-tabs)
-- [`preferred_line_length`](#preferred-line-length)
-- [`remove_trailing_whitespace_on_save`](#remove-trailing-whitespace-on-save)
-- [`show_edit_predictions`](#show-edit-predictions)
-- [`show_whitespaces`](#show-whitespaces)
-- [`soft_wrap`](#soft-wrap)
-- [`tab_size`](#tab-size)
-- [`use_autoclose`](#use-autoclose)
-- [`always_treat_brackets_as_autoclosed`](#always-treat-brackets-as-autoclosed)
+- `enable_language_server`
+- `ensure_final_newline_on_save`
+- `format_on_save`
+- `formatter`
+- `hard_tabs`
+- `preferred_line_length`
+- `remove_trailing_whitespace_on_save`
+- `show_inline_completions`
+- `show_whitespaces`
+- `soft_wrap`
+- `tab_size`
+- `use_autoclose`
+- `always_treat_brackets_as_autoclosed`
 
 These values take in the same options as the root-level settings with the same name.
-
-## Network Proxy
-
-- Description: Configure a network proxy for Zed.
-- Setting: `proxy`
-- Default: `null`
-
-**Options**
-
-The proxy setting must contain a URL to the proxy.
-
-The following URI schemes are supported:
-
-- `http`
-- `https`
-- `socks4` - SOCKS4 proxy with local DNS
-- `socks4a` - SOCKS4 proxy with remote DNS
-- `socks5` - SOCKS5 proxy with local DNS
-- `socks5h` - SOCKS5 proxy with remote DNS
-
-`http` will be used when no scheme is specified.
-
-By default no proxy will be used, or Zed will attempt to retrieve proxy settings from environment variables, such as `http_proxy`, `HTTP_PROXY`, `https_proxy`, `HTTPS_PROXY`, `all_proxy`, `ALL_PROXY`.
-
-For example, to set an `http` proxy, add the following to your settings:
-
-```json
-{
-  "proxy": "http://127.0.0.1:10809"
-}
-```
-
-Or to set a `socks5` proxy:
-
-```json
-{
-  "proxy": "socks5h://localhost:10808"
-}
-```
 
 ## Preview tabs
 
@@ -2000,14 +1104,6 @@ Or to set a `socks5` proxy:
 
 `boolean` values
 
-## File Finder
-
-### Modal Max Width
-
-- Description: Max-width of the file finder modal. It can take one of these values: `small`, `medium`, `large`, `xlarge`, and `full`.
-- Setting: `modal_max_width`
-- Default: `small`
-
 ## Preferred Line Length
 
 - Description: The column at which to soft-wrap lines, for buffers where soft-wrap is enabled.
@@ -2038,49 +1134,6 @@ Or to set a `socks5` proxy:
 
 `boolean` values
 
-## Search
-
-- Description: Search options to enable by default when opening new project and buffer searches.
-- Setting: `search`
-- Default:
-
-```json
-"search": {
-  "whole_word": false,
-  "case_sensitive": false,
-  "include_ignored": false,
-  "regex": false
-},
-```
-
-## Seed Search Query From Cursor
-
-- Description: When to populate a new search's query based on the text under the cursor.
-- Setting: `seed_search_query_from_cursor`
-- Default: `always`
-
-**Options**
-
-1. `always` always populate the search query with the word under the cursor
-2. `selection` only populate the search query when there is text selected
-3. `never` never populate the search query
-
-## Use Smartcase Search
-
-- Description: When enabled, automatically adjusts search case sensitivity based on your query. If your search query contains any uppercase letters, the search becomes case-sensitive; if it contains only lowercase letters, the search becomes case-insensitive. \
-  This applies to both in-file searches and project-wide searches.
-- Setting: `use_smartcase_search`
-- Default: `false`
-
-**Options**
-
-`boolean` values
-
-Examples:
-
-- Searching for "function" would match "function", "Function", "FUNCTION", etc.
-- Searching for "Function" would only match "Function", not "function" or "FUNCTION"
-
 ## Show Call Status Icon
 
 - Description: Whether or not to show the call status icon in the status bar.
@@ -2090,68 +1143,6 @@ Examples:
 **Options**
 
 `boolean` values
-
-## Completions
-
-- Description: Controls how completions are processed for this language.
-- Setting: `completions`
-- Default:
-
-```json
-{
-  "completions": {
-    "words": "fallback",
-    "lsp": true,
-    "lsp_fetch_timeout_ms": 0,
-    "lsp_insert_mode": "replace_suffix"
-  }
-}
-```
-
-### Words
-
-- Description: Controls how words are completed. For large documents, not all words may be fetched for completion.
-- Setting: `words`
-- Default: `fallback`
-
-**Options**
-
-1. `enabled` - Always fetch document's words for completions along with LSP completions
-2. `fallback` - Only if LSP response errors or times out, use document's words to show completions
-3. `disabled` - Never fetch or complete document's words for completions (word-based completions can still be queried via a separate action)
-
-### LSP
-
-- Description: Whether to fetch LSP completions or not.
-- Setting: `lsp`
-- Default: `true`
-
-**Options**
-
-`boolean` values
-
-### LSP Fetch Timeout (ms)
-
-- Description: When fetching LSP completions, determines how long to wait for a response of a particular server. When set to 0, waits indefinitely.
-- Setting: `lsp_fetch_timeout_ms`
-- Default: `0`
-
-**Options**
-
-`integer` values representing milliseconds
-
-### LSP Insert Mode
-
-- Description: Controls what range to replace when accepting LSP completions.
-- Setting: `lsp_insert_mode`
-- Default: `replace_suffix`
-
-**Options**
-
-1. `insert` - Replaces text before the cursor, using the `insert` range described in the LSP specification
-2. `replace` - Replaces text before and after the cursor, using the `replace` range described in the LSP specification
-3. `replace_subsequence` - Behaves like `"replace"` if the text that would be replaced is a subsequence of the completion text, and like `"insert"` otherwise
-4. `replace_suffix` - Behaves like `"replace"` if the text after the cursor is a suffix of the completion, and like `"insert"` otherwise
 
 ## Show Completions On Input
 
@@ -2173,10 +1164,20 @@ Examples:
 
 `boolean` values
 
-## Show Edit Predictions
+## Completion Documentation Debounce Delay
 
-- Description: Whether to show edit predictions as you type or manually by triggering `editor::ShowEditPrediction`.
-- Setting: `show_edit_predictions`
+- Description: The debounce delay before re-querying the language server for completion documentation when not included in original completion list.
+- Setting: `completion_documentation_secondary_query_debounce`
+- Default: `300` ms
+
+**Options**
+
+`integer` values
+
+## Show Inline Completions
+
+- Description: Whether to show inline completions as you type or manually by triggering `editor::ShowInlineCompletion`.
+- Setting: `show_inline_completions`
 - Default: `true`
 
 **Options**
@@ -2200,15 +1201,14 @@ Examples:
 
 - Description: Whether or not to automatically wrap lines of text to fit editor / preferred width.
 - Setting: `soft_wrap`
-- Default: `none`
+- Default: `prefer_line`
 
 **Options**
 
-1. `none` to avoid wrapping generally, unless the line is too long
-2. `prefer_line` (deprecated, same as `none`)
+1. `none` to stop the soft-wrapping
+2. `prefer_line` to avoid wrapping generally, unless the line is too long
 3. `editor_width` to wrap lines that overflow the editor width
 4. `preferred_line_length` to wrap lines that overflow `preferred_line_length` config value
-5. `bounded` to wrap lines at the minimum of `editor_width` and `preferred_line_length`
 
 ## Wrap Guides (Vertical Rulers)
 
@@ -2278,29 +1278,24 @@ List of `integer` column numbers
     "blinking": "terminal_controlled",
     "copy_on_select": false,
     "dock": "bottom",
-    "default_width": 640,
-    "default_height": 320,
     "detect_venv": {
       "on": {
         "directories": [".env", "env", ".venv", "venv"],
         "activate_script": "default"
       }
-    },
+    }
     "env": {},
     "font_family": null,
     "font_features": null,
     "font_size": null,
     "line_height": "comfortable",
-    "option_as_meta": false,
-    "button": true,
-    "shell": "system",
+    "option_as_meta": true,
+    "button": false,
+    "shell": {},
     "toolbar": {
-      "breadcrumbs": true
+      "title": true
     },
-    "working_directory": "current_project_directory",
-    "scrollbar": {
-      "show": null
-    }
+    "working_directory": "current_project_directory"
   }
 }
 ```
@@ -2323,22 +1318,22 @@ List of `integer` column numbers
 
 **Options**
 
-1. Default alternate scroll mode to off
-
-```json
-{
-  "terminal": {
-    "alternate_scroll": "off"
-  }
-}
-```
-
-2. Default alternate scroll mode to on
+1. Default alternate scroll mode to on
 
 ```json
 {
   "terminal": {
     "alternate_scroll": "on"
+  }
+}
+```
+
+2. Default alternate scroll mode to off
+
+```json
+{
+  "terminal": {
+    "alternate_scroll": "off"
   }
 }
 ```
@@ -2467,14 +1462,14 @@ The name of any font family installed on the user's system
 
 See Buffer Font Features
 
-```json
+```jsonc
 {
   "terminal": {
     "font_features": {
-      "calt": false
+      "calt": false,
       // See Buffer Font Features for more features
-    }
-  }
+    },
+  },
 }
 ```
 
@@ -2488,33 +1483,33 @@ See Buffer Font Features
 
 1. Use a line height that's `comfortable` for reading, 1.618. (default)
 
-```json
+```jsonc
 {
   "terminal": {
-    "line_height": "comfortable"
-  }
+    "line_height": "comfortable",
+  },
 }
 ```
 
 2. Use a `standard` line height, 1.3. This option is useful for TUIs, particularly if they use box characters
 
-```json
+```jsonc
 {
   "terminal": {
-    "line_height": "standard"
-  }
+    "line_height": "standard",
+  },
 }
 ```
 
 3.  Use a custom line height.
 
-```json
+```jsonc
 {
   "terminal": {
     "line_height": {
-      "custom": 2
-    }
-  }
+      "custom": 2,
+    },
+  },
 }
 ```
 
@@ -2522,7 +1517,7 @@ See Buffer Font Features
 
 - Description: Re-interprets the option keys to act like a 'meta' key, like in Emacs.
 - Setting: `option_as_meta`
-- Default: `false`
+- Default: `true`
 
 **Options**
 
@@ -2583,19 +1578,19 @@ See Buffer Font Features
 
 ## Terminal: Detect Virtual Environments {#terminal-detect_venv}
 
-- Description: Activate the [Python Virtual Environment](https://docs.python.org/3/library/venv.html), if one is found, in the terminal's working directory (as resolved by the working_directory and automatically activating the virtual environment.
+- Description: Activate the [Python Virtual Environment](https://docs.python.org/3/library/venv.html), if one is found, in the terminal's working directory (as resolved by the working_directory and automatically activating the virtual environemtn
 - Setting: `detect_venv`
 - Default:
 
 ```json
 {
-  "terminal": {
+  "terminal":
     "detect_venv": {
       "on": {
         // Default directories to search for virtual environments, relative
         // to the current working directory. We recommend overriding this
         // in your project's settings, rather than globally.
-        "directories": [".env", "env", ".venv", "venv"],
+        "directories": [".venv", "venv"],
         // Can also be `csh`, `fish`, and `nushell`
         "activate_script": "default"
       }
@@ -2608,7 +1603,7 @@ Disable with:
 
 ```json
 {
-  "terminal": {
+  "terminal":
     "detect_venv": "off"
   }
 }
@@ -2616,7 +1611,7 @@ Disable with:
 
 ## Terminal: Toolbar
 
-- Description: Whether or not to show various elements in the terminal toolbar.
+- Description: Whether or not to show various elements in the terminal toolbar. It only affects terminals placed in the editor pane.
 - Setting: `toolbar`
 - Default:
 
@@ -2624,7 +1619,7 @@ Disable with:
 {
   "terminal": {
     "toolbar": {
-      "breadcrumbs": true
+      "title": true
     }
   }
 }
@@ -2632,13 +1627,7 @@ Disable with:
 
 **Options**
 
-At the moment, only the `breadcrumbs` option is available, it controls displaying of the terminal title that can be changed via `PROMPT_COMMAND`.
-
-If the terminal title is empty, the breadcrumbs won't be shown.
-
-The shell running in the terminal needs to be configured to emit the title.
-
-Example command to set the title: `echo -e "\e]2;New Title\007";`
+At the moment, only the `title` option is available, it controls displaying of the terminal title that can be changed via `PROMPT_COMMAND`. If the title is hidden, the terminal toolbar is not displayed.
 
 ### Terminal: Button
 
@@ -2800,7 +1789,6 @@ Run the `theme selector: toggle` action in the command palette to see a current 
     "button": true,
     "default_width": 240,
     "dock": "left",
-    "entry_spacing": "comfortable",
     "file_icons": true,
     "folder_icons": true,
     "git_status": true,
@@ -2808,10 +1796,6 @@ Run the `theme selector: toggle` action in the command palette to see a current 
     "auto_reveal_entries": true,
     "auto_fold_dirs": true,
     "scrollbar": {
-      "show": null
-    },
-    "show_diagnostics": "all",
-    "indent_guides": {
       "show": "always"
     }
   }
@@ -2839,30 +1823,6 @@ Run the `theme selector: toggle` action in the command palette to see a current 
 ```json
 {
   "dock": "right"
-}
-```
-
-### Entry Spacing
-
-- Description: Spacing between worktree entries
-- Setting: `entry_spacing`
-- Default: `comfortable`
-
-**Options**
-
-1. Comfortable entry spacing
-
-```json
-{
-  "entry_spacing": "comfortable"
-}
-```
-
-2. Standard entry spacing
-
-```json
-{
-  "entry_spacing": "standard"
 }
 ```
 
@@ -2894,11 +1854,11 @@ Run the `theme selector: toggle` action in the command palette to see a current 
 
 - Description: Customize default width taken by project panel
 - Setting: `default_width`
-- Default: `240`
+- Default: N/A width in pixels (eg: 420)
 
 **Options**
 
-`float` values
+`boolean` values
 
 ### Auto Reveal Entries
 
@@ -2954,55 +1914,21 @@ Run the `theme selector: toggle` action in the command palette to see a current 
 - Setting: `indent_size`
 - Default: `20`
 
-### Indent Guides: Show
+### Scrollbar
 
-- Description: Whether to show indent guides in the project panel.
-- Setting: `indent_guides`
-- Default:
-
-```json
-"indent_guides": {
-  "show": "always"
-}
-```
-
-**Options**
-
-1. Show indent guides in the project panel
-
-```json
-{
-  "indent_guides": {
-    "show": "always"
-  }
-}
-```
-
-2. Hide indent guides in the project panel
-
-```json
-{
-  "indent_guides": {
-    "show": "never"
-  }
-}
-```
-
-### Scrollbar: Show
-
-- Description: Whether to show a scrollbar in the project panel. Possible values: null, "auto", "system", "always", "never". Inherits editor settings when absent, see its description for more details.
+- Description: Scrollbar related settings. Possible values: "always", "never".
 - Setting: `scrollbar`
 - Default:
 
 ```json
 "scrollbar": {
-  "show": null
+    "show": "always"
 }
 ```
 
 **Options**
 
-1. Show scrollbar in the project panel
+1. Show scrollbar in project panel
 
 ```json
 {
@@ -3012,7 +1938,7 @@ Run the `theme selector: toggle` action in the command palette to see a current 
 }
 ```
 
-2. Hide scrollbar in the project panel
+2. Hide scrollbar in project panel
 
 ```json
 {
@@ -3030,21 +1956,14 @@ Run the `theme selector: toggle` action in the command palette to see a current 
 
 ```json
 "assistant": {
-  "version": "2",
   "enabled": true,
   "button": true,
   "dock": "right",
   "default_width": 640,
   "default_height": 320,
-  "default_model": {
-    "provider": "zed.dev",
-    "model": "claude-3-7-sonnet-latest"
-  },
-  "editor_model": {
-    "provider": "zed.dev",
-    "model": "claude-3-7-sonnet-latest"
-  }
-}
+  "provider": "openai",
+  "version": "1",
+},
 ```
 
 ## Outline Panel
@@ -3056,7 +1975,7 @@ Run the `theme selector: toggle` action in the command palette to see a current 
 ```json
 "outline_panel": {
   "button": true,
-  "default_width": 300,
+  "default_width": 240,
   "dock": "left",
   "file_icons": true,
   "folder_icons": true,
@@ -3064,12 +1983,6 @@ Run the `theme selector: toggle` action in the command palette to see a current 
   "indent_size": 20,
   "auto_reveal_entries": true,
   "auto_fold_dirs": true,
-  "indent_guides": {
-    "show": "always"
-  },
-  "scrollbar": {
-    "show": null
-  }
 }
 ```
 
@@ -3108,91 +2021,6 @@ Float values between `0.0` and `0.9`, where:
   "unnecessary_code_fade": 0.5
 }
 ```
-
-## UI Font Family
-
-- Description: The name of the font to use for text in the UI.
-- Setting: `ui_font_family`
-- Default: `Zed Plex Sans`
-
-**Options**
-
-The name of any font family installed on the system.
-
-## UI Font Features
-
-- Description: The OpenType features to enable for text in the UI.
-- Setting: `ui_font_features`
-- Default:
-
-```json
-"ui_font_features": {
-  "calt": false
-}
-```
-
-- Platform: macOS and Windows.
-
-**Options**
-
-Zed supports all OpenType features that can be enabled or disabled for a given UI font, as well as setting values for font features.
-
-For example, to disable font ligatures, add the following to your settings:
-
-```json
-{
-  "ui_font_features": {
-    "calt": false
-  }
-}
-```
-
-You can also set other OpenType features, like setting `cv01` to `7`:
-
-```json
-{
-  "ui_font_features": {
-    "cv01": 7
-  }
-}
-```
-
-## UI Font Fallbacks
-
-- Description: The font fallbacks to use for text in the UI.
-- Setting: `ui_font_fallbacks`
-- Default: `null`
-- Platform: macOS and Windows.
-
-**Options**
-
-For example, to use `Nerd Font` as a fallback, add the following to your settings:
-
-```json
-{
-  "ui_font_fallbacks": ["Nerd Font"]
-}
-```
-
-## UI Font Size
-
-- Description: The default font size for text in the UI.
-- Setting: `ui_font_size`
-- Default: `16`
-
-**Options**
-
-`integer` values from `6` to `100` pixels (inclusive)
-
-## UI Font Weight
-
-- Description: The default font weight for text in the UI.
-- Setting: `ui_font_weight`
-- Default: `400`
-
-**Options**
-
-`integer` values between `100` and `900`
 
 ## An example configuration:
 

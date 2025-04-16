@@ -1,7 +1,7 @@
 //! Handles conversions of `language` items to and from the [`rpc`] protocol.
 
-use crate::{CursorShape, Diagnostic, diagnostic_set::DiagnosticEntry};
-use anyhow::{Context as _, Result, anyhow};
+use crate::{diagnostic_set::DiagnosticEntry, CursorShape, Diagnostic};
+use anyhow::{anyhow, Context as _, Result};
 use clock::ReplicaId;
 use lsp::{DiagnosticSeverity, LanguageServerId};
 use rpc::proto;
@@ -9,7 +9,7 @@ use serde_json::Value;
 use std::{ops::Range, str::FromStr, sync::Arc};
 use text::*;
 
-pub use proto::{BufferState, File, Operation};
+pub use proto::{BufferState, Operation};
 
 /// Deserializes a `[text::LineEnding]` from the RPC representation.
 pub fn deserialize_line_ending(message: proto::LineEnding) -> text::LineEnding {
@@ -79,13 +79,11 @@ pub fn serialize_operation(operation: &crate::Operation) -> proto::Operation {
             crate::Operation::UpdateCompletionTriggers {
                 triggers,
                 lamport_timestamp,
-                server_id,
             } => proto::operation::Variant::UpdateCompletionTriggers(
                 proto::operation::UpdateCompletionTriggers {
                     replica_id: lamport_timestamp.replica_id as u32,
                     lamport_timestamp: lamport_timestamp.value,
-                    triggers: triggers.iter().cloned().collect(),
-                    language_server_id: server_id.to_proto(),
+                    triggers: triggers.clone(),
                 },
             ),
         }),
@@ -177,7 +175,7 @@ pub fn serialize_cursor_shape(cursor_shape: &CursorShape) -> proto::CursorShape 
     match cursor_shape {
         CursorShape::Bar => proto::CursorShape::CursorBar,
         CursorShape::Block => proto::CursorShape::CursorBlock,
-        CursorShape::Underline => proto::CursorShape::CursorUnderscore,
+        CursorShape::Underscore => proto::CursorShape::CursorUnderscore,
         CursorShape::Hollow => proto::CursorShape::CursorHollow,
     }
 }
@@ -187,7 +185,7 @@ pub fn deserialize_cursor_shape(cursor_shape: proto::CursorShape) -> CursorShape
     match cursor_shape {
         proto::CursorShape::CursorBar => CursorShape::Bar,
         proto::CursorShape::CursorBlock => CursorShape::Block,
-        proto::CursorShape::CursorUnderscore => CursorShape::Underline,
+        proto::CursorShape::CursorUnderscore => CursorShape::Underscore,
         proto::CursorShape::CursorHollow => CursorShape::Hollow,
     }
 }
@@ -212,7 +210,8 @@ pub fn serialize_diagnostics<'a>(
             } as i32,
             group_id: entry.diagnostic.group_id as u64,
             is_primary: entry.diagnostic.is_primary,
-            code: entry.diagnostic.code.as_ref().map(|s| s.to_string()),
+            is_valid: true,
+            code: entry.diagnostic.code.clone(),
             is_disk_based: entry.diagnostic.is_disk_based,
             is_unnecessary: entry.diagnostic.is_unnecessary,
             data: entry.diagnostic.data.as_ref().map(|data| data.to_string()),
@@ -327,7 +326,6 @@ pub fn deserialize_operation(message: proto::Operation) -> Result<crate::Operati
                         replica_id: message.replica_id as ReplicaId,
                         value: message.lamport_timestamp,
                     },
-                    server_id: LanguageServerId::from_proto(message.language_server_id),
                 }
             }
         },
@@ -418,7 +416,7 @@ pub fn deserialize_diagnostics(
                     },
                     message: diagnostic.message,
                     group_id: diagnostic.group_id as usize,
-                    code: diagnostic.code.map(lsp::NumberOrString::from_string),
+                    code: diagnostic.code,
                     is_primary: diagnostic.is_primary,
                     is_disk_based: diagnostic.is_disk_based,
                     is_unnecessary: diagnostic.is_unnecessary,

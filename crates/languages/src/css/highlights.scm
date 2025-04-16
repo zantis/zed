@@ -35,10 +35,9 @@
   (class_name)
   (id_name)
   (namespace_name)
+  (property_name)
   (feature_name)
 ] @property
-
-(property_name) @constant
 
 (function_name) @function
 
@@ -76,17 +75,4 @@
 [
   ","
   ":"
-  "."
-  "::"
-  ";"
-  "#"
 ] @punctuation.delimiter
-
-[
-  "{"
-  ")"
-  "("
-  "}"
-  "["
-  "]"
-] @punctuation.bracket

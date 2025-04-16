@@ -1,55 +1,52 @@
-{
-  mkShell,
-  makeFontsConf,
+{pkgs ? import <nixpkgs> {}}: let
+  stdenv = pkgs.stdenvAdapters.useMoldLinker pkgs.llvmPackages_18.stdenv;
+in
+  if pkgs.stdenv.isDarwin
+  then
+    # See https://github.com/NixOS/nixpkgs/issues/320084
+    throw "zed: nix dev-shell isn't supported on darwin yet."
+  else let
+    buildInputs = with pkgs; [
+      curl
+      fontconfig
+      freetype
+      libgit2
+      openssl
+      sqlite
+      zlib
+      zstd
+      alsa-lib
+      libxkbcommon
+      wayland
+      xorg.libxcb
+      vulkan-loader
+    ];
+  in
+    pkgs.mkShell.override {inherit stdenv;} {
+      nativeBuildInputs = with pkgs; [
+        clang
+        curl
+        perl
+        pkg-config
+        protobuf
+        rustPlatform.bindgenHook
+      ];
 
-  zed-editor,
+      inherit buildInputs;
 
-  rust-analyzer,
-  cargo-nextest,
-  cargo-hakari,
-  cargo-machete,
-  nixfmt-rfc-style,
-  protobuf,
-  nodejs_22,
-}:
-(mkShell.override { inherit (zed-editor) stdenv; }) {
-  inputsFrom = [ zed-editor ];
-  packages = [
-    rust-analyzer
-    cargo-nextest
-    cargo-hakari
-    cargo-machete
-    nixfmt-rfc-style
-    # TODO: package protobuf-language-server for editing zed.proto
-    # TODO: add other tools used in our scripts
+      shellHook = ''
+        export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath ([
+            pkgs.vulkan-loader
+          ]
+          ++ buildInputs)}:$LD_LIBRARY_PATH"
+        export PROTOC="${pkgs.protobuf}/bin/protoc"
+      '';
 
-    # `build.nix` adds this to the `zed-editor` wrapper (see `postFixup`)
-    # we'll just put it on `$PATH`:
-    nodejs_22
-  ];
-
-  env =
-    let
-      baseEnvs =
-        (zed-editor.overrideAttrs (attrs: {
-          passthru = { inherit (attrs) env; };
-        })).env; # exfil `env`; it's not in drvAttrs
-    in
-    (removeAttrs baseEnvs [
-      "LK_CUSTOM_WEBRTC" # download the staticlib during the build as usual
-      "ZED_UPDATE_EXPLANATION" # allow auto-updates
-      "CARGO_PROFILE" # let you specify the profile
-      "TARGET_DIR"
-    ])
-    // {
-      # note: different than `$FONTCONFIG_FILE` in `build.nix` – this refers to relative paths
-      # outside the nix store instead of to `$src`
-      FONTCONFIG_FILE = makeFontsConf {
+      FONTCONFIG_FILE = pkgs.makeFontsConf {
         fontDirectories = [
-          "./assets/fonts/plex-mono"
-          "./assets/fonts/plex-sans"
+          "./assets/fonts/zed-mono"
+          "./assets/fonts/zed-sans"
         ];
       };
-      PROTOC = "${protobuf}/bin/protoc";
-    };
-}
+      ZSTD_SYS_USE_PKG_CONFIG = true;
+    }

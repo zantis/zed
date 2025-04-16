@@ -1,10 +1,9 @@
 use gpui::{AnyElement, ScrollHandle};
 use smallvec::SmallVec;
 
-use crate::Tab;
 use crate::prelude::*;
 
-#[derive(IntoElement, RegisterComponent)]
+#[derive(IntoElement)]
 pub struct TabBar {
     id: ElementId,
     start_children: SmallVec<[AnyElement; 2]>,
@@ -90,21 +89,25 @@ impl ParentElement for TabBar {
 }
 
 impl RenderOnce for TabBar {
-    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, cx: &mut WindowContext) -> impl IntoElement {
         div()
             .id(self.id)
             .group("tab_bar")
             .flex()
             .flex_none()
             .w_full()
-            .h(Tab::container_height(cx))
+            .h(
+                // TODO: This should scale with [UiDensity], however tabs,
+                // and other tab bar tools need to scale dynamically first.
+                rems_from_px(29.),
+            )
             .bg(cx.theme().colors().tab_bar_background)
             .when(!self.start_children.is_empty(), |this| {
                 this.child(
                     h_flex()
                         .flex_none()
-                        .gap(DynamicSpacing::Base04.rems(cx))
-                        .px(DynamicSpacing::Base06.rems(cx))
+                        .gap(Spacing::Small.rems(cx))
+                        .px(Spacing::Medium.rems(cx))
                         .border_b_1()
                         .border_r_1()
                         .border_color(cx.theme().colors().border)
@@ -141,67 +144,13 @@ impl RenderOnce for TabBar {
                 this.child(
                     h_flex()
                         .flex_none()
-                        .gap(DynamicSpacing::Base04.rems(cx))
-                        .px(DynamicSpacing::Base06.rems(cx))
+                        .gap(Spacing::Small.rems(cx))
+                        .px(Spacing::Medium.rems(cx))
                         .border_b_1()
                         .border_l_1()
                         .border_color(cx.theme().colors().border)
                         .children(self.end_children),
                 )
             })
-    }
-}
-
-impl Component for TabBar {
-    fn scope() -> ComponentScope {
-        ComponentScope::Navigation
-    }
-
-    fn name() -> &'static str {
-        "TabBar"
-    }
-
-    fn description() -> Option<&'static str> {
-        Some("A horizontal bar containing tabs for navigation between different views or sections.")
-    }
-
-    fn preview(_window: &mut Window, _cx: &mut App) -> Option<AnyElement> {
-        Some(
-            v_flex()
-                .gap_6()
-                .children(vec![
-                    example_group_with_title(
-                        "Basic Usage",
-                        vec![
-                            single_example(
-                                "Empty TabBar",
-                                TabBar::new("empty_tab_bar").into_any_element(),
-                            ),
-                            single_example(
-                                "With Tabs",
-                                TabBar::new("tab_bar_with_tabs")
-                                    .child(Tab::new("tab1"))
-                                    .child(Tab::new("tab2"))
-                                    .child(Tab::new("tab3"))
-                                    .into_any_element(),
-                            ),
-                        ],
-                    ),
-                    example_group_with_title(
-                        "With Start and End Children",
-                        vec![single_example(
-                            "Full TabBar",
-                            TabBar::new("full_tab_bar")
-                                .start_child(Button::new("start_button", "Start"))
-                                .child(Tab::new("tab1"))
-                                .child(Tab::new("tab2"))
-                                .child(Tab::new("tab3"))
-                                .end_child(Button::new("end_button", "End"))
-                                .into_any_element(),
-                        )],
-                    ),
-                ])
-                .into_any_element(),
-        )
     }
 }

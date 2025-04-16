@@ -3,9 +3,9 @@ use std::sync::OnceLock;
 
 use crate::stories::*;
 use anyhow::anyhow;
-use clap::ValueEnum;
 use clap::builder::PossibleValue;
-use gpui::AnyView;
+use clap::ValueEnum;
+use gpui::{AnyView, VisualContext};
 use strum::{EnumIter, EnumString, IntoEnumIterator};
 use ui::prelude::*;
 
@@ -14,13 +14,19 @@ use ui::prelude::*;
 pub enum ComponentStory {
     ApplicationMenu,
     AutoHeightEditor,
+    Avatar,
+    Button,
+    Checkbox,
     CollabNotification,
     ContextMenu,
     Cursor,
     DefaultColors,
+    Disclosure,
     Focus,
+    Icon,
     IconButton,
     Keybinding,
+    Label,
     List,
     ListHeader,
     ListItem,
@@ -31,38 +37,44 @@ pub enum ComponentStory {
     TabBar,
     Text,
     ToggleButton,
+    ToolStrip,
     ViewportUnits,
     WithRemSize,
 }
 
 impl ComponentStory {
-    pub fn story(&self, window: &mut Window, cx: &mut App) -> AnyView {
+    pub fn story(&self, cx: &mut WindowContext) -> AnyView {
         match self {
-            Self::ApplicationMenu => cx
-                .new(|cx| title_bar::ApplicationMenuStory::new(window, cx))
-                .into(),
-            Self::AutoHeightEditor => AutoHeightEditorStory::new(window, cx).into(),
+            Self::ApplicationMenu => cx.new_view(|_| title_bar::ApplicationMenuStory).into(),
+            Self::AutoHeightEditor => AutoHeightEditorStory::new(cx).into(),
+            Self::Avatar => cx.new_view(|_| ui::AvatarStory).into(),
+            Self::Button => cx.new_view(|_| ui::ButtonStory).into(),
+            Self::Checkbox => cx.new_view(|_| ui::CheckboxStory).into(),
             Self::CollabNotification => cx
-                .new(|_| collab_ui::notifications::CollabNotificationStory)
+                .new_view(|_| collab_ui::notifications::CollabNotificationStory)
                 .into(),
-            Self::ContextMenu => cx.new(|_| ui::ContextMenuStory).into(),
-            Self::Cursor => cx.new(|_| crate::stories::CursorStory).into(),
-            Self::DefaultColors => DefaultColorsStory::model(cx).into(),
-            Self::Focus => FocusStory::model(window, cx).into(),
-            Self::IconButton => cx.new(|_| ui::IconButtonStory).into(),
-            Self::Keybinding => cx.new(|_| ui::KeybindingStory).into(),
-            Self::List => cx.new(|_| ui::ListStory).into(),
-            Self::ListHeader => cx.new(|_| ui::ListHeaderStory).into(),
-            Self::ListItem => cx.new(|_| ui::ListItemStory).into(),
-            Self::OverflowScroll => cx.new(|_| crate::stories::OverflowScrollStory).into(),
-            Self::Picker => PickerStory::new(window, cx).into(),
-            Self::Scroll => ScrollStory::model(cx).into(),
-            Self::Tab => cx.new(|_| ui::TabStory).into(),
-            Self::TabBar => cx.new(|_| ui::TabBarStory).into(),
-            Self::Text => TextStory::model(cx).into(),
-            Self::ToggleButton => cx.new(|_| ui::ToggleButtonStory).into(),
-            Self::ViewportUnits => cx.new(|_| crate::stories::ViewportUnitsStory).into(),
-            Self::WithRemSize => cx.new(|_| crate::stories::WithRemSizeStory).into(),
+            Self::ContextMenu => cx.new_view(|_| ui::ContextMenuStory).into(),
+            Self::Cursor => cx.new_view(|_| crate::stories::CursorStory).into(),
+            Self::DefaultColors => DefaultColorsStory::view(cx).into(),
+            Self::Disclosure => cx.new_view(|_| ui::DisclosureStory).into(),
+            Self::Focus => FocusStory::view(cx).into(),
+            Self::Icon => cx.new_view(|_| ui::IconStory).into(),
+            Self::IconButton => cx.new_view(|_| ui::IconButtonStory).into(),
+            Self::Keybinding => cx.new_view(|_| ui::KeybindingStory).into(),
+            Self::Label => cx.new_view(|_| ui::LabelStory).into(),
+            Self::List => cx.new_view(|_| ui::ListStory).into(),
+            Self::ListHeader => cx.new_view(|_| ui::ListHeaderStory).into(),
+            Self::ListItem => cx.new_view(|_| ui::ListItemStory).into(),
+            Self::OverflowScroll => cx.new_view(|_| crate::stories::OverflowScrollStory).into(),
+            Self::Picker => PickerStory::new(cx).into(),
+            Self::Scroll => ScrollStory::view(cx).into(),
+            Self::Tab => cx.new_view(|_| ui::TabStory).into(),
+            Self::TabBar => cx.new_view(|_| ui::TabBarStory).into(),
+            Self::Text => TextStory::view(cx).into(),
+            Self::ToggleButton => cx.new_view(|_| ui::ToggleButtonStory).into(),
+            Self::ToolStrip => cx.new_view(|_| ui::ToolStripStory).into(),
+            Self::ViewportUnits => cx.new_view(|_| crate::stories::ViewportUnitsStory).into(),
+            Self::WithRemSize => cx.new_view(|_| crate::stories::WithRemSizeStory).into(),
         }
     }
 }
@@ -77,7 +89,7 @@ impl FromStr for StorySelector {
     type Err = anyhow::Error;
 
     fn from_str(raw_story_name: &str) -> std::result::Result<Self, Self::Err> {
-        use anyhow::Context as _;
+        use anyhow::Context;
 
         let story = raw_story_name.to_ascii_lowercase();
 
@@ -97,10 +109,10 @@ impl FromStr for StorySelector {
 }
 
 impl StorySelector {
-    pub fn story(&self, window: &mut Window, cx: &mut App) -> AnyView {
+    pub fn story(&self, cx: &mut WindowContext) -> AnyView {
         match self {
-            Self::Component(component_story) => component_story.story(window, cx),
-            Self::KitchenSink => KitchenSinkStory::model(cx).into(),
+            Self::Component(component_story) => component_story.story(cx),
+            Self::KitchenSink => KitchenSinkStory::view(cx).into(),
         }
     }
 }

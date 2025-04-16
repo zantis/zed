@@ -116,7 +116,6 @@ impl Database {
                         peer_id: Some(collaborator.connection().into()),
                         user_id: collaborator.user_id.to_proto(),
                         replica_id: collaborator.replica_id.0 as u32,
-                        is_host: false,
                     })
                     .collect(),
             })
@@ -223,7 +222,6 @@ impl Database {
                                 peer_id: Some(collaborator.connection().into()),
                                 user_id: collaborator.user_id.to_proto(),
                                 replica_id: collaborator.replica_id.0 as u32,
-                                is_host: false,
                             })
                             .collect(),
                     },
@@ -259,7 +257,6 @@ impl Database {
                         peer_id: Some(db_collaborator.connection().into()),
                         replica_id: db_collaborator.replica_id.0 as u32,
                         user_id: db_collaborator.user_id.to_proto(),
-                        is_host: false,
                     })
                 } else {
                     collaborator_ids_to_remove.push(db_collaborator.id);
@@ -388,7 +385,6 @@ impl Database {
                 peer_id: Some(connection.into()),
                 replica_id: row.replica_id.0 as u32,
                 user_id: row.user_id.to_proto(),
-                is_host: false,
             });
         }
 
@@ -693,7 +689,9 @@ impl Database {
         }
 
         let mut text_buffer = text::Buffer::new(0, text::BufferId::new(1).unwrap(), base_text);
-        text_buffer.apply_ops(operations.into_iter().filter_map(operation_from_wire));
+        text_buffer
+            .apply_ops(operations.into_iter().filter_map(operation_from_wire))
+            .unwrap();
 
         let base_text = text_buffer.text();
         let epoch = buffer.epoch + 1;

@@ -1,17 +1,8 @@
 (comment) @annotation
 (type_declaration
     "type" @context
-    [
-        (type_spec
-            name: (_) @name) @item
-        (
-            "("
-            (type_spec
-                name: (_) @name) @item
-            ")"
-      )
-    ]
-)
+    (type_spec
+        name: (_) @name)) @item
 
 (function_declaration
     "func" @context
@@ -41,18 +32,8 @@
 (source_file
     (var_declaration
         "var" @context
-        [
-            (var_spec
-                name: (identifier) @name) @item
-            (var_spec_list
-                "("
-                (var_spec
-                    name: (identifier) @name) @item
-                ")"
-            )
-        ]
-     )
-)
+        (var_spec
+            name: (identifier) @name) @item))
 
 (method_elem
     name: (_) @name
