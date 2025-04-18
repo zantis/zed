@@ -16,7 +16,6 @@ anyhow.workspace = true
 assistant_tool.workspace = true
 chrono.workspace = true
 collections.workspace = true
-component.workspace = true
 feature_flags.workspace = true
 futures.workspace = true
 gpui.workspace = true
@@ -25,8 +24,6 @@ http_client.workspace = true
 itertools.workspace = true
 language.workspace = true
 language_model.workspace = true
-linkme.workspace = true
-open.workspace = true
 project.workspace = true
 regex.workspace = true
 schemars.workspace = true
@@ -34,9 +31,10 @@ serde.workspace = true
 serde_json.workspace = true
 ui.workspace = true
 util.workspace = true
+worktree.workspace = true
+open = { workspace = true }
 web_search.workspace = true
 workspace-hack.workspace = true
-worktree.workspace = true
 zed_llm_client.workspace = true
 
 [dev-dependencies]

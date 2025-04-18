@@ -18,8 +18,6 @@ pub struct Model {
     pub current_merge_conflicts: Option<String>,
     // A JSON object representing the current Branch values
     pub branch_summary: Option<String>,
-    // A JSON object representing the current Head commit values
-    pub head_commit_details: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

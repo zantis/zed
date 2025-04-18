@@ -15,7 +15,7 @@ use text::{AnchorRangeExt, Point};
 use theme::ThemeSettings;
 use ui::{
     ActiveTheme, AnyElement, App, Context, IntoElement, ParentElement, SharedString, Styled,
-    Window, div,
+    Window, div, px,
 };
 use util::maybe;
 
@@ -166,8 +166,7 @@ impl DiagnosticBlock {
     pub fn render_block(&self, editor: WeakEntity<Editor>, bcx: &BlockContext) -> AnyElement {
         let cx = &bcx.app;
         let status_colors = bcx.app.theme().status();
-
-        let max_width = bcx.em_width * 100.;
+        let max_width = px(600.);
 
         let (background_color, border_color) = match self.severity {
             DiagnosticSeverity::ERROR => (status_colors.error_background, status_colors.error),

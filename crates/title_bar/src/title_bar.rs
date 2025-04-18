@@ -46,7 +46,6 @@ pub use stories::*;
 
 const MAX_PROJECT_NAME_LENGTH: usize = 40;
 const MAX_BRANCH_NAME_LENGTH: usize = 40;
-const MAX_SHORT_SHA_LENGTH: usize = 8;
 
 const BOOK_ONBOARDING: &str = "https://dub.sh/zed-c-onboarding";
 
@@ -302,7 +301,7 @@ impl TitleBar {
                 cx.notify()
             }),
         );
-        subscriptions.push(cx.subscribe(&project, |_, _, _: &project::Event, cx| cx.notify()));
+        subscriptions.push(cx.subscribe(&project, |_, _, _, cx| cx.notify()));
         subscriptions.push(cx.observe(&active_call, |this, _, cx| this.active_call_changed(cx)));
         subscriptions.push(cx.observe_window_activation(window, Self::window_activation_changed));
         subscriptions.push(cx.observe(&user_store, |_, _, cx| cx.notify()));
@@ -514,23 +513,8 @@ impl TitleBar {
     pub fn render_project_branch(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let repository = self.project.read(cx).active_repository(cx)?;
         let workspace = self.workspace.upgrade()?;
-        let branch_name = {
-            let repo = repository.read(cx);
-            repo.branch
-                .as_ref()
-                .map(|branch| branch.name.clone())
-                .map(|name| util::truncate_and_trailoff(&name, MAX_BRANCH_NAME_LENGTH))
-                .or_else(|| {
-                    repo.head_commit.as_ref().map(|commit| {
-                        commit
-                            .sha
-                            .chars()
-                            .take(MAX_SHORT_SHA_LENGTH)
-                            .collect::<String>()
-                    })
-                })
-        }?;
-
+        let branch_name = repository.read(cx).branch.as_ref()?.name.clone();
+        let branch_name = util::truncate_and_trailoff(&branch_name, MAX_BRANCH_NAME_LENGTH);
         Some(
             Button::new("project_branch_trigger", branch_name)
                 .color(Color::Muted)

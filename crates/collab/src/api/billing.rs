@@ -321,8 +321,8 @@ async fn create_billing_subscription(
         }
         Some(ProductCode::ZedProTrial) => {
             stripe_billing
-                .checkout_with_zed_pro_trial(
-                    app.config.zed_pro_price_id()?,
+                .checkout_with_price(
+                    app.config.zed_pro_trial_price_id()?,
                     customer_id,
                     &user.github_login,
                     &success_url,
@@ -444,33 +444,11 @@ async fn manage_billing_subscription(
         ManageSubscriptionIntent::ManageSubscription => None,
         ManageSubscriptionIntent::UpgradeToPro => {
             let zed_pro_price_id = app.config.zed_pro_price_id()?;
+            let zed_pro_trial_price_id = app.config.zed_pro_trial_price_id()?;
             let zed_free_price_id = app.config.zed_free_price_id()?;
 
             let stripe_subscription =
                 Subscription::retrieve(&stripe_client, &subscription_id, &[]).await?;
-
-            let is_on_zed_pro_trial = stripe_subscription.status == SubscriptionStatus::Trialing
-                && stripe_subscription.items.data.iter().any(|item| {
-                    item.price
-                        .as_ref()
-                        .map_or(false, |price| price.id == zed_pro_price_id)
-                });
-            if is_on_zed_pro_trial {
-                // If the user is already on a Zed Pro trial and wants to upgrade to Pro, we just need to end their trial early.
-                Subscription::update(
-                    &stripe_client,
-                    &stripe_subscription.id,
-                    stripe::UpdateSubscription {
-                        trial_end: Some(stripe::Scheduled::now()),
-                        ..Default::default()
-                    },
-                )
-                .await?;
-
-                return Ok(Json(ManageBillingSubscriptionResponse {
-                    billing_portal_session_url: None,
-                }));
-            }
 
             let subscription_item_to_update = stripe_subscription
                 .items
@@ -479,7 +457,7 @@ async fn manage_billing_subscription(
                 .find_map(|item| {
                     let price = item.price.as_ref()?;
 
-                    if price.id == zed_free_price_id {
+                    if price.id == zed_free_price_id || price.id == zed_pro_trial_price_id {
                         Some(item.id.clone())
                     } else {
                         None
@@ -793,17 +771,16 @@ async fn handle_customer_subscription_event(
 
     let subscription_kind = maybe!({
         let zed_pro_price_id = app.config.zed_pro_price_id().ok()?;
+        let zed_pro_trial_price_id = app.config.zed_pro_trial_price_id().ok()?;
         let zed_free_price_id = app.config.zed_free_price_id().ok()?;
 
         subscription.items.data.iter().find_map(|item| {
             let price = item.price.as_ref()?;
 
             if price.id == zed_pro_price_id {
-                Some(if subscription.status == SubscriptionStatus::Trialing {
-                    SubscriptionKind::ZedProTrial
-                } else {
-                    SubscriptionKind::ZedPro
-                })
+                Some(SubscriptionKind::ZedPro)
+            } else if price.id == zed_pro_trial_price_id {
+                Some(SubscriptionKind::ZedProTrial)
             } else if price.id == zed_free_price_id {
                 Some(SubscriptionKind::ZedFree)
             } else {

@@ -378,7 +378,12 @@ pub fn text_for_keystroke(keystroke: &Keystroke, cx: &App) -> String {
 /// Returns a textual representation of the given [`Keystroke`].
 fn keystroke_text(keystroke: &Keystroke, platform_style: PlatformStyle, vim_mode: bool) -> String {
     let mut text = String::new();
-    let delimiter = '-';
+
+    let delimiter = match (platform_style, vim_mode) {
+        (PlatformStyle::Mac, false) => '-',
+        (PlatformStyle::Linux | PlatformStyle::Windows, false) => '-',
+        (_, true) => '-',
+    };
 
     if keystroke.modifiers.function {
         match vim_mode {

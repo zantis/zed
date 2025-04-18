@@ -7,7 +7,7 @@ pub mod transport;
 
 pub use dap_types::*;
 pub use registry::DapRegistry;
-pub use task::DebugRequestType;
+pub use task::{DebugAdapterConfig, DebugRequestType};
 
 pub type ScopeId = u64;
 pub type VariableReference = u64;

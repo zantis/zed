@@ -55,7 +55,6 @@ impl ToolchainStore {
         });
         Self(ToolchainStoreInner::Local(entity, subscription))
     }
-
     pub(super) fn remote(project_id: u64, client: AnyProtoClient, cx: &mut App) -> Self {
         Self(ToolchainStoreInner::Remote(
             cx.new(|_| RemoteToolchainStore { client, project_id }),
@@ -286,7 +285,7 @@ struct LocalStore(WeakEntity<LocalToolchainStore>);
 struct RemoteStore(WeakEntity<RemoteToolchainStore>);
 
 #[derive(Clone)]
-pub enum ToolchainStoreEvent {
+pub(crate) enum ToolchainStoreEvent {
     ToolchainActivated,
 }
 

@@ -8,12 +8,12 @@ use serde::Deserialize;
 use serde_json_lenient::Value;
 
 #[derive(Deserialize)]
-pub struct VsSnippetsFile {
+pub struct VSSnippetsFile {
     #[serde(flatten)]
-    pub(crate) snippets: HashMap<String, VsCodeSnippet>,
+    pub(crate) snippets: HashMap<String, VSCodeSnippet>,
 }
 
-impl VsSnippetsFile {
+impl VSSnippetsFile {
     pub fn generate_json_schema() -> Value {
         let schema = SchemaSettings::draft07()
             .with(|settings| settings.option_add_null_type = false)
@@ -24,15 +24,15 @@ impl VsSnippetsFile {
     }
 }
 
-impl JsonSchema for VsSnippetsFile {
+impl JsonSchema for VSSnippetsFile {
     fn schema_name() -> String {
-        "VsSnippetsFile".into()
+        "VSSnippetsFile".into()
     }
 
     fn json_schema(r#gen: &mut schemars::r#gen::SchemaGenerator) -> Schema {
         SchemaObject {
             object: Some(Box::new(ObjectValidation {
-                additional_properties: Some(Box::new(r#gen.subschema_for::<VsCodeSnippet>())),
+                additional_properties: Some(Box::new(r#gen.subschema_for::<VSCodeSnippet>())),
                 ..Default::default()
             })),
             ..Default::default()
@@ -71,7 +71,7 @@ impl std::fmt::Display for ListOrDirect {
 }
 
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct VsCodeSnippet {
+pub(crate) struct VSCodeSnippet {
     /// The snippet prefix used to decide whether a completion menu should be shown.
     pub(crate) prefix: Option<ListOrDirect>,
 

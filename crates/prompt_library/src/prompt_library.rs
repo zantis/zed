@@ -136,7 +136,7 @@ pub fn open_prompt_library(
 }
 
 pub struct PromptLibrary {
-    store: Entity<PromptStore>,
+    store: Arc<PromptStore>,
     language_registry: Arc<LanguageRegistry>,
     prompt_editors: HashMap<PromptId, PromptEditor>,
     active_prompt_id: Option<PromptId>,
@@ -158,7 +158,7 @@ struct PromptEditor {
 }
 
 struct PromptPickerDelegate {
-    store: Entity<PromptStore>,
+    store: Arc<PromptStore>,
     selected_index: usize,
     matches: Vec<PromptMetadata>,
 }
@@ -179,8 +179,8 @@ impl PickerDelegate for PromptPickerDelegate {
         self.matches.len()
     }
 
-    fn no_matches_text(&self, _window: &mut Window, cx: &mut App) -> Option<SharedString> {
-        let text = if self.store.read(cx).prompt_count() == 0 {
+    fn no_matches_text(&self, _window: &mut Window, _cx: &mut App) -> Option<SharedString> {
+        let text = if self.store.prompt_count() == 0 {
             "No prompts.".into()
         } else {
             "No prompts found matching your search.".into()
@@ -211,7 +211,7 @@ impl PickerDelegate for PromptPickerDelegate {
         window: &mut Window,
         cx: &mut Context<Picker<Self>>,
     ) -> Task<()> {
-        let search = self.store.read(cx).search(query, cx);
+        let search = self.store.search(query);
         let prev_prompt_id = self.matches.get(self.selected_index).map(|mat| mat.id);
         cx.spawn_in(window, async move |this, cx| {
             let (matches, selected_index) = cx
@@ -339,7 +339,7 @@ impl PickerDelegate for PromptPickerDelegate {
 
 impl PromptLibrary {
     fn new(
-        store: Entity<PromptStore>,
+        store: Arc<PromptStore>,
         language_registry: Arc<LanguageRegistry>,
         inline_assist_delegate: Box<dyn InlineAssistDelegate>,
         make_completion_provider: Arc<dyn Fn() -> Box<dyn CompletionProvider>>,
@@ -398,7 +398,7 @@ impl PromptLibrary {
     pub fn new_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         // If we already have an untitled prompt, use that instead
         // of creating a new one.
-        if let Some(metadata) = self.store.read(cx).first() {
+        if let Some(metadata) = self.store.first() {
             if metadata.title.is_none() {
                 self.load_prompt(metadata.id, true, window, cx);
                 return;
@@ -406,9 +406,7 @@ impl PromptLibrary {
         }
 
         let prompt_id = PromptId::new();
-        let save = self.store.update(cx, |store, cx| {
-            store.save(prompt_id, None, false, "".into(), cx)
-        });
+        let save = self.store.save(prompt_id, None, false, "".into());
         self.picker
             .update(cx, |picker, cx| picker.refresh(window, cx));
         cx.spawn_in(window, async move |this, cx| {
@@ -432,7 +430,7 @@ impl PromptLibrary {
             return;
         }
 
-        let prompt_metadata = self.store.read(cx).metadata(prompt_id).unwrap();
+        let prompt_metadata = self.store.metadata(prompt_id).unwrap();
         let prompt_editor = self.prompt_editors.get_mut(&prompt_id).unwrap();
         let title = prompt_editor.title_editor.read(cx).text(cx);
         let body = prompt_editor.body_editor.update(cx, |editor, cx| {
@@ -467,13 +465,10 @@ impl PromptLibrary {
                             } else {
                                 Some(SharedString::from(title))
                             };
-                            cx.update(|_window, cx| {
-                                store.update(cx, |store, cx| {
-                                    store.save(prompt_id, title, prompt_metadata.default, body, cx)
-                                })
-                            })?
-                            .await
-                            .log_err();
+                            store
+                                .save(prompt_id, title, prompt_metadata.default, body)
+                                .await
+                                .log_err();
                             this.update_in(cx, |this, window, cx| {
                                 this.picker
                                     .update(cx, |picker, cx| picker.refresh(window, cx));
@@ -526,21 +521,14 @@ impl PromptLibrary {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.store.update(cx, move |store, cx| {
-            if let Some(prompt_metadata) = store.metadata(prompt_id) {
-                store
-                    .save_metadata(
-                        prompt_id,
-                        prompt_metadata.title,
-                        !prompt_metadata.default,
-                        cx,
-                    )
-                    .detach_and_log_err(cx);
-            }
-        });
-        self.picker
-            .update(cx, |picker, cx| picker.refresh(window, cx));
-        cx.notify();
+        if let Some(prompt_metadata) = self.store.metadata(prompt_id) {
+            self.store
+                .save_metadata(prompt_id, prompt_metadata.title, !prompt_metadata.default)
+                .detach_and_log_err(cx);
+            self.picker
+                .update(cx, |picker, cx| picker.refresh(window, cx));
+            cx.notify();
+        }
     }
 
     pub fn load_prompt(
@@ -557,9 +545,9 @@ impl PromptLibrary {
                     .update(cx, |editor, cx| window.focus(&editor.focus_handle(cx)));
             }
             self.set_active_prompt(Some(prompt_id), window, cx);
-        } else if let Some(prompt_metadata) = self.store.read(cx).metadata(prompt_id) {
+        } else if let Some(prompt_metadata) = self.store.metadata(prompt_id) {
             let language_registry = self.language_registry.clone();
-            let prompt = self.store.read(cx).load(prompt_id, cx);
+            let prompt = self.store.load(prompt_id);
             let make_completion_provider = self.make_completion_provider.clone();
             self.pending_load = cx.spawn_in(window, async move |this, cx| {
                 let prompt = prompt.await;
@@ -685,7 +673,7 @@ impl PromptLibrary {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(metadata) = self.store.read(cx).metadata(prompt_id) {
+        if let Some(metadata) = self.store.metadata(prompt_id) {
             let confirmation = window.prompt(
                 PromptLevel::Warning,
                 &format!(
@@ -704,9 +692,7 @@ impl PromptLibrary {
                             this.set_active_prompt(None, window, cx);
                         }
                         this.prompt_editors.remove(&prompt_id);
-                        this.store
-                            .update(cx, |store, cx| store.delete(prompt_id, cx))
-                            .detach_and_log_err(cx);
+                        this.store.delete(prompt_id).detach_and_log_err(cx);
                         this.picker
                             .update(cx, |picker, cx| picker.refresh(window, cx));
                         cx.notify();
@@ -750,9 +736,9 @@ impl PromptLibrary {
 
             let new_id = PromptId::new();
             let body = prompt.body_editor.read(cx).text(cx);
-            let save = self.store.update(cx, |store, cx| {
-                store.save(new_id, Some(title.into()), false, body.into(), cx)
-            });
+            let save = self
+                .store
+                .save(new_id, Some(title.into()), false, body.into());
             self.picker
                 .update(cx, |picker, cx| picker.refresh(window, cx));
             cx.spawn_in(window, async move |this, cx| {
@@ -982,7 +968,7 @@ impl PromptLibrary {
             .flex_none()
             .min_w_64()
             .children(self.active_prompt_id.and_then(|prompt_id| {
-                let prompt_metadata = self.store.read(cx).metadata(prompt_id)?;
+                let prompt_metadata = self.store.metadata(prompt_id)?;
                 let prompt_editor = &self.prompt_editors[&prompt_id];
                 let focus_handle = prompt_editor.body_editor.focus_handle(cx);
                 let model = LanguageModelRegistry::read_global(cx)
@@ -1252,7 +1238,7 @@ impl Render for PromptLibrary {
             .text_color(theme.colors().text)
             .child(self.render_prompt_list(cx))
             .map(|el| {
-                if self.store.read(cx).prompt_count() == 0 {
+                if self.store.prompt_count() == 0 {
                     el.child(
                         v_flex()
                             .w_2_3()

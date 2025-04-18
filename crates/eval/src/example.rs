@@ -140,12 +140,9 @@ impl Example {
     pub async fn setup(&mut self) -> Result<()> {
         let repo_path = repo_path_for_url(&self.base.url);
 
-        let revision_exists = run_git(
-            &repo_path,
-            &["rev-parse", &format!("{}^{{commit}}", self.base.revision)],
-        )
-        .await
-        .is_ok();
+        let revision_exists = run_git(&repo_path, &["rev-parse", "--verify", &self.base.revision])
+            .await
+            .is_ok();
 
         if !revision_exists {
             println!(
@@ -309,7 +306,7 @@ impl Example {
                 return Err(anyhow!("Setup only mode"));
             }
 
-            let thread_store = thread_store.await?;
+            let thread_store = thread_store.await;
             let thread =
                 thread_store.update(cx, |thread_store, cx| thread_store.create_thread(cx))?;
 

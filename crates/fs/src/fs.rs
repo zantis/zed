@@ -111,7 +111,6 @@ pub trait Fs: Send + Sync {
     async fn load_bytes(&self, path: &Path) -> Result<Vec<u8>>;
     async fn atomic_write(&self, path: PathBuf, text: String) -> Result<()>;
     async fn save(&self, path: &Path, text: &Rope, line_ending: LineEnding) -> Result<()>;
-    async fn write(&self, path: &Path, content: &[u8]) -> Result<()>;
     async fn canonicalize(&self, path: &Path) -> Result<PathBuf>;
     async fn is_file(&self, path: &Path) -> bool;
     async fn is_dir(&self, path: &Path) -> bool;
@@ -565,14 +564,6 @@ impl Fs for RealFs {
             writer.write_all(chunk.as_bytes()).await?;
         }
         writer.flush().await?;
-        Ok(())
-    }
-
-    async fn write(&self, path: &Path, content: &[u8]) -> Result<()> {
-        if let Some(path) = path.parent() {
-            self.create_dir(path).await?;
-        }
-        smol::fs::write(path, content).await?;
         Ok(())
     }
 
@@ -2114,16 +2105,6 @@ impl Fs for FakeFs {
         Ok(())
     }
 
-    async fn write(&self, path: &Path, content: &[u8]) -> Result<()> {
-        self.simulate_random_delay().await;
-        let path = normalize_path(path);
-        if let Some(path) = path.parent() {
-            self.create_dir(path).await?;
-        }
-        self.write_file_internal(path, content.to_vec(), false)?;
-        Ok(())
-    }
-
     async fn canonicalize(&self, path: &Path) -> Result<PathBuf> {
         let path = normalize_path(path);
         self.simulate_random_delay().await;
@@ -2365,7 +2346,7 @@ pub async fn copy_recursive<'a>(
     target: &'a Path,
     options: CopyOptions,
 ) -> Result<()> {
-    for (item, is_dir) in read_dir_items(fs, source).await? {
+    for (is_dir, item) in read_dir_items(fs, source).await? {
         let Ok(item_relative_path) = item.strip_prefix(source) else {
             continue;
         };
@@ -2399,10 +2380,7 @@ pub async fn copy_recursive<'a>(
     Ok(())
 }
 
-/// Recursively reads all of the paths in the given directory.
-///
-/// Returns a vector of tuples of (path, is_dir).
-pub async fn read_dir_items<'a>(fs: &'a dyn Fs, source: &'a Path) -> Result<Vec<(PathBuf, bool)>> {
+async fn read_dir_items<'a>(fs: &'a dyn Fs, source: &'a Path) -> Result<Vec<(bool, PathBuf)>> {
     let mut items = Vec::new();
     read_recursive(fs, source, &mut items).await?;
     Ok(items)
@@ -2411,7 +2389,7 @@ pub async fn read_dir_items<'a>(fs: &'a dyn Fs, source: &'a Path) -> Result<Vec<
 fn read_recursive<'a>(
     fs: &'a dyn Fs,
     source: &'a Path,
-    output: &'a mut Vec<(PathBuf, bool)>,
+    output: &'a mut Vec<(bool, PathBuf)>,
 ) -> BoxFuture<'a, Result<()>> {
     use futures::future::FutureExt;
 
@@ -2422,7 +2400,7 @@ fn read_recursive<'a>(
             .ok_or_else(|| anyhow!("path does not exist: {}", source.display()))?;
 
         if metadata.is_dir {
-            output.push((source.to_path_buf(), true));
+            output.push((true, source.to_path_buf()));
             let mut children = fs.read_dir(source).await?;
             while let Some(child_path) = children.next().await {
                 if let Ok(child_path) = child_path {
@@ -2430,7 +2408,7 @@ fn read_recursive<'a>(
                 }
             }
         } else {
-            output.push((source.to_path_buf(), false));
+            output.push((false, source.to_path_buf()));
         }
         Ok(())
     }

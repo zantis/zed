@@ -318,18 +318,10 @@ fn is_printable_key(key: &str) -> bool {
 impl std::fmt::Display for Keystroke {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.modifiers.control {
-            if cfg!(target_os = "macos") {
-                f.write_char('^')?;
-            } else {
-                write!(f, "ctrl-")?;
-            }
+            f.write_char('^')?;
         }
         if self.modifiers.alt {
-            if cfg!(target_os = "macos") {
-                f.write_char('⌥')?;
-            } else {
-                write!(f, "alt-")?;
-            }
+            f.write_char('⌥')?;
         }
         if self.modifiers.platform {
             #[cfg(target_os = "macos")]
@@ -342,24 +334,20 @@ impl std::fmt::Display for Keystroke {
             f.write_char('⊞')?;
         }
         if self.modifiers.shift {
-            if cfg!(target_os = "macos") {
-                f.write_char('⇧')?;
-            } else {
-                write!(f, "shift-")?;
-            }
+            f.write_char('⇧')?;
         }
         let key = match self.key.as_str() {
-            "backspace" if cfg!(target_os = "macos") => '⌫',
-            "up" if cfg!(target_os = "macos") => '↑',
-            "down" if cfg!(target_os = "macos") => '↓',
-            "left" if cfg!(target_os = "macos") => '←',
-            "right" if cfg!(target_os = "macos") => '→',
-            "tab" if cfg!(target_os = "macos") => '⇥',
-            "escape" if cfg!(target_os = "macos") => '⎋',
-            "shift" if cfg!(target_os = "macos") => '⇧',
-            "control" if cfg!(target_os = "macos") => '⌃',
-            "alt" if cfg!(target_os = "macos") => '⌥',
-            "platform" if cfg!(target_os = "macos") => '⌘',
+            "backspace" => '⌫',
+            "up" => '↑',
+            "down" => '↓',
+            "left" => '←',
+            "right" => '→',
+            "tab" => '⇥',
+            "escape" => '⎋',
+            "shift" => '⇧',
+            "control" => '⌃',
+            "alt" => '⌥',
+            "platform" => '⌘',
             key => {
                 if key.len() == 1 {
                     key.chars().next().unwrap().to_ascii_uppercase()
