@@ -1882,7 +1882,7 @@ impl Project {
             ))));
         };
         worktree.update(cx, |worktree, cx| {
-            worktree.create_entry(project_path.path, is_directory, None, cx)
+            worktree.create_entry(project_path.path, is_directory, cx)
         })
     }
 
@@ -3094,9 +3094,6 @@ impl Project {
             .map(|lister| lister.term())
     }
 
-    pub fn toolchain_store(&self) -> Option<Entity<ToolchainStore>> {
-        self.toolchain_store.clone()
-    }
     pub fn activate_toolchain(
         &self,
         path: ProjectPath,
@@ -3665,7 +3662,7 @@ impl Project {
             .filter(|buffer| {
                 let b = buffer.read(cx);
                 if let Some(file) = b.file() {
-                    if !search_query.file_matches(file.path()) {
+                    if !search_query.match_path(file.path()) {
                         return false;
                     }
                     if let Some(entry) = b

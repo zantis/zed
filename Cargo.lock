@@ -125,6 +125,7 @@ dependencies = [
  "workspace",
  "workspace-hack",
  "zed_actions",
+ "zed_llm_client",
 ]
 
 [[package]]
@@ -337,9 +338,9 @@ checksum = "34cd60c5e3152cef0a592f1b296f1cc93715d89d2551d85315828c3a09575ff4"
 
 [[package]]
 name = "anyhow"
-version = "1.0.98"
+version = "1.0.97"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e16d2d3311acee920a9eb8d33b8cbc1787ce4a264e85f964c2404b969bdcd487"
+checksum = "dcfed56ad506cb2c684a14971b8861fdc3baaaae314b9e5f9bb532cbe3ba7a4f"
 
 [[package]]
 name = "approx"
@@ -448,6 +449,7 @@ dependencies = [
  "smol",
  "tempfile",
  "util",
+ "which 6.0.3",
  "workspace-hack",
 ]
 
@@ -709,17 +711,21 @@ dependencies = [
  "gpui",
  "html_to_markdown",
  "http_client",
+ "indoc",
  "itertools 0.14.0",
  "language",
  "language_model",
  "linkme",
  "open",
+ "pretty_assertions",
  "project",
  "rand 0.8.5",
  "regex",
  "schemars",
  "serde",
  "serde_json",
+ "settings",
+ "tree-sitter-rust",
  "ui",
  "unindent",
  "util",
@@ -4911,6 +4917,7 @@ dependencies = [
  "release_channel",
  "reqwest_client",
  "serde",
+ "serde_json",
  "settings",
  "shellexpand 2.1.2",
  "telemetry",
@@ -4918,6 +4925,36 @@ dependencies = [
  "unindent",
  "util",
  "uuid",
+ "workspace-hack",
+]
+
+[[package]]
+name = "evals"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "client",
+ "clock",
+ "collections",
+ "dap",
+ "env_logger 0.11.8",
+ "feature_flags",
+ "fs",
+ "gpui",
+ "http_client",
+ "language",
+ "languages",
+ "node_runtime",
+ "open_ai",
+ "project",
+ "reqwest_client",
+ "semantic_index",
+ "serde",
+ "serde_json",
+ "settings",
+ "smol",
+ "util",
  "workspace-hack",
 ]
 
@@ -7070,9 +7107,9 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "2.8.0"
+version = "2.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3954d50fe15b02142bf25d3b8bdadb634ec3948f103d04ffe3031bc8fe9d7058"
+checksum = "cea70ddb795996207ad57735b50c5982d8844f38ba9ee5f1aedcfb708a2aa11e"
 dependencies = [
  "equivalent",
  "hashbrown 0.15.2",
@@ -7641,7 +7678,6 @@ dependencies = [
  "http_client",
  "icons",
  "image",
- "log",
  "open_ai",
  "parking_lot",
  "proto",
@@ -7654,6 +7690,7 @@ dependencies = [
  "thiserror 2.0.12",
  "util",
  "workspace-hack",
+ "zed_llm_client",
 ]
 
 [[package]]
@@ -7702,6 +7739,7 @@ dependencies = [
  "mistral",
  "ollama",
  "open_ai",
+ "partial-json-fixer",
  "project",
  "proto",
  "schemars",
@@ -7933,9 +7971,9 @@ checksum = "8355be11b20d696c8f18f6cc018c4e372165b1fa8126cef092399c9951984ffa"
 
 [[package]]
 name = "libmimalloc-sys"
-version = "0.1.41"
+version = "0.1.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b20daca3a4ac14dbdc753c5e90fc7b490a48a9131daed3c9a9ced7b2defd37b"
+checksum = "ec9d6fac27761dabcd4ee73571cdb06b7022dc99089acbe5435691edffaac0f4"
 dependencies = [
  "cc",
  "libc",
@@ -8606,9 +8644,9 @@ dependencies = [
 
 [[package]]
 name = "mimalloc"
-version = "0.1.45"
+version = "0.1.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03cb1f88093fe50061ca1195d336ffec131347c7b833db31f9ab62a2d1b7925f"
+checksum = "995942f432bbb4822a7e9c3faa87a695185b0d09273ba85f097b54f4e458f2af"
 dependencies = [
  "libmimalloc-sys",
 ]
@@ -9816,6 +9854,12 @@ dependencies = [
  "smallvec",
  "windows-targets 0.52.6",
 ]
+
+[[package]]
+name = "partial-json-fixer"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "35ffd90b3f3b6477db7478016b9efb1b7e9d38eafd095f0542fe0ec2ea884a13"
 
 [[package]]
 name = "password-hash"
@@ -11723,7 +11767,6 @@ name = "remote_server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "askpass",
  "async-watch",
  "backtrace",
  "cargo_toml",
@@ -13233,9 +13276,9 @@ dependencies = [
 
 [[package]]
 name = "smallvec"
-version = "1.14.0"
+version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7fcf8323ef1faaee30a44a340193b1ac6814fd9b7b4e88e9d4519a3e4abe1cfd"
+checksum = "8917285742e9f3e1683f0a9c4e6b57960b7314d0b08d30d1ecd426713ee2eee9"
 dependencies = [
  "serde",
 ]
@@ -18171,13 +18214,12 @@ dependencies = [
 
 [[package]]
 name = "zed"
-version = "0.184.0"
+version = "0.183.10"
 dependencies = [
  "activity_indicator",
  "agent",
  "anyhow",
  "ashpd",
- "askpass",
  "assets",
  "assistant",
  "assistant_context_editor",
@@ -18315,6 +18357,7 @@ dependencies = [
  "gpui",
  "schemars",
  "serde",
+ "uuid",
  "workspace-hack",
 ]
 
@@ -18361,10 +18404,11 @@ dependencies = [
 
 [[package]]
 name = "zed_llm_client"
-version = "0.5.1"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ee4d410dbc030c3e6e3af78fc76296f6bebe20dcb6d7d3fa24bca306fc8c1ce"
+checksum = "ad17428120f5ca776dc5195e2411a282f5150a26d5536671f8943c622c31274f"
 dependencies = [
+ "anyhow",
  "serde",
  "serde_json",
  "strum 0.27.1",

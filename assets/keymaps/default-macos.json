@@ -542,9 +542,7 @@
       "cmd-\\": "pane::SplitRight",
       "cmd-k v": "markdown::OpenPreviewToTheSide",
       "cmd-shift-v": "markdown::OpenPreview",
-      "ctrl-cmd-c": "editor::DisplayCursorNames",
-      "cmd-shift-backspace": "editor::GoToPreviousChange",
-      "cmd-shift-alt-backspace": "editor::GoToNextChange"
+      "ctrl-cmd-c": "editor::DisplayCursorNames"
     }
   },
   {
@@ -789,7 +787,7 @@
       "cmd-alt-c": "workspace::CopyPath",
       "alt-cmd-shift-c": "workspace::CopyRelativePath",
       "alt-cmd-r": "outline_panel::RevealInFileManager",
-      "space": "outline_panel::OpenSelectedEntry",
+      "space": "outline_panel::Open",
       "shift-down": "menu::SelectNext",
       "shift-up": "menu::SelectPrevious",
       "alt-enter": "editor::OpenExcerpts",

@@ -321,8 +321,8 @@ async fn create_billing_subscription(
         }
         Some(ProductCode::ZedProTrial) => {
             stripe_billing
-                .checkout_with_zed_pro_trial(
-                    app.config.zed_pro_price_id()?,
+                .checkout_with_price(
+                    app.config.zed_pro_trial_price_id()?,
                     customer_id,
                     &user.github_login,
                     &success_url,
@@ -444,6 +444,7 @@ async fn manage_billing_subscription(
         ManageSubscriptionIntent::ManageSubscription => None,
         ManageSubscriptionIntent::UpgradeToPro => {
             let zed_pro_price_id = app.config.zed_pro_price_id()?;
+            let zed_pro_trial_price_id = app.config.zed_pro_trial_price_id()?;
             let zed_free_price_id = app.config.zed_free_price_id()?;
 
             let stripe_subscription =
@@ -456,10 +457,7 @@ async fn manage_billing_subscription(
                 .find_map(|item| {
                     let price = item.price.as_ref()?;
 
-                    if price.id == zed_free_price_id
-                        || (price.id == zed_pro_price_id
-                            && stripe_subscription.status == SubscriptionStatus::Trialing)
-                    {
+                    if price.id == zed_free_price_id || price.id == zed_pro_trial_price_id {
                         Some(item.id.clone())
                     } else {
                         None
@@ -773,17 +771,16 @@ async fn handle_customer_subscription_event(
 
     let subscription_kind = maybe!({
         let zed_pro_price_id = app.config.zed_pro_price_id().ok()?;
+        let zed_pro_trial_price_id = app.config.zed_pro_trial_price_id().ok()?;
         let zed_free_price_id = app.config.zed_free_price_id().ok()?;
 
         subscription.items.data.iter().find_map(|item| {
             let price = item.price.as_ref()?;
 
             if price.id == zed_pro_price_id {
-                Some(if subscription.status == SubscriptionStatus::Trialing {
-                    SubscriptionKind::ZedProTrial
-                } else {
-                    SubscriptionKind::ZedPro
-                })
+                Some(SubscriptionKind::ZedPro)
+            } else if price.id == zed_pro_trial_price_id {
+                Some(SubscriptionKind::ZedProTrial)
             } else if price.id == zed_free_price_id {
                 Some(SubscriptionKind::ZedFree)
             } else {

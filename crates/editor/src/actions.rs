@@ -306,8 +306,6 @@ actions!(
         GoToPreviousHunk,
         GoToImplementation,
         GoToImplementationSplit,
-        GoToNextChange,
-        GoToPreviousChange,
         GoToPreviousDiagnostic,
         GoToTypeDefinition,
         GoToTypeDefinitionSplit,
