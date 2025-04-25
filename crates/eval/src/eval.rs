@@ -7,11 +7,12 @@ mod tool_metrics;
 
 use assertions::display_error_row;
 use instance::{ExampleInstance, JudgeOutput, RunOutput, run_git};
+use serde::Serialize;
 pub(crate) use tool_metrics::*;
 
 use ::fs::RealFs;
 use anyhow::anyhow;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use client::{Client, ProxySettings, UserStore};
 use collections::{HashMap, HashSet};
 use extension::ExtensionHostProxy;
@@ -53,6 +54,18 @@ struct Args {
     /// Maximum number of examples to run concurrently.
     #[arg(long, default_value = "10")]
     concurrency: usize,
+    /// Which agent to run (default: "Zed").
+    #[arg(long, value_enum, default_value = "Zed")]
+    agent: WhichAgent,
+}
+
+#[derive(ValueEnum, Copy, Clone, Default, Debug, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum WhichAgent {
+    #[default]
+    Zed,
+    ClaudeCode,
+    Aider,
 }
 
 fn main() {
@@ -263,6 +276,7 @@ fn main() {
             let examples = Rc::new(RefCell::new(VecDeque::from(examples)));
             let results_by_example_name = Rc::new(RefCell::new(HashMap::default()));
 
+            let which_agent = args.agent;
             future::join_all((0..args.concurrency).map(|_| {
                 let app_state = app_state.clone();
                 let model = model.clone();
@@ -278,9 +292,19 @@ fn main() {
                         };
                         let result = async {
                             example.setup().await?;
-                            let run_output = cx
-                                .update(|cx| example.run(model.clone(), app_state.clone(), cx))?
-                                .await?;
+                            let run_output = match which_agent {
+                                WhichAgent::Zed => {
+                                    cx.update(|cx| {
+                                        example.run(model.clone(), app_state.clone(), cx)
+                                    })?
+                                    .await?
+                                }
+                                WhichAgent::ClaudeCode => {
+                                    cx.update(|cx| example.run_claude(app_state.clone(), cx))?
+                                        .await?
+                                }
+                                WhichAgent::Aider => todo!(),
+                            };
                             let judge_output = judge_example(
                                 example.clone(),
                                 model.clone(),

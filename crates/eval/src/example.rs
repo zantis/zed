@@ -1,7 +1,9 @@
 use std::{
     error::Error,
     fmt::{self, Debug},
-    path::Path,
+    io::Write as _,
+    path::{Path, PathBuf},
+    process::{Command, Stdio},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -82,47 +84,107 @@ impl fmt::Display for FailedAssertion {
 impl Error for FailedAssertion {}
 
 pub struct ExampleContext {
-    meta: ExampleMetadata,
-    log_prefix: String,
-    agent_thread: Entity<agent::Thread>,
-    app: AsyncApp,
-    model: Arc<dyn LanguageModel>,
+    // todo! rename
+    inner: ExampleContextEnum,
+    max_assertions: Option<usize>,
+    pub log_prefix: String,
     pub assertions: AssertionsReport,
-    pub tool_metrics: Arc<Mutex<ToolMetrics>>,
+}
+
+// todo! rename
+pub enum ExampleContextEnum {
+    Zed(ZedExampleContext),
+    Claude(ClaudeExampleContext),
 }
 
 impl ExampleContext {
-    pub fn new(
+    pub fn new_zed(
         meta: ExampleMetadata,
         log_prefix: String,
         agent_thread: Entity<agent::Thread>,
         model: Arc<dyn LanguageModel>,
         app: AsyncApp,
     ) -> Self {
-        let assertions = AssertionsReport::new(meta.max_assertions);
-
         Self {
-            meta,
-            log_prefix,
-            agent_thread,
-            assertions,
-            model,
-            app,
-            tool_metrics: Arc::new(Mutex::new(ToolMetrics::default())),
+            assertions: AssertionsReport::new(meta.max_assertions),
+            max_assertions: meta.max_assertions.clone(),
+            log_prefix: log_prefix.clone(),
+            inner: ExampleContextEnum::Zed(ZedExampleContext {
+                meta,
+                log_prefix,
+                agent_thread,
+                model,
+                app,
+                tool_metrics: Arc::new(Mutex::new(ToolMetrics::default())),
+            }),
         }
     }
 
-    pub fn push_user_message(&mut self, text: impl ToString) {
-        self.app
-            .update_entity(&self.agent_thread, |thread, cx| {
-                thread.insert_user_message(
-                    text.to_string(),
-                    ContextLoadResult::default(),
-                    None,
-                    cx,
-                );
-            })
-            .unwrap();
+    pub fn new_claude(
+        worktree_path: PathBuf,
+        run_directory: PathBuf,
+        meta: ExampleMetadata,
+        log_prefix: String,
+        app: AsyncApp,
+    ) -> Self {
+        Self {
+            assertions: AssertionsReport::new(meta.max_assertions),
+            max_assertions: meta.max_assertions.clone(),
+            log_prefix: log_prefix.clone(),
+            inner: ExampleContextEnum::Claude(ClaudeExampleContext {
+                meta,
+                log_prefix,
+                app,
+                prompt: None,
+                worktree_path,
+                run_directory,
+            }),
+        }
+    }
+
+    pub fn push_user_message(&mut self, text: impl ToString) -> Result<()> {
+        match &mut self.inner {
+            ExampleContextEnum::Zed(this) => {
+                this.push_user_message(text);
+                Ok(())
+            }
+            ExampleContextEnum::Claude(this) => this.push_user_message(text),
+        }
+    }
+
+    pub async fn run_to_end(&mut self) -> Result<Response> {
+        match &mut self.inner {
+            ExampleContextEnum::Zed(this) => this.run_to_end().await,
+            ExampleContextEnum::Claude(this) => this.run_to_end().await,
+        }
+    }
+
+    pub async fn run_turn(&mut self) -> Result<Response> {
+        match &mut self.inner {
+            ExampleContextEnum::Zed(this) => this.run_turn().await,
+            ExampleContextEnum::Claude(this) => this.run_to_end().await,
+        }
+    }
+
+    pub async fn run_turns(&mut self, iterations: u32) -> Result<Response> {
+        match &mut self.inner {
+            ExampleContextEnum::Zed(this) => this.run_turns(iterations).await,
+            ExampleContextEnum::Claude(this) => this.run_to_end().await,
+        }
+    }
+
+    pub fn edits(&self) -> HashMap<Arc<Path>, FileEdits> {
+        match &self.inner {
+            ExampleContextEnum::Zed(this) => this.edits(),
+            _ => HashMap::default(),
+        }
+    }
+
+    pub fn tool_metrics(&self) -> ToolMetrics {
+        match &self.inner {
+            ExampleContextEnum::Zed(this) => this.tool_metrics.lock().unwrap().clone(),
+            _ => ToolMetrics::default(),
+        }
     }
 
     pub fn assert(&mut self, expected: bool, message: impl ToString) -> Result<()> {
@@ -168,7 +230,7 @@ impl ExampleContext {
     }
 
     fn log_assertion<T>(&mut self, result: Result<T>, message: String) -> Result<T> {
-        if let Some(max) = self.meta.max_assertions {
+        if let Some(max) = self.max_assertions {
             if self.assertions.run_count() > max {
                 return Err(anyhow!(
                     "More assertions were run than the stated max_assertions of {}",
@@ -192,6 +254,117 @@ impl ExampleContext {
         }
 
         result
+    }
+}
+
+pub struct ClaudeExampleContext {
+    meta: ExampleMetadata,
+    log_prefix: String,
+    app: AsyncApp,
+    prompt: Option<String>,
+    worktree_path: PathBuf,
+    run_directory: PathBuf,
+}
+
+impl ClaudeExampleContext {
+    fn push_user_message(&mut self, text: impl ToString) -> Result<()> {
+        if self.prompt.is_some() {
+            return Err(anyhow!(
+                "Claude code does not support multiturn interaction."
+            ));
+        }
+        self.prompt = Some(text.to_string());
+        Ok(())
+    }
+
+    async fn run_to_end(&mut self) -> Result<Response> {
+        let Some(prompt) = &self.prompt else {
+            return Err(anyhow!(
+                "run_to_end should only be called after a call to push_user_message"
+            ));
+        };
+
+        let output_file = std::fs::File::create(self.run_directory.join("claude-output.json"))?;
+
+        let mut process = Command::new("claude")
+            .current_dir(&self.worktree_path)
+            .arg("-p")
+            .arg("--output-format")
+            .arg("stream-json")
+            .arg(prompt)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()?;
+
+        let Some(stdout) = process.stdout.take() else {
+            return Err(anyhow!("Failed to capture stdout"));
+        };
+
+        cx.background_spawn(async move {
+            smol::unblock(|| {
+                let mut output = std::io::BufWriter::new(output_file);
+                std::io::copy(&mut std::io::BufReader::new(stdout), &mut output)?;
+                output.flush()
+            })
+            .await?;
+        }).detach_and_log_err(cx);
+
+        /*
+        let status = process.status().await?;
+
+        if !status.success() {
+            return Err(anyhow!("Claude command failed with status {status}"));
+        }
+        */
+
+        /*
+        let output = String::from_utf8(output.stdout)?;
+
+        println!("{output}");
+        */
+
+        Ok(todo!())
+    }
+}
+
+pub struct ZedExampleContext {
+    meta: ExampleMetadata,
+    log_prefix: String,
+    agent_thread: Entity<agent::Thread>,
+    app: AsyncApp,
+    model: Arc<dyn LanguageModel>,
+    pub tool_metrics: Arc<Mutex<ToolMetrics>>,
+}
+
+impl ZedExampleContext {
+    pub fn new(
+        meta: ExampleMetadata,
+        log_prefix: String,
+        agent_thread: Entity<agent::Thread>,
+        model: Arc<dyn LanguageModel>,
+        app: AsyncApp,
+    ) -> Self {
+        Self {
+            meta,
+            log_prefix,
+            agent_thread,
+            model,
+            app,
+            tool_metrics: Arc::new(Mutex::new(ToolMetrics::default())),
+        }
+    }
+
+    pub fn push_user_message(&mut self, text: impl ToString) {
+        self.app
+            .update_entity(&self.agent_thread, |thread, cx| {
+                thread.insert_user_message(
+                    text.to_string(),
+                    ContextLoadResult::default(),
+                    None,
+                    cx,
+                );
+            })
+            .unwrap();
     }
 
     pub async fn run_to_end(&mut self) -> Result<Response> {

@@ -14,6 +14,7 @@ use language_model::{
 use project::lsp_store::OpenLspBufferHandle;
 use project::{DiagnosticSummary, Project, ProjectPath};
 use serde::{Deserialize, Serialize};
+use smol::process::Command;
 use std::cell::RefCell;
 use std::fmt::Write as _;
 use std::fs;
@@ -30,7 +31,9 @@ use util::command::new_smol_command;
 use util::markdown::MarkdownString;
 
 use crate::assertions::{AssertionsReport, RanAssertion, RanAssertionResult};
-use crate::example::{Example, ExampleContext, FailedAssertion, JudgeAssertion};
+use crate::example::{
+    ClaudeExampleContext, Example, ExampleContext, FailedAssertion, JudgeAssertion,
+};
 use crate::{AgentAppState, ToolMetrics};
 
 pub const ZED_REPO_URL: &str = "https://github.com/zed-industries/zed.git";
@@ -197,6 +200,26 @@ impl ExampleInstance {
             .join(self.thread.meta().repo_name())
     }
 
+    pub fn run_claude(
+        &self,
+        app_state: Arc<AgentAppState>,
+        cx: &mut App,
+    ) -> Task<Result<RunOutput>> {
+        let this = self.clone();
+        cx.spawn(async move |cx| {
+            let mut example_cx = ExampleContext::new_claude(
+                this.worktree_path(),
+                this.run_directory.clone(),
+                this.thread.meta(),
+                this.log_prefix,
+                cx.clone(),
+            );
+            this.thread.conversation(&mut example_cx).await?;
+
+            Ok(todo!())
+        })
+    }
+
     pub fn run(
         &self,
         model: Arc<dyn LanguageModel>,
@@ -359,7 +382,7 @@ impl ExampleInstance {
                 });
             })?;
 
-            let mut example_cx = ExampleContext::new(meta.clone(), this.log_prefix.clone(), thread.clone(), model.clone(), cx.clone());
+            let mut example_cx = ExampleContext::new_zed(meta.clone(), this.log_prefix.clone(), thread.clone(), model.clone(), cx.clone());
             let result = this.thread.conversation(&mut example_cx).await;
 
             if let Err(err) = result {
@@ -422,7 +445,7 @@ impl ExampleInstance {
                     diagnostics_after,
                     response_count,
                     token_usage: thread.cumulative_token_usage(),
-                    tool_metrics: example_cx.tool_metrics.lock().unwrap().clone(),
+                    tool_metrics: example_cx.tool_metrics(),
                     last_request,
                     programmatic_assertions: example_cx.assertions,
                 }
