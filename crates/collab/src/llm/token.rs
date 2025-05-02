@@ -32,8 +32,6 @@ pub struct LlmTokenClaims {
     pub has_llm_subscription: bool,
     pub max_monthly_spend_in_cents: u32,
     pub custom_llm_monthly_allowance_in_cents: Option<u32>,
-    #[serde(default)]
-    pub use_new_billing: bool,
     pub plan: Plan,
     #[serde(default)]
     pub has_extended_trial: bool,
@@ -92,7 +90,6 @@ impl LlmTokenClaims {
             custom_llm_monthly_allowance_in_cents: user
                 .custom_llm_monthly_allowance_in_cents
                 .map(|allowance| allowance as u32),
-            use_new_billing: feature_flags.iter().any(|flag| flag == "new-billing"),
             plan: subscription
                 .as_ref()
                 .and_then(|subscription| subscription.kind)

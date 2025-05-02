@@ -1953,12 +1953,7 @@ impl GitPanel {
             })?;
 
             let pull = repo.update(cx, |repo, cx| {
-                repo.pull(
-                    branch.name().to_owned().into(),
-                    remote.name.clone(),
-                    askpass,
-                    cx,
-                )
+                repo.pull(branch.name.clone(), remote.name.clone(), askpass, cx)
             })?;
 
             let remote_message = pull.await?;
@@ -2025,7 +2020,7 @@ impl GitPanel {
 
             let push = repo.update(cx, |repo, cx| {
                 repo.push(
-                    branch.name().to_owned().into(),
+                    branch.name.clone(),
                     remote.name.clone(),
                     options,
                     askpass_delegate,
@@ -2035,7 +2030,7 @@ impl GitPanel {
 
             let remote_output = push.await?;
 
-            let action = RemoteAction::Push(branch.name().to_owned().into(), remote);
+            let action = RemoteAction::Push(branch.name, remote);
             this.update(cx, |this, cx| match remote_output {
                 Ok(remote_message) => this.show_remote_output(action, remote_message, cx),
                 Err(e) => {
@@ -2097,7 +2092,7 @@ impl GitPanel {
                         return Err(anyhow::anyhow!("No active branch"));
                     };
 
-                    Ok(repo.get_remotes(Some(current_branch.name().to_string())))
+                    Ok(repo.get_remotes(Some(current_branch.name.to_string())))
                 })??
                 .await??;
 
@@ -2760,26 +2755,18 @@ impl GitPanel {
 
     pub(crate) fn render_co_authors(&self, cx: &Context<Self>) -> Option<AnyElement> {
         let potential_co_authors = self.potential_co_authors(cx);
-
-        let (tooltip_label, icon) = if self.add_coauthors {
-            ("Add co-authored-by", IconName::UserCheck)
-        } else {
-            ("Remove co-authored-by", IconName::Person)
-        };
-
         if potential_co_authors.is_empty() {
             None
         } else {
             Some(
-                IconButton::new("co-authors", icon)
+                IconButton::new("co-authors", IconName::Person)
                     .shape(ui::IconButtonShape::Square)
                     .icon_color(Color::Disabled)
                     .selected_icon_color(Color::Selected)
                     .toggle_state(self.add_coauthors)
                     .tooltip(move |_, cx| {
                         let title = format!(
-                            "{}:{}{}",
-                            tooltip_label,
+                            "Add co-authored-by:{}{}",
                             if potential_co_authors.len() == 1 {
                                 ""
                             } else {
@@ -4368,17 +4355,19 @@ impl RenderOnce for PanelRepoFooter {
         let branch_name = self
             .branch
             .as_ref()
-            .map(|branch| branch.name().to_owned())
+            .map(|branch| branch.name.clone())
             .or_else(|| {
                 self.head_commit.as_ref().map(|commit| {
-                    commit
-                        .sha
-                        .chars()
-                        .take(MAX_SHORT_SHA_LEN)
-                        .collect::<String>()
+                    SharedString::from(
+                        commit
+                            .sha
+                            .chars()
+                            .take(MAX_SHORT_SHA_LEN)
+                            .collect::<String>(),
+                    )
                 })
             })
-            .unwrap_or_else(|| " (no branch)".to_owned());
+            .unwrap_or_else(|| SharedString::from(" (no branch)"));
         let show_separator = self.branch.is_some() || self.head_commit.is_some();
 
         let active_repo_name = self.active_repository.clone();
@@ -4545,7 +4534,7 @@ impl Component for PanelRepoFooter {
         fn branch(upstream: Option<UpstreamTracking>) -> Branch {
             Branch {
                 is_head: true,
-                ref_name: "some-branch".into(),
+                name: "some-branch".into(),
                 upstream: upstream.map(|tracking| Upstream {
                     ref_name: "origin/some-branch".into(),
                     tracking,
@@ -4562,7 +4551,7 @@ impl Component for PanelRepoFooter {
         fn custom(branch_name: &str, upstream: Option<UpstreamTracking>) -> Branch {
             Branch {
                 is_head: true,
-                ref_name: branch_name.to_string().into(),
+                name: branch_name.to_string().into(),
                 upstream: upstream.map(|tracking| Upstream {
                     ref_name: format!("zed/{}", branch_name).into(),
                     tracking,

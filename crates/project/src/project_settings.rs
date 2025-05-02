@@ -99,7 +99,7 @@ pub enum DirenvSettings {
     Direct,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema)]
+#[derive(Copy, Clone, Debug, Default, Serialize, Deserialize, JsonSchema)]
 pub struct DiagnosticsSettings {
     /// Whether or not to include warning diagnostics
     #[serde(default = "true_value")]
@@ -108,18 +108,6 @@ pub struct DiagnosticsSettings {
     /// Settings for showing inline diagnostics
     #[serde(default)]
     pub inline: InlineDiagnosticsSettings,
-
-    /// Configuration, related to Rust language diagnostics.
-    #[serde(default)]
-    pub cargo: Option<CargoDiagnosticsSettings>,
-}
-
-impl DiagnosticsSettings {
-    pub fn fetch_cargo_diagnostics(&self) -> bool {
-        self.cargo.as_ref().map_or(false, |cargo_diagnostics| {
-            cargo_diagnostics.fetch_cargo_diagnostics
-        })
-    }
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema)]
@@ -129,7 +117,7 @@ pub struct InlineDiagnosticsSettings {
     /// Default: false
     #[serde(default)]
     pub enabled: bool,
-    /// Whether to only show the inline diagnostics after a delay after the
+    /// Whether to only show the inline diaganostics after a delay after the
     /// last editor event.
     ///
     /// Default: 150
@@ -151,16 +139,6 @@ pub struct InlineDiagnosticsSettings {
 
     #[serde(default)]
     pub max_severity: Option<DiagnosticSeverity>,
-}
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema)]
-pub struct CargoDiagnosticsSettings {
-    /// When enabled, Zed disables rust-analyzer's check on save and starts to query
-    /// Cargo diagnostics separately.
-    ///
-    /// Default: false
-    #[serde(default)]
-    pub fetch_cargo_diagnostics: bool,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema)]

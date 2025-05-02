@@ -1,7 +1,6 @@
 use anyhow::{Context as _, anyhow};
 use fuzzy::StringMatchCandidate;
 
-use collections::HashSet;
 use git::repository::Branch;
 use gpui::{
     App, Context, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable, InteractiveElement,
@@ -96,28 +95,12 @@ impl BranchList {
                 .context("No active repository")?
                 .await??;
 
-            let all_branches = cx
-                .background_spawn(async move {
-                    let upstreams: HashSet<_> = all_branches
-                        .iter()
-                        .filter_map(|branch| {
-                            let upstream = branch.upstream.as_ref()?;
-                            Some(upstream.ref_name.clone())
-                        })
-                        .collect();
-
-                    all_branches.retain(|branch| !upstreams.contains(&branch.ref_name));
-
-                    all_branches.sort_by_key(|branch| {
-                        branch
-                            .most_recent_commit
-                            .as_ref()
-                            .map(|commit| 0 - commit.commit_timestamp)
-                    });
-
-                    all_branches
-                })
-                .await;
+            all_branches.sort_by_key(|branch| {
+                branch
+                    .most_recent_commit
+                    .as_ref()
+                    .map(|commit| 0 - commit.commit_timestamp)
+            });
 
             this.update_in(cx, |this, window, cx| {
                 this.picker.update(cx, |picker, cx| {
@@ -283,7 +266,6 @@ impl PickerDelegate for BranchListDelegate {
             let mut matches: Vec<BranchEntry> = if query.is_empty() {
                 all_branches
                     .into_iter()
-                    .filter(|branch| !branch.is_remote())
                     .take(RECENT_BRANCHES_COUNT)
                     .map(|branch| BranchEntry {
                         branch,
@@ -295,7 +277,7 @@ impl PickerDelegate for BranchListDelegate {
                 let candidates = all_branches
                     .iter()
                     .enumerate()
-                    .map(|(ix, branch)| StringMatchCandidate::new(ix, branch.name()))
+                    .map(|(ix, command)| StringMatchCandidate::new(ix, &command.name.clone()))
                     .collect::<Vec<StringMatchCandidate>>();
                 fuzzy::match_strings(
                     &candidates,
@@ -321,11 +303,11 @@ impl PickerDelegate for BranchListDelegate {
                     if !query.is_empty()
                         && !matches
                             .first()
-                            .is_some_and(|entry| entry.branch.name() == query)
+                            .is_some_and(|entry| entry.branch.name == query)
                     {
                         matches.push(BranchEntry {
                             branch: Branch {
-                                ref_name: format!("refs/heads/{query}").into(),
+                                name: query.clone().into(),
                                 is_head: false,
                                 upstream: None,
                                 most_recent_commit: None,
@@ -353,19 +335,19 @@ impl PickerDelegate for BranchListDelegate {
             return;
         };
         if entry.is_new {
-            self.create_branch(entry.branch.name().to_owned().into(), window, cx);
+            self.create_branch(entry.branch.name.clone(), window, cx);
             return;
         }
 
         let current_branch = self.repo.as_ref().map(|repo| {
             repo.update(cx, |repo, _| {
-                repo.branch.as_ref().map(|branch| branch.ref_name.clone())
+                repo.branch.as_ref().map(|branch| branch.name.clone())
             })
         });
 
         if current_branch
             .flatten()
-            .is_some_and(|current_branch| current_branch == entry.branch.ref_name)
+            .is_some_and(|current_branch| current_branch == entry.branch.name)
         {
             cx.emit(DismissEvent);
             return;
@@ -386,7 +368,7 @@ impl PickerDelegate for BranchListDelegate {
 
                     anyhow::Ok(async move {
                         repo.update(&mut cx, |repo, _| {
-                            repo.change_branch(branch.name().to_string())
+                            repo.change_branch(branch.name.to_string())
                         })?
                         .await?
                     })
@@ -461,13 +443,13 @@ impl PickerDelegate for BranchListDelegate {
                                     if entry.is_new {
                                         Label::new(format!(
                                             "Create branch \"{}\"…",
-                                            entry.branch.name()
+                                            entry.branch.name
                                         ))
                                         .single_line()
                                         .into_any_element()
                                     } else {
                                         HighlightedLabel::new(
-                                            entry.branch.name().to_owned(),
+                                            entry.branch.name.clone(),
                                             entry.positions.clone(),
                                         )
                                         .truncate()
@@ -488,7 +470,7 @@ impl PickerDelegate for BranchListDelegate {
                                 let message = if entry.is_new {
                                     if let Some(current_branch) =
                                         self.repo.as_ref().and_then(|repo| {
-                                            repo.read(cx).branch.as_ref().map(|b| b.name())
+                                            repo.read(cx).branch.as_ref().map(|b| b.name.clone())
                                         })
                                     {
                                         format!("based off {}", current_branch)

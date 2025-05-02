@@ -535,15 +535,9 @@ impl RenderOnce for ButtonLike {
                 ButtonSize::None => this,
             })
             .bg(style.enabled(self.layer, cx).background)
-            .when(self.disabled, |this| {
-                if self.cursor_style == CursorStyle::PointingHand {
-                    this.cursor_not_allowed()
-                } else {
-                    this.cursor(self.cursor_style)
-                }
-            })
+            .when(self.disabled, |this| this.cursor_not_allowed())
             .when(!self.disabled, |this| {
-                this.cursor(self.cursor_style)
+                this.cursor_pointer()
                     .hover(|hover| hover.bg(style.hovered(self.layer, cx).background))
                     .active(|active| active.bg(style.active(cx).background))
             })

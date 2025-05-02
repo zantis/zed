@@ -3790,9 +3790,13 @@ impl Repository {
 
     pub fn branches(&mut self) -> oneshot::Receiver<Result<Vec<Branch>>> {
         let id = self.id;
-        self.send_job(None, move |repo, _| async move {
+        self.send_job(None, move |repo, cx| async move {
             match repo {
-                RepositoryState::Local { backend, .. } => backend.branches().await,
+                RepositoryState::Local { backend, .. } => {
+                    let backend = backend.clone();
+                    cx.background_spawn(async move { backend.branches().await })
+                        .await
+                }
                 RepositoryState::Remote { project_id, client } => {
                     let response = client
                         .request(proto::GitGetBranches {
@@ -4456,7 +4460,7 @@ fn deserialize_blame_buffer_response(
 fn branch_to_proto(branch: &git::repository::Branch) -> proto::Branch {
     proto::Branch {
         is_head: branch.is_head,
-        ref_name: branch.ref_name.to_string(),
+        name: branch.name.to_string(),
         unix_timestamp: branch
             .most_recent_commit
             .as_ref()
@@ -4485,7 +4489,7 @@ fn branch_to_proto(branch: &git::repository::Branch) -> proto::Branch {
 fn proto_to_branch(proto: &proto::Branch) -> git::repository::Branch {
     git::repository::Branch {
         is_head: proto.is_head,
-        ref_name: proto.ref_name.clone().into(),
+        name: proto.name.clone().into(),
         upstream: proto
             .upstream
             .as_ref()

@@ -19,8 +19,7 @@ pub use debug_format::{
     AttachRequest, DebugRequest, DebugScenario, DebugTaskFile, LaunchRequest, TcpArgumentsTemplate,
 };
 pub use task_template::{
-    DebugArgsRequest, HideStrategy, RevealStrategy, TaskTemplate, TaskTemplates,
-    substitute_all_template_variables_in_str,
+    DebugArgsRequest, HideStrategy, RevealStrategy, TaskModal, TaskTemplate, TaskTemplates,
 };
 pub use vscode_debug_format::VsCodeDebugTaskFile;
 pub use vscode_format::VsCodeTaskFile;
@@ -266,10 +265,6 @@ impl TaskVariables {
                 true
             }
         })
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (&VariableName, &String)> {
-        self.0.iter()
     }
 }
 

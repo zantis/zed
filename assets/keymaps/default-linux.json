@@ -969,12 +969,5 @@
       "enter": "editor::Newline",
       "ctrl-enter": "menu::Confirm"
     }
-  },
-  {
-    "context": "Diagnostics",
-    "use_key_equivalents": true,
-    "bindings": {
-      "ctrl-r": "diagnostics::ToggleDiagnosticsRefresh"
-    }
   }
 ]

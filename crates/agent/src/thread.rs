@@ -301,14 +301,6 @@ pub enum TokenUsageRatio {
     Exceeded,
 }
 
-fn default_completion_mode(cx: &App) -> CompletionMode {
-    if cx.is_staff() {
-        CompletionMode::Max
-    } else {
-        CompletionMode::Normal
-    }
-}
-
 /// A thread of conversation with the LLM.
 pub struct Thread {
     id: ThreadId,
@@ -318,7 +310,7 @@ pub struct Thread {
     detailed_summary_task: Task<Option<()>>,
     detailed_summary_tx: postage::watch::Sender<DetailedSummaryState>,
     detailed_summary_rx: postage::watch::Receiver<DetailedSummaryState>,
-    completion_mode: CompletionMode,
+    completion_mode: Option<CompletionMode>,
     messages: Vec<Message>,
     next_message_id: MessageId,
     last_prompt_id: PromptId,
@@ -374,7 +366,7 @@ impl Thread {
             detailed_summary_task: Task::ready(None),
             detailed_summary_tx,
             detailed_summary_rx,
-            completion_mode: default_completion_mode(cx),
+            completion_mode: None,
             messages: Vec::new(),
             next_message_id: MessageId(0),
             last_prompt_id: PromptId::new(),
@@ -448,7 +440,7 @@ impl Thread {
             detailed_summary_task: Task::ready(None),
             detailed_summary_tx,
             detailed_summary_rx,
-            completion_mode: default_completion_mode(cx),
+            completion_mode: None,
             messages: serialized
                 .messages
                 .into_iter()
@@ -577,11 +569,11 @@ impl Thread {
         }
     }
 
-    pub fn completion_mode(&self) -> CompletionMode {
+    pub fn completion_mode(&self) -> Option<CompletionMode> {
         self.completion_mode
     }
 
-    pub fn set_completion_mode(&mut self, mode: CompletionMode) {
+    pub fn set_completion_mode(&mut self, mode: Option<CompletionMode>) {
         self.completion_mode = mode;
     }
 
@@ -1160,9 +1152,9 @@ impl Thread {
 
         request.tools = available_tools;
         request.mode = if model.supports_max_mode() {
-            Some(self.completion_mode)
+            self.completion_mode
         } else {
-            Some(CompletionMode::Normal)
+            None
         };
 
         request
@@ -2118,7 +2110,7 @@ impl Thread {
                 .map(|repo| {
                     repo.update(cx, |repo, _| {
                         let current_branch =
-                            repo.branch.as_ref().map(|branch| branch.name().to_owned());
+                            repo.branch.as_ref().map(|branch| branch.name.to_string());
                         repo.send_job(None, |state, _| async move {
                             let RepositoryState::Local { backend, .. } = state else {
                                 return GitState {
@@ -2517,7 +2509,7 @@ mod tests {
         let expected_context = format!(
             r#"
 <context>
-The following items were attached by the user. They are up-to-date and don't need to be re-read.
+The following items were attached by the user. You don't need to use other tools to read them.
 
 <files>
 ```rs {path_part}
