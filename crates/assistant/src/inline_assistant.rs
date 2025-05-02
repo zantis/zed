@@ -37,7 +37,7 @@ use language_model::{
     ConfiguredModel, LanguageModel, LanguageModelRegistry, LanguageModelRequest,
     LanguageModelRequestMessage, LanguageModelTextStream, Role, report_assistant_event,
 };
-use language_model_selector::{LanguageModelSelector, LanguageModelSelectorPopoverMenu};
+use language_model_selector::{LanguageModelSelector, LanguageModelSelectorPopoverMenu, ModelType};
 use multi_buffer::MultiBufferRow;
 use parking_lot::Mutex;
 use project::{CodeAction, LspAction, ProjectTransaction};
@@ -1226,7 +1226,7 @@ impl InlineAssistant {
                 editor.highlight_rows::<InlineAssist>(
                     row_range,
                     cx.theme().status().info_background,
-                    Default::default(),
+                    false,
                     cx,
                 );
             }
@@ -1291,7 +1291,7 @@ impl InlineAssistant {
                     editor.highlight_rows::<DeletedLines>(
                         Anchor::min()..Anchor::max(),
                         cx.theme().status().deleted_background,
-                        Default::default(),
+                        false,
                         cx,
                     );
                     editor
@@ -1759,7 +1759,6 @@ impl PromptEditor {
             language_model_selector: cx.new(|cx| {
                 let fs = fs.clone();
                 LanguageModelSelector::new(
-                    |cx| LanguageModelRegistry::read_global(cx).default_model(),
                     move |model, cx| {
                         update_settings_file::<AssistantSettings>(
                             fs.clone(),
@@ -1767,6 +1766,7 @@ impl PromptEditor {
                             move |settings, _| settings.set_model(model.clone()),
                         );
                     },
+                    ModelType::Default,
                     window,
                     cx,
                 )
@@ -3024,7 +3024,7 @@ impl CodegenAlternative {
             }
         }
 
-        let http_client = cx.http_client();
+        let http_client = cx.http_client().clone();
         let telemetry = self.telemetry.clone();
         let language_name = {
             let multibuffer = self.buffer.read(cx);

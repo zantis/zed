@@ -2,8 +2,6 @@ use assistant_settings::AssistantSettings;
 use fs::Fs;
 use gpui::{Entity, FocusHandle, SharedString};
 
-use crate::Thread;
-use language_model::{ConfiguredModel, LanguageModelRegistry};
 use language_model_selector::{
     LanguageModelSelector, LanguageModelSelectorPopoverMenu, ToggleModelSelector,
 };
@@ -11,11 +9,7 @@ use settings::update_settings_file;
 use std::sync::Arc;
 use ui::{ButtonLike, PopoverMenuHandle, Tooltip, prelude::*};
 
-#[derive(Clone)]
-pub enum ModelType {
-    Default(Entity<Thread>),
-    InlineAssistant,
-}
+pub use language_model_selector::ModelType;
 
 pub struct AssistantModelSelector {
     selector: Entity<LanguageModelSelector>,
@@ -30,39 +24,18 @@ impl AssistantModelSelector {
         focus_handle: FocusHandle,
         model_type: ModelType,
         window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &mut App,
     ) -> Self {
         Self {
-            selector: cx.new(move |cx| {
+            selector: cx.new(|cx| {
                 let fs = fs.clone();
                 LanguageModelSelector::new(
-                    {
-                        let model_type = model_type.clone();
-                        move |cx| match &model_type {
-                            ModelType::Default(thread) => thread.read(cx).configured_model(),
-                            ModelType::InlineAssistant => {
-                                LanguageModelRegistry::read_global(cx).inline_assistant_model()
-                            }
-                        }
-                    },
                     move |model, cx| {
                         let provider = model.provider_id().0.to_string();
                         let model_id = model.id().0.to_string();
-                        match &model_type {
-                            ModelType::Default(thread) => {
-                                thread.update(cx, |thread, cx| {
-                                    let registry = LanguageModelRegistry::read_global(cx);
-                                    if let Some(provider) = registry.provider(&model.provider_id())
-                                    {
-                                        thread.set_configured_model(
-                                            Some(ConfiguredModel {
-                                                provider,
-                                                model: model.clone(),
-                                            }),
-                                            cx,
-                                        );
-                                    }
-                                });
+
+                        match model_type {
+                            ModelType::Default => {
                                 update_settings_file::<AssistantSettings>(
                                     fs.clone(),
                                     cx,
@@ -85,6 +58,7 @@ impl AssistantModelSelector {
                             }
                         }
                     },
+                    model_type,
                     window,
                     cx,
                 )

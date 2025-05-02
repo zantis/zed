@@ -2,47 +2,38 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use collections::HashMap;
-use extension::ContextServerConfiguration;
 use gpui::{App, AppContext as _, AsyncApp, Entity, Global, ReadGlobal, Task};
 use project::Project;
 
 use crate::ServerCommand;
 
-pub trait ContextServerDescriptor {
-    fn command(&self, project: Entity<Project>, cx: &AsyncApp) -> Task<Result<ServerCommand>>;
-    fn configuration(
-        &self,
-        project: Entity<Project>,
-        cx: &AsyncApp,
-    ) -> Task<Result<Option<ContextServerConfiguration>>>;
-}
+pub type ContextServerFactory =
+    Arc<dyn Fn(Entity<Project>, &AsyncApp) -> Task<Result<ServerCommand>> + Send + Sync + 'static>;
 
-struct GlobalContextServerDescriptorRegistry(Entity<ContextServerDescriptorRegistry>);
+struct GlobalContextServerFactoryRegistry(Entity<ContextServerFactoryRegistry>);
 
-impl Global for GlobalContextServerDescriptorRegistry {}
+impl Global for GlobalContextServerFactoryRegistry {}
 
 #[derive(Default)]
-pub struct ContextServerDescriptorRegistry {
-    context_servers: HashMap<Arc<str>, Arc<dyn ContextServerDescriptor>>,
+pub struct ContextServerFactoryRegistry {
+    context_servers: HashMap<Arc<str>, ContextServerFactory>,
 }
 
-impl ContextServerDescriptorRegistry {
-    /// Returns the global [`ContextServerDescriptorRegistry`].
+impl ContextServerFactoryRegistry {
+    /// Returns the global [`ContextServerFactoryRegistry`].
     pub fn global(cx: &App) -> Entity<Self> {
-        GlobalContextServerDescriptorRegistry::global(cx).0.clone()
+        GlobalContextServerFactoryRegistry::global(cx).0.clone()
     }
 
-    /// Returns the global [`ContextServerDescriptorRegistry`].
+    /// Returns the global [`ContextServerFactoryRegistry`].
     ///
-    /// Inserts a default [`ContextServerDescriptorRegistry`] if one does not yet exist.
+    /// Inserts a default [`ContextServerFactoryRegistry`] if one does not yet exist.
     pub fn default_global(cx: &mut App) -> Entity<Self> {
-        if !cx.has_global::<GlobalContextServerDescriptorRegistry>() {
+        if !cx.has_global::<GlobalContextServerFactoryRegistry>() {
             let registry = cx.new(|_| Self::new());
-            cx.set_global(GlobalContextServerDescriptorRegistry(registry));
+            cx.set_global(GlobalContextServerFactoryRegistry(registry));
         }
-        cx.global::<GlobalContextServerDescriptorRegistry>()
-            .0
-            .clone()
+        cx.global::<GlobalContextServerFactoryRegistry>().0.clone()
     }
 
     pub fn new() -> Self {
@@ -51,28 +42,20 @@ impl ContextServerDescriptorRegistry {
         }
     }
 
-    pub fn context_server_descriptors(&self) -> Vec<(Arc<str>, Arc<dyn ContextServerDescriptor>)> {
+    pub fn context_server_factories(&self) -> Vec<(Arc<str>, ContextServerFactory)> {
         self.context_servers
             .iter()
             .map(|(id, factory)| (id.clone(), factory.clone()))
             .collect()
     }
 
-    pub fn context_server_descriptor(&self, id: &str) -> Option<Arc<dyn ContextServerDescriptor>> {
-        self.context_servers.get(id).cloned()
+    /// Registers the provided [`ContextServerFactory`].
+    pub fn register_server_factory(&mut self, id: Arc<str>, factory: ContextServerFactory) {
+        self.context_servers.insert(id, factory);
     }
 
-    /// Registers the provided [`ContextServerDescriptor`].
-    pub fn register_context_server_descriptor(
-        &mut self,
-        id: Arc<str>,
-        descriptor: Arc<dyn ContextServerDescriptor>,
-    ) {
-        self.context_servers.insert(id, descriptor);
-    }
-
-    /// Unregisters the [`ContextServerDescriptor`] for the server with the given ID.
-    pub fn unregister_context_server_descriptor_by_id(&mut self, server_id: &str) {
+    /// Unregisters the [`ContextServerFactory`] for the server with the given ID.
+    pub fn unregister_server_factory_by_id(&mut self, server_id: &str) {
         self.context_servers.remove(server_id);
     }
 }

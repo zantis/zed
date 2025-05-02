@@ -188,7 +188,7 @@ impl LanguageModelRegistry {
             .collect::<Vec<_>>();
     }
 
-    pub fn select_model(
+    fn select_model(
         &mut self,
         selected_model: &SelectedModel,
         cx: &mut Context<Self>,

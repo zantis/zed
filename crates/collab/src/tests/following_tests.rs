@@ -1517,7 +1517,10 @@ async fn test_following_across_workspaces(cx_a: &mut TestAppContext, cx_b: &mut 
             workspace.leader_for_pane(workspace.active_pane())
         );
         let item = workspace.active_item(cx).unwrap();
-        assert_eq!(item.tab_content_text(0, cx), SharedString::from("w.rs"));
+        assert_eq!(
+            item.tab_description(0, cx).unwrap(),
+            SharedString::from("w.rs")
+        );
     });
 
     // TODO: in app code, this would be done by the collab_ui.
@@ -1543,7 +1546,10 @@ async fn test_following_across_workspaces(cx_a: &mut TestAppContext, cx_b: &mut 
     executor.run_until_parked();
     workspace_b_project_a.update(&mut cx_b2, |workspace, cx| {
         let item = workspace.active_item(cx).unwrap();
-        assert_eq!(item.tab_content_text(0, cx), SharedString::from("x.rs"));
+        assert_eq!(
+            item.tab_description(0, cx).unwrap(),
+            SharedString::from("x.rs")
+        );
     });
 
     workspace_a.update_in(cx_a, |workspace, window, cx| {
@@ -1558,7 +1564,7 @@ async fn test_following_across_workspaces(cx_a: &mut TestAppContext, cx_b: &mut 
             workspace.leader_for_pane(workspace.active_pane())
         );
         let item = workspace.active_pane().read(cx).active_item().unwrap();
-        assert_eq!(item.tab_content_text(0, cx), "x.rs");
+        assert_eq!(item.tab_description(0, cx).unwrap(), "x.rs");
     });
 
     // b moves to y.rs in b's project, a is still following but can't yet see
@@ -1619,7 +1625,10 @@ async fn test_following_across_workspaces(cx_a: &mut TestAppContext, cx_b: &mut 
             workspace.leader_for_pane(workspace.active_pane())
         );
         let item = workspace.active_item(cx).unwrap();
-        assert_eq!(item.tab_content_text(0, cx), SharedString::from("y.rs"));
+        assert_eq!(
+            item.tab_description(0, cx).unwrap(),
+            SharedString::from("y.rs")
+        );
     });
 }
 
@@ -1876,7 +1885,13 @@ fn pane_summaries(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> 
                     items: pane
                         .items()
                         .enumerate()
-                        .map(|(ix, item)| (ix == active_ix, item.tab_content_text(0, cx).into()))
+                        .map(|(ix, item)| {
+                            (
+                                ix == active_ix,
+                                item.tab_description(0, cx)
+                                    .map_or(String::new(), |s| s.to_string()),
+                            )
+                        })
                         .collect(),
                 }
             })
@@ -2164,7 +2179,7 @@ async fn test_following_to_channel_notes_other_workspace(
     cx_a.run_until_parked();
     workspace_a.update(cx_a, |workspace, cx| {
         let editor = workspace.active_item(cx).unwrap();
-        assert_eq!(editor.tab_content_text(0, cx), "1.txt");
+        assert_eq!(editor.tab_description(0, cx).unwrap(), "1.txt");
     });
 
     // b joins channel and is following a
@@ -2173,7 +2188,7 @@ async fn test_following_to_channel_notes_other_workspace(
     let (workspace_b, cx_b) = client_b.active_workspace(cx_b);
     workspace_b.update(cx_b, |workspace, cx| {
         let editor = workspace.active_item(cx).unwrap();
-        assert_eq!(editor.tab_content_text(0, cx), "1.txt");
+        assert_eq!(editor.tab_description(0, cx).unwrap(), "1.txt");
     });
 
     // a opens a second workspace and the channel notes
@@ -2197,13 +2212,13 @@ async fn test_following_to_channel_notes_other_workspace(
 
     workspace_a.update(cx_a, |workspace, cx| {
         let editor = workspace.active_item(cx).unwrap();
-        assert_eq!(editor.tab_content_text(0, cx), "1.txt");
+        assert_eq!(editor.tab_description(0, cx).unwrap(), "1.txt");
     });
 
     // b should follow a back
     workspace_b.update(cx_b, |workspace, cx| {
         let editor = workspace.active_item_as::<Editor>(cx).unwrap();
-        assert_eq!(editor.tab_content_text(0, cx), "1.txt");
+        assert_eq!(editor.tab_description(0, cx).unwrap(), "1.txt");
     });
 }
 
@@ -2223,7 +2238,7 @@ async fn test_following_while_deactivated(cx_a: &mut TestAppContext, cx_b: &mut 
     cx_a.run_until_parked();
     workspace_a.update(cx_a, |workspace, cx| {
         let editor = workspace.active_item(cx).unwrap();
-        assert_eq!(editor.tab_content_text(0, cx), "1.txt");
+        assert_eq!(editor.tab_description(0, cx).unwrap(), "1.txt");
     });
 
     // b joins channel and is following a
@@ -2232,7 +2247,7 @@ async fn test_following_while_deactivated(cx_a: &mut TestAppContext, cx_b: &mut 
     let (workspace_b, cx_b) = client_b.active_workspace(cx_b);
     workspace_b.update(cx_b, |workspace, cx| {
         let editor = workspace.active_item(cx).unwrap();
-        assert_eq!(editor.tab_content_text(0, cx), "1.txt");
+        assert_eq!(editor.tab_description(0, cx).unwrap(), "1.txt");
     });
 
     // stop following
@@ -2245,7 +2260,7 @@ async fn test_following_while_deactivated(cx_a: &mut TestAppContext, cx_b: &mut 
 
     workspace_b.update(cx_b, |workspace, cx| {
         let editor = workspace.active_item_as::<Editor>(cx).unwrap();
-        assert_eq!(editor.tab_content_text(0, cx), "1.txt");
+        assert_eq!(editor.tab_description(0, cx).unwrap(), "1.txt");
     });
 
     // a opens a file in a new window
@@ -2266,12 +2281,12 @@ async fn test_following_while_deactivated(cx_a: &mut TestAppContext, cx_b: &mut 
 
     workspace_a.update(cx_a, |workspace, cx| {
         let editor = workspace.active_item(cx).unwrap();
-        assert_eq!(editor.tab_content_text(0, cx), "2.js");
+        assert_eq!(editor.tab_description(0, cx).unwrap(), "2.js");
     });
 
     // b should follow a back
     workspace_b.update(cx_b, |workspace, cx| {
         let editor = workspace.active_item_as::<Editor>(cx).unwrap();
-        assert_eq!(editor.tab_content_text(0, cx), "2.js");
+        assert_eq!(editor.tab_description(0, cx).unwrap(), "2.js");
     });
 }

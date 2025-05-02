@@ -82,7 +82,7 @@ pub trait HttpClient: 'static + Send + Sync {
         }
     }
 
-    fn proxy(&self) -> Option<&Url>;
+    fn proxy(&self) -> Option<&Uri>;
 }
 
 /// An [`HttpClient`] that may have a proxy.
@@ -90,22 +90,22 @@ pub trait HttpClient: 'static + Send + Sync {
 pub struct HttpClientWithProxy {
     #[deref]
     client: Arc<dyn HttpClient>,
-    proxy: Option<Url>,
+    proxy: Option<Uri>,
 }
 
 impl HttpClientWithProxy {
     /// Returns a new [`HttpClientWithProxy`] with the given proxy URL.
     pub fn new(client: Arc<dyn HttpClient>, proxy_url: Option<String>) -> Self {
-        let proxy_url = proxy_url
+        let proxy_uri = proxy_url
             .and_then(|proxy| proxy.parse().ok())
             .or_else(read_proxy_from_env);
 
-        Self::new_url(client, proxy_url)
+        Self::new_uri(client, proxy_uri)
     }
-    pub fn new_url(client: Arc<dyn HttpClient>, proxy_url: Option<Url>) -> Self {
+    pub fn new_uri(client: Arc<dyn HttpClient>, proxy_uri: Option<Uri>) -> Self {
         Self {
             client,
-            proxy: proxy_url,
+            proxy: proxy_uri,
         }
     }
 }
@@ -118,7 +118,7 @@ impl HttpClient for HttpClientWithProxy {
         self.client.send(req)
     }
 
-    fn proxy(&self) -> Option<&Url> {
+    fn proxy(&self) -> Option<&Uri> {
         self.proxy.as_ref()
     }
 
@@ -135,7 +135,7 @@ impl HttpClient for Arc<HttpClientWithProxy> {
         self.client.send(req)
     }
 
-    fn proxy(&self) -> Option<&Url> {
+    fn proxy(&self) -> Option<&Uri> {
         self.proxy.as_ref()
     }
 
@@ -173,12 +173,12 @@ impl HttpClientWithUrl {
         }
     }
 
-    pub fn new_url(
+    pub fn new_uri(
         client: Arc<dyn HttpClient>,
         base_url: impl Into<String>,
-        proxy_url: Option<Url>,
+        proxy_uri: Option<Uri>,
     ) -> Self {
-        let client = HttpClientWithProxy::new_url(client, proxy_url);
+        let client = HttpClientWithProxy::new_uri(client, proxy_uri);
 
         Self {
             base_url: Mutex::new(base_url.into()),
@@ -250,7 +250,7 @@ impl HttpClient for Arc<HttpClientWithUrl> {
         self.client.send(req)
     }
 
-    fn proxy(&self) -> Option<&Url> {
+    fn proxy(&self) -> Option<&Uri> {
         self.client.proxy.as_ref()
     }
 
@@ -267,7 +267,7 @@ impl HttpClient for HttpClientWithUrl {
         self.client.send(req)
     }
 
-    fn proxy(&self) -> Option<&Url> {
+    fn proxy(&self) -> Option<&Uri> {
         self.client.proxy.as_ref()
     }
 
@@ -276,7 +276,7 @@ impl HttpClient for HttpClientWithUrl {
     }
 }
 
-pub fn read_proxy_from_env() -> Option<Url> {
+pub fn read_proxy_from_env() -> Option<Uri> {
     const ENV_VARS: &[&str] = &[
         "ALL_PROXY",
         "all_proxy",
@@ -286,10 +286,13 @@ pub fn read_proxy_from_env() -> Option<Url> {
         "http_proxy",
     ];
 
-    ENV_VARS
-        .iter()
-        .find_map(|var| std::env::var(var).ok())
-        .and_then(|env| env.parse().ok())
+    for var in ENV_VARS {
+        if let Ok(env) = std::env::var(var) {
+            return env.parse::<Uri>().ok();
+        }
+    }
+
+    None
 }
 
 pub struct BlockedHttpClient;
@@ -314,7 +317,7 @@ impl HttpClient for BlockedHttpClient {
         })
     }
 
-    fn proxy(&self) -> Option<&Url> {
+    fn proxy(&self) -> Option<&Uri> {
         None
     }
 
@@ -390,7 +393,7 @@ impl HttpClient for FakeHttpClient {
         future
     }
 
-    fn proxy(&self) -> Option<&Url> {
+    fn proxy(&self) -> Option<&Uri> {
         None
     }
 

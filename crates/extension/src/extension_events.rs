@@ -1,8 +1,4 @@
-use std::sync::Arc;
-
 use gpui::{App, AppContext as _, Context, Entity, EventEmitter, Global};
-
-use crate::ExtensionManifest;
 
 pub fn init(cx: &mut App) {
     let extension_events = cx.new(ExtensionEvents::new);
@@ -35,9 +31,7 @@ impl ExtensionEvents {
 
 #[derive(Clone)]
 pub enum Event {
-    ExtensionInstalled(Arc<ExtensionManifest>),
     ExtensionsInstalledChanged,
-    ConfigureExtensionRequested(Arc<ExtensionManifest>),
 }
 
 impl EventEmitter<Event> for ExtensionEvents {}

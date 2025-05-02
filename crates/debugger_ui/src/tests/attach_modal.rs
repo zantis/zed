@@ -1,13 +1,12 @@
 use crate::{attach_modal::Candidate, tests::start_debug_session_with, *};
 use attach_modal::AttachModal;
-use dap::{FakeAdapter, adapters::DebugTaskDefinition};
+use dap::{FakeAdapter, client::SessionId};
 use gpui::{BackgroundExecutor, TestAppContext, VisualTestContext};
 use menu::Confirm;
 use project::{FakeFs, Project};
 use serde_json::json;
-use task::{AttachRequest, TcpArgumentsTemplate};
+use task::{AttachRequest, DebugTaskDefinition, TcpArgumentsTemplate};
 use tests::{init_test, init_test_workspace};
-use util::path;
 
 #[gpui::test]
 async fn test_direct_attach_to_process(executor: BackgroundExecutor, cx: &mut TestAppContext) {
@@ -16,14 +15,14 @@ async fn test_direct_attach_to_process(executor: BackgroundExecutor, cx: &mut Te
     let fs = FakeFs::new(executor.clone());
 
     fs.insert_tree(
-        path!("/project"),
+        "/project",
         json!({
             "main.rs": "First line\nSecond line\nThird line\nFourth line",
         }),
     )
     .await;
 
-    let project = Project::test(fs, [path!("/project").as_ref()], cx).await;
+    let project = Project::test(fs, ["/project".as_ref()], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
 
@@ -31,20 +30,18 @@ async fn test_direct_attach_to_process(executor: BackgroundExecutor, cx: &mut Te
         &workspace,
         cx,
         DebugTaskDefinition {
-            adapter: "fake-adapter".into(),
+            adapter: "fake-adapter".to_string(),
             request: dap::DebugRequest::Attach(AttachRequest {
                 process_id: Some(10),
             }),
-            label: "label".into(),
+            label: "label".to_string(),
             initialize_args: None,
             tcp_connection: None,
             stop_on_entry: None,
         },
         |client| {
             client.on_request::<dap::requests::Attach, _>(move |_, args| {
-                let raw = &args.raw;
-                assert_eq!(raw["request"], "attach");
-                assert_eq!(raw["process_id"], 10);
+                assert_eq!(json!({"request": "attach", "process_id": 10}), args.raw);
 
                 Ok(())
             });
@@ -80,23 +77,21 @@ async fn test_show_attach_modal_and_select_process(
     let fs = FakeFs::new(executor.clone());
 
     fs.insert_tree(
-        path!("/project"),
+        "/project",
         json!({
             "main.rs": "First line\nSecond line\nThird line\nFourth line",
         }),
     )
     .await;
 
-    let project = Project::test(fs, [path!("/project").as_ref()], cx).await;
+    let project = Project::test(fs, ["/project".as_ref()], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
     // Set up handlers for sessions spawned via modal.
     let _initialize_subscription =
         project::debugger::test::intercept_debug_sessions(cx, |client| {
             client.on_request::<dap::requests::Attach, _>(move |_, args| {
-                let raw = &args.raw;
-                assert_eq!(raw["request"], "attach");
-                assert_eq!(raw["process_id"], 1);
+                assert_eq!(json!({"request": "attach", "process_id": 1}), args.raw);
 
                 Ok(())
             });
@@ -109,7 +104,6 @@ async fn test_show_attach_modal_and_select_process(
                     workspace_handle,
                     DebugTaskDefinition {
                         adapter: FakeAdapter::ADAPTER_NAME.into(),
-
                         request: dap::DebugRequest::Attach(AttachRequest::default()),
                         label: "attach example".into(),
                         initialize_args: None,
@@ -182,4 +176,14 @@ async fn test_show_attach_modal_and_select_process(
             assert!(workspace.active_modal::<AttachModal>(cx).is_none());
         })
         .unwrap();
+
+    let shutdown_session = project.update(cx, |project, cx| {
+        project.dap_store().update(cx, |dap_store, cx| {
+            let session = dap_store.session_by_id(SessionId(0)).unwrap();
+
+            dap_store.shutdown_session(session.read(cx).session_id(), cx)
+        })
+    });
+
+    shutdown_session.await.unwrap();
 }

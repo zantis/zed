@@ -1,6 +1,7 @@
-use dap::{StartDebuggingRequestArguments, adapters::DebugTaskDefinition};
+use dap::StartDebuggingRequestArguments;
 use gpui::AsyncApp;
 use std::{collections::HashMap, ffi::OsStr, path::PathBuf};
+use task::DebugTaskDefinition;
 
 use crate::*;
 

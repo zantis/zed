@@ -45,9 +45,9 @@ pub static ALL_FILE_DB_FAILED: LazyLock<AtomicBool> = LazyLock::new(|| AtomicBoo
 /// This will retry a couple times if there are failures. If opening fails once, the db directory
 /// is moved to a backup folder and a new one is created. If that fails, a shared in memory db is created.
 /// In either case, static variables are set so that the user can be notified.
-pub async fn open_db<M: Migrator + 'static>(db_dir: &Path, scope: &str) -> ThreadSafeConnection {
+pub async fn open_db<M: Migrator + 'static>(db_dir: &Path, scope: &str) -> ThreadSafeConnection<M> {
     if *ZED_STATELESS {
-        return open_fallback_db::<M>().await;
+        return open_fallback_db().await;
     }
 
     let main_db_dir = db_dir.join(format!("0-{}", scope));
@@ -58,7 +58,7 @@ pub async fn open_db<M: Migrator + 'static>(db_dir: &Path, scope: &str) -> Threa
             .context("Could not create db directory")
             .log_err()?;
         let db_path = main_db_dir.join(Path::new(DB_FILE_NAME));
-        open_main_db::<M>(&db_path).await
+        open_main_db(&db_path).await
     })
     .await;
 
@@ -70,12 +70,12 @@ pub async fn open_db<M: Migrator + 'static>(db_dir: &Path, scope: &str) -> Threa
     ALL_FILE_DB_FAILED.store(true, Ordering::Release);
 
     // If still failed, create an in memory db with a known name
-    open_fallback_db::<M>().await
+    open_fallback_db().await
 }
 
-async fn open_main_db<M: Migrator>(db_path: &Path) -> Option<ThreadSafeConnection> {
+async fn open_main_db<M: Migrator>(db_path: &Path) -> Option<ThreadSafeConnection<M>> {
     log::info!("Opening main db");
-    ThreadSafeConnection::builder::<M>(db_path.to_string_lossy().as_ref(), true)
+    ThreadSafeConnection::<M>::builder(db_path.to_string_lossy().as_ref(), true)
         .with_db_initialization_query(DB_INITIALIZE_QUERY)
         .with_connection_initialize_query(CONNECTION_INITIALIZE_QUERY)
         .build()
@@ -83,9 +83,9 @@ async fn open_main_db<M: Migrator>(db_path: &Path) -> Option<ThreadSafeConnectio
         .log_err()
 }
 
-async fn open_fallback_db<M: Migrator>() -> ThreadSafeConnection {
+async fn open_fallback_db<M: Migrator>() -> ThreadSafeConnection<M> {
     log::info!("Opening fallback db");
-    ThreadSafeConnection::builder::<M>(FALLBACK_DB_NAME, false)
+    ThreadSafeConnection::<M>::builder(FALLBACK_DB_NAME, false)
         .with_db_initialization_query(DB_INITIALIZE_QUERY)
         .with_connection_initialize_query(CONNECTION_INITIALIZE_QUERY)
         .build()
@@ -96,10 +96,10 @@ async fn open_fallback_db<M: Migrator>() -> ThreadSafeConnection {
 }
 
 #[cfg(any(test, feature = "test-support"))]
-pub async fn open_test_db<M: Migrator>(db_name: &str) -> ThreadSafeConnection {
+pub async fn open_test_db<M: Migrator>(db_name: &str) -> ThreadSafeConnection<M> {
     use sqlez::thread_safe_connection::locking_queue;
 
-    ThreadSafeConnection::builder::<M>(db_name, false)
+    ThreadSafeConnection::<M>::builder(db_name, false)
         .with_db_initialization_query(DB_INITIALIZE_QUERY)
         .with_connection_initialize_query(CONNECTION_INITIALIZE_QUERY)
         // Serialize queued writes via a mutex and run them synchronously
@@ -113,10 +113,10 @@ pub async fn open_test_db<M: Migrator>(db_name: &str) -> ThreadSafeConnection {
 #[macro_export]
 macro_rules! define_connection {
     (pub static ref $id:ident: $t:ident<()> = $migrations:expr; $($global:ident)?) => {
-        pub struct $t($crate::sqlez::thread_safe_connection::ThreadSafeConnection);
+        pub struct $t($crate::sqlez::thread_safe_connection::ThreadSafeConnection<$t>);
 
         impl ::std::ops::Deref for $t {
-            type Target = $crate::sqlez::thread_safe_connection::ThreadSafeConnection;
+            type Target = $crate::sqlez::thread_safe_connection::ThreadSafeConnection<$t>;
 
             fn deref(&self) -> &Self::Target {
                 &self.0
@@ -133,16 +133,9 @@ macro_rules! define_connection {
             }
         }
 
-        impl $t {
-            #[cfg(any(test, feature = "test-support"))]
-            pub async fn open_test_db(name: &'static str) -> Self {
-                $t($crate::open_test_db::<$t>(name).await)
-            }
-        }
-
         #[cfg(any(test, feature = "test-support"))]
         pub static $id: std::sync::LazyLock<$t> = std::sync::LazyLock::new(|| {
-            $t($crate::smol::block_on($crate::open_test_db::<$t>(stringify!($id))))
+            $t($crate::smol::block_on($crate::open_test_db(stringify!($id))))
         });
 
         #[cfg(not(any(test, feature = "test-support")))]
@@ -153,14 +146,14 @@ macro_rules! define_connection {
             } else {
                 $crate::RELEASE_CHANNEL.dev_name()
             };
-            $t($crate::smol::block_on($crate::open_db::<$t>(db_dir, scope)))
+            $t($crate::smol::block_on($crate::open_db(db_dir, scope)))
         });
     };
     (pub static ref $id:ident: $t:ident<$($d:ty),+> = $migrations:expr; $($global:ident)?) => {
-        pub struct $t($crate::sqlez::thread_safe_connection::ThreadSafeConnection);
+        pub struct $t($crate::sqlez::thread_safe_connection::ThreadSafeConnection<( $($d),+, $t )>);
 
         impl ::std::ops::Deref for $t {
-            type Target = $crate::sqlez::thread_safe_connection::ThreadSafeConnection;
+            type Target = $crate::sqlez::thread_safe_connection::ThreadSafeConnection<($($d),+, $t)>;
 
             fn deref(&self) -> &Self::Target {
                 &self.0
@@ -179,7 +172,7 @@ macro_rules! define_connection {
 
         #[cfg(any(test, feature = "test-support"))]
         pub static $id: std::sync::LazyLock<$t> = std::sync::LazyLock::new(|| {
-            $t($crate::smol::block_on($crate::open_test_db::<($($d),+, $t)>(stringify!($id))))
+            $t($crate::smol::block_on($crate::open_test_db(stringify!($id))))
         });
 
         #[cfg(not(any(test, feature = "test-support")))]
@@ -190,7 +183,7 @@ macro_rules! define_connection {
             } else {
                 $crate::RELEASE_CHANNEL.dev_name()
             };
-            $t($crate::smol::block_on($crate::open_db::<($($d),+, $t)>(db_dir, scope)))
+            $t($crate::smol::block_on($crate::open_db(db_dir, scope)))
         });
     };
 }

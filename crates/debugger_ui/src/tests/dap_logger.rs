@@ -5,7 +5,6 @@ use gpui::{BackgroundExecutor, TestAppContext, VisualTestContext};
 use project::Project;
 use serde_json::json;
 use std::cell::OnceCell;
-use util::path;
 
 #[gpui::test]
 async fn test_dap_logger_captures_all_session_rpc_messages(
@@ -29,7 +28,7 @@ async fn test_dap_logger_captures_all_session_rpc_messages(
     // Create a filesystem with a simple project
     let fs = project::FakeFs::new(executor.clone());
     fs.insert_tree(
-        path!("/project"),
+        "/project",
         json!({
             "main.rs": "fn main() {\n    println!(\"Hello, world!\");\n}"
         }),
@@ -43,7 +42,7 @@ async fn test_dap_logger_captures_all_session_rpc_messages(
         "log_store shouldn't contain any session IDs before any sessions were created"
     );
 
-    let project = Project::test(fs, [path!("/project").as_ref()], cx).await;
+    let project = Project::test(fs, ["/project".as_ref()], cx).await;
 
     let workspace = init_test_workspace(&project, cx).await;
     let cx = &mut VisualTestContext::from_window(*workspace, cx);
@@ -104,4 +103,16 @@ async fn test_dap_logger_captures_all_session_rpc_messages(
             hit_breakpoint_ids: None,
         }))
         .await;
+
+    cx.run_until_parked();
+
+    // Shutdown the debug session
+    let shutdown_session = project.update(cx, |project, cx| {
+        project.dap_store().update(cx, |dap_store, cx| {
+            dap_store.shutdown_session(session.read(cx).session_id(), cx)
+        })
+    });
+
+    shutdown_session.await.unwrap();
+    cx.run_until_parked();
 }

@@ -1,5 +1,4 @@
 mod action_log;
-pub mod outline;
 mod tool_registry;
 mod tool_schema;
 mod tool_working_set;

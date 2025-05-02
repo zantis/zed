@@ -95,7 +95,6 @@ pub enum Event {
     },
     ExcerptsRemoved {
         ids: Vec<ExcerptId>,
-        removed_buffer_ids: Vec<BufferId>,
     },
     ExcerptsExpanded {
         ids: Vec<ExcerptId>,
@@ -1686,10 +1685,7 @@ impl MultiBuffer {
         let mut counts: Vec<usize> = Vec::new();
         for range in expanded_ranges {
             if let Some(last_range) = merged_ranges.last_mut() {
-                debug_assert!(
-                    last_range.context.start <= range.context.start,
-                    "Last range: {last_range:?} Range: {range:?}"
-                );
+                debug_assert!(last_range.context.start <= range.context.start);
                 if last_range.context.end >= range.context.start {
                     last_range.context.end = range.context.end.max(last_range.context.end);
                     *counts.last_mut().unwrap() += 1;
@@ -2025,12 +2021,7 @@ impl MultiBuffer {
     pub fn clear(&mut self, cx: &mut Context<Self>) {
         self.sync(cx);
         let ids = self.excerpt_ids();
-        let removed_buffer_ids = self
-            .buffers
-            .borrow_mut()
-            .drain()
-            .map(|(id, _)| id)
-            .collect();
+        self.buffers.borrow_mut().clear();
         self.excerpts_by_path.clear();
         self.paths_by_excerpt.clear();
         let mut snapshot = self.snapshot.borrow_mut();
@@ -2055,10 +2046,7 @@ impl MultiBuffer {
             singleton_buffer_edited: false,
             edited_buffer: None,
         });
-        cx.emit(Event::ExcerptsRemoved {
-            ids,
-            removed_buffer_ids,
-        });
+        cx.emit(Event::ExcerptsRemoved { ids });
         cx.notify();
     }
 
@@ -2322,9 +2310,9 @@ impl MultiBuffer {
         new_excerpts.append(suffix, &());
         drop(cursor);
         snapshot.excerpts = new_excerpts;
-        for buffer_id in &removed_buffer_ids {
-            self.diffs.remove(buffer_id);
-            snapshot.diffs.remove(buffer_id);
+        for buffer_id in removed_buffer_ids {
+            self.diffs.remove(&buffer_id);
+            snapshot.diffs.remove(&buffer_id);
         }
 
         if changed_trailing_excerpt {
@@ -2337,10 +2325,7 @@ impl MultiBuffer {
             singleton_buffer_edited: false,
             edited_buffer: None,
         });
-        cx.emit(Event::ExcerptsRemoved {
-            ids,
-            removed_buffer_ids,
-        });
+        cx.emit(Event::ExcerptsRemoved { ids });
         cx.notify();
     }
 
@@ -5951,29 +5936,6 @@ impl MultiBufferSnapshot {
             )
         })
         .map(|(range, diagnostic, _)| DiagnosticEntry { diagnostic, range })
-    }
-
-    pub fn diagnostics_with_buffer_ids_in_range<'a, T>(
-        &'a self,
-        range: Range<T>,
-    ) -> impl Iterator<Item = (BufferId, DiagnosticEntry<T>)> + 'a
-    where
-        T: 'a
-            + text::ToOffset
-            + text::FromAnchor
-            + TextDimension
-            + Ord
-            + Sub<T, Output = T>
-            + fmt::Debug,
-    {
-        self.lift_buffer_metadata(range, move |buffer, buffer_range| {
-            Some(
-                buffer
-                    .diagnostics_in_range(buffer_range.start..buffer_range.end, false)
-                    .map(|entry| (entry.range, entry.diagnostic)),
-            )
-        })
-        .map(|(range, diagnostic, b)| (b.buffer_id, DiagnosticEntry { diagnostic, range }))
     }
 
     pub fn syntax_ancestor<T: ToOffset>(

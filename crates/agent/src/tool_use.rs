@@ -7,7 +7,7 @@ use futures::FutureExt as _;
 use futures::future::Shared;
 use gpui::{App, Entity, SharedString, Task};
 use language_model::{
-    ConfiguredModel, LanguageModel, LanguageModelRequestMessage, LanguageModelToolResult,
+    LanguageModel, LanguageModelRegistry, LanguageModelRequestMessage, LanguageModelToolResult,
     LanguageModelToolUse, LanguageModelToolUseId, MessageContent, Role,
 };
 use ui::IconName;
@@ -353,7 +353,7 @@ impl ToolUseState {
         tool_use_id: LanguageModelToolUseId,
         tool_name: Arc<str>,
         output: Result<String>,
-        configured_model: Option<&ConfiguredModel>,
+        cx: &App,
     ) -> Option<PendingToolUse> {
         let metadata = self.tool_use_metadata_by_id.remove(&tool_use_id);
 
@@ -373,10 +373,13 @@ impl ToolUseState {
 
         match output {
             Ok(tool_result) => {
+                let model_registry = LanguageModelRegistry::read_global(cx);
+
                 const BYTES_PER_TOKEN_ESTIMATE: usize = 3;
 
                 // Protect from clearly large output
-                let tool_output_limit = configured_model
+                let tool_output_limit = model_registry
+                    .default_model()
                     .map(|model| model.model.max_token_count() * BYTES_PER_TOKEN_ESTIMATE)
                     .unwrap_or(usize::MAX);
 

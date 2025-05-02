@@ -1,7 +1,7 @@
 use crate::commit::parse_git_diff_name_status;
 use crate::status::{GitStatus, StatusCode};
 use crate::{Oid, SHORT_SHA_LENGTH};
-use anyhow::{Context as _, Result, anyhow, bail};
+use anyhow::{Context as _, Result, anyhow};
 use collections::HashMap;
 use futures::future::BoxFuture;
 use futures::{AsyncWriteExt, FutureExt as _, select_biased};
@@ -13,16 +13,17 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use std::borrow::{Borrow, Cow};
 use std::ffi::{OsStr, OsString};
-use std::io::prelude::*;
 use std::path::Component;
 use std::process::{ExitStatus, Stdio};
 use std::sync::LazyLock;
 use std::{
     cmp::Ordering,
-    future,
-    io::{BufRead, BufReader, BufWriter, Read},
     path::{Path, PathBuf},
     sync::Arc,
+};
+use std::{
+    future,
+    io::{BufRead, BufReader, BufWriter, Read},
 };
 use sum_tree::MapSeekTarget;
 use thiserror::Error;
@@ -37,24 +38,12 @@ pub const REMOTE_CANCELLED_BY_USER: &str = "Operation cancelled by user";
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct Branch {
     pub is_head: bool,
-    pub ref_name: SharedString,
+    pub name: SharedString,
     pub upstream: Option<Upstream>,
     pub most_recent_commit: Option<CommitSummary>,
 }
 
 impl Branch {
-    pub fn name(&self) -> &str {
-        self.ref_name
-            .as_ref()
-            .strip_prefix("refs/heads/")
-            .or_else(|| self.ref_name.as_ref().strip_prefix("refs/remotes/"))
-            .unwrap_or(self.ref_name.as_ref())
-    }
-
-    pub fn is_remote(&self) -> bool {
-        self.ref_name.starts_with("refs/remotes/")
-    }
-
     pub fn tracking_status(&self) -> Option<UpstreamTrackingStatus> {
         self.upstream
             .as_ref()
@@ -82,10 +71,6 @@ impl Upstream {
         self.ref_name
             .strip_prefix("refs/remotes/")
             .and_then(|stripped| stripped.split("/").next())
-    }
-
-    pub fn stripped_ref_name(&self) -> Option<&str> {
-        self.ref_name.strip_prefix("refs/remotes/")
     }
 }
 
@@ -148,7 +133,7 @@ pub struct CommitSummary {
     pub has_parent: bool,
 }
 
-#[derive(Clone, Debug, Default, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct CommitDetails {
     pub sha: SharedString,
     pub message: SharedString,
@@ -212,20 +197,10 @@ pub trait GitRepository: Send + Sync {
     /// Returns the URL of the remote with the given name.
     fn remote_url(&self, name: &str) -> Option<String>;
 
-    /// Resolve a list of refs to SHAs.
-    fn revparse_batch(&self, revs: Vec<String>) -> BoxFuture<Result<Vec<Option<String>>>>;
+    /// Returns the SHA of the current HEAD.
+    fn head_sha(&self) -> Option<String>;
 
-    fn head_sha(&self) -> BoxFuture<Option<String>> {
-        async move {
-            self.revparse_batch(vec!["HEAD".into()])
-                .await
-                .unwrap_or_default()
-                .into_iter()
-                .next()
-                .flatten()
-        }
-        .boxed()
-    }
+    fn merge_head_shas(&self) -> Vec<String>;
 
     fn merge_message(&self) -> BoxFuture<Option<String>>;
 
@@ -417,37 +392,27 @@ impl GitRepository for RealGitRepository {
     }
 
     fn show(&self, commit: String) -> BoxFuture<Result<CommitDetails>> {
-        let working_directory = self.working_directory();
+        let repo = self.repository.clone();
         self.executor
             .spawn(async move {
-                let working_directory = working_directory?;
-                let output = new_std_command("git")
-                    .current_dir(&working_directory)
-                    .args([
-                        "--no-optional-locks",
-                        "show",
-                        "--no-patch",
-                        "--format=%H%x00%B%x00%at%x00%ae%x00%an%x00",
-                        &commit,
-                    ])
-                    .output()?;
-                let output = std::str::from_utf8(&output.stdout)?;
-                let fields = output.split('\0').collect::<Vec<_>>();
-                if fields.len() != 6 {
-                    bail!("unexpected git-show output for {commit:?}: {output:?}")
-                }
-                let sha = fields[0].to_string().into();
-                let message = fields[1].to_string().into();
-                let commit_timestamp = fields[2].parse()?;
-                let author_email = fields[3].to_string().into();
-                let author_name = fields[4].to_string().into();
-                Ok(CommitDetails {
-                    sha,
-                    message,
-                    commit_timestamp,
-                    author_email,
-                    author_name,
-                })
+                let repo = repo.lock();
+                let Ok(commit) = repo.revparse_single(&commit)?.into_commit() else {
+                    anyhow::bail!("{} is not a commit", commit);
+                };
+                let details = CommitDetails {
+                    sha: commit.id().to_string().into(),
+                    message: String::from_utf8_lossy(commit.message_raw_bytes())
+                        .to_string()
+                        .into(),
+                    commit_timestamp: commit.time().seconds(),
+                    author_email: String::from_utf8_lossy(commit.author().email_bytes())
+                        .to_string()
+                        .into(),
+                    author_name: String::from_utf8_lossy(commit.author().name_bytes())
+                        .to_string()
+                        .into(),
+                };
+                Ok(details)
             })
             .boxed()
     }
@@ -737,62 +702,34 @@ impl GitRepository for RealGitRepository {
         remote.url().map(|url| url.to_string())
     }
 
-    fn revparse_batch(&self, revs: Vec<String>) -> BoxFuture<Result<Vec<Option<String>>>> {
-        let working_directory = self.working_directory();
-        self.executor
-            .spawn(async move {
-                let working_directory = working_directory?;
-                let mut process = new_std_command("git")
-                    .current_dir(&working_directory)
-                    .args([
-                        "--no-optional-locks",
-                        "cat-file",
-                        "--batch-check=%(objectname)",
-                        "-z",
-                    ])
-                    .stdin(Stdio::piped())
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped())
-                    .spawn()?;
+    fn head_sha(&self) -> Option<String> {
+        Some(self.repository.lock().head().ok()?.target()?.to_string())
+    }
 
-                let stdin = process
-                    .stdin
-                    .take()
-                    .ok_or_else(|| anyhow!("no stdin for git cat-file subprocess"))?;
-                let mut stdin = BufWriter::new(stdin);
-                for rev in &revs {
-                    write!(&mut stdin, "{rev}\0")?;
-                }
-                drop(stdin);
-
-                let output = process.wait_with_output()?;
-                let output = std::str::from_utf8(&output.stdout)?;
-                let shas = output
-                    .lines()
-                    .map(|line| {
-                        if line.ends_with("missing") {
-                            None
-                        } else {
-                            Some(line.to_string())
-                        }
-                    })
-                    .collect::<Vec<_>>();
-
-                if shas.len() != revs.len() {
-                    // In an octopus merge, git cat-file still only outputs the first sha from MERGE_HEAD.
-                    bail!("unexpected number of shas")
-                }
-
-                Ok(shas)
+    fn merge_head_shas(&self) -> Vec<String> {
+        let mut shas = Vec::default();
+        self.repository
+            .lock()
+            .mergehead_foreach(|oid| {
+                shas.push(oid.to_string());
+                true
             })
-            .boxed()
+            .ok();
+        if let Some(oid) = self
+            .repository
+            .lock()
+            .find_reference("CHERRY_PICK_HEAD")
+            .ok()
+            .and_then(|reference| reference.target())
+        {
+            shas.push(oid.to_string())
+        }
+        shas
     }
 
     fn merge_message(&self) -> BoxFuture<Option<String>> {
         let path = self.path().join("MERGE_MSG");
-        self.executor
-            .spawn(async move { std::fs::read_to_string(&path).ok() })
-            .boxed()
+        async move { std::fs::read_to_string(&path).ok() }.boxed()
     }
 
     fn status(&self, path_prefixes: &[RepoPath]) -> BoxFuture<Result<GitStatus>> {
@@ -819,69 +756,68 @@ impl GitRepository for RealGitRepository {
     fn branches(&self) -> BoxFuture<Result<Vec<Branch>>> {
         let working_directory = self.working_directory();
         let git_binary_path = self.git_binary_path.clone();
-        self.executor
-            .spawn(async move {
-                let fields = [
-                    "%(HEAD)",
-                    "%(objectname)",
-                    "%(parent)",
-                    "%(refname)",
-                    "%(upstream)",
-                    "%(upstream:track)",
-                    "%(committerdate:unix)",
-                    "%(contents:subject)",
-                ]
-                .join("%00");
-                let args = vec![
-                    "for-each-ref",
-                    "refs/heads/**/*",
-                    "refs/remotes/**/*",
-                    "--format",
-                    &fields,
-                ];
-                let working_directory = working_directory?;
+        async move {
+            let fields = [
+                "%(HEAD)",
+                "%(objectname)",
+                "%(parent)",
+                "%(refname)",
+                "%(upstream)",
+                "%(upstream:track)",
+                "%(committerdate:unix)",
+                "%(contents:subject)",
+            ]
+            .join("%00");
+            let args = vec![
+                "for-each-ref",
+                "refs/heads/**/*",
+                "refs/remotes/**/*",
+                "--format",
+                &fields,
+            ];
+            let working_directory = working_directory?;
+            let output = new_smol_command(&git_binary_path)
+                .current_dir(&working_directory)
+                .args(args)
+                .output()
+                .await?;
+
+            if !output.status.success() {
+                return Err(anyhow!(
+                    "Failed to git git branches:\n{}",
+                    String::from_utf8_lossy(&output.stderr)
+                ));
+            }
+
+            let input = String::from_utf8_lossy(&output.stdout);
+
+            let mut branches = parse_branch_input(&input)?;
+            if branches.is_empty() {
+                let args = vec!["symbolic-ref", "--quiet", "--short", "HEAD"];
+
                 let output = new_smol_command(&git_binary_path)
                     .current_dir(&working_directory)
                     .args(args)
                     .output()
                     .await?;
 
-                if !output.status.success() {
-                    return Err(anyhow!(
-                        "Failed to git git branches:\n{}",
-                        String::from_utf8_lossy(&output.stderr)
-                    ));
+                // git symbolic-ref returns a non-0 exit code if HEAD points
+                // to something other than a branch
+                if output.status.success() {
+                    let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+                    branches.push(Branch {
+                        name: name.into(),
+                        is_head: true,
+                        upstream: None,
+                        most_recent_commit: None,
+                    });
                 }
+            }
 
-                let input = String::from_utf8_lossy(&output.stdout);
-
-                let mut branches = parse_branch_input(&input)?;
-                if branches.is_empty() {
-                    let args = vec!["symbolic-ref", "--quiet", "HEAD"];
-
-                    let output = new_smol_command(&git_binary_path)
-                        .current_dir(&working_directory)
-                        .args(args)
-                        .output()
-                        .await?;
-
-                    // git symbolic-ref returns a non-0 exit code if HEAD points
-                    // to something other than a branch
-                    if output.status.success() {
-                        let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
-
-                        branches.push(Branch {
-                            ref_name: name.into(),
-                            is_head: true,
-                            upstream: None,
-                            most_recent_commit: None,
-                        });
-                    }
-                }
-
-                Ok(branches)
-            })
-            .boxed()
+            Ok(branches)
+        }
+        .boxed()
     }
 
     fn change_branch(&self, name: String) -> BoxFuture<Result<()>> {
@@ -932,9 +868,8 @@ impl GitRepository for RealGitRepository {
         let working_directory = self.working_directory();
         let git_binary_path = self.git_binary_path.clone();
 
-        let remote_url = self
-            .remote_url("upstream")
-            .or_else(|| self.remote_url("origin"));
+        const REMOTE_NAME: &str = "origin";
+        let remote_url = self.remote_url(REMOTE_NAME);
 
         self.executor
             .spawn(async move {
@@ -1708,7 +1643,15 @@ fn parse_branch_input(input: &str) -> Result<Vec<Branch>> {
         let is_current_branch = fields.next().context("no HEAD")? == "*";
         let head_sha: SharedString = fields.next().context("no objectname")?.to_string().into();
         let parent_sha: SharedString = fields.next().context("no parent")?.to_string().into();
-        let ref_name = fields.next().context("no refname")?.to_string().into();
+        let raw_ref_name = fields.next().context("no refname")?;
+        let ref_name: SharedString =
+            if let Some(ref_name) = raw_ref_name.strip_prefix("refs/heads/") {
+                ref_name.to_string().into()
+            } else if let Some(ref_name) = raw_ref_name.strip_prefix("refs/remotes/") {
+                ref_name.to_string().into()
+            } else {
+                return Err(anyhow!("unexpected format for refname"));
+            };
         let upstream_name = fields.next().context("no upstream")?.to_string();
         let upstream_tracking = parse_upstream_track(fields.next().context("no upstream:track")?)?;
         let commiterdate = fields.next().context("no committerdate")?.parse::<i64>()?;
@@ -1720,7 +1663,7 @@ fn parse_branch_input(input: &str) -> Result<Vec<Branch>> {
 
         branches.push(Branch {
             is_head: is_current_branch,
-            ref_name: ref_name,
+            name: ref_name,
             most_recent_commit: Some(CommitSummary {
                 sha: head_sha,
                 subject,
@@ -1983,7 +1926,7 @@ mod tests {
             parse_branch_input(&input).unwrap(),
             vec![Branch {
                 is_head: true,
-                ref_name: "refs/heads/zed-patches".into(),
+                name: "zed-patches".into(),
                 upstream: Some(Upstream {
                     ref_name: "refs/remotes/origin/zed-patches".into(),
                     tracking: UpstreamTracking::Tracked(UpstreamTrackingStatus {

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use client::{Client, UserStore};
 use fs::Fs;
 use gpui::{App, Context, Entity};
-use language_model::LanguageModelRegistry;
+use language_model::{LanguageModelProviderId, LanguageModelRegistry, ZED_CLOUD_PROVIDER_ID};
 use provider::deepseek::DeepSeekLanguageModelProvider;
 
 pub mod provider;
@@ -35,10 +35,7 @@ fn register_language_model_providers(
     client: Arc<Client>,
     cx: &mut Context<LanguageModelRegistry>,
 ) {
-    registry.register_provider(
-        CloudLanguageModelProvider::new(user_store.clone(), client.clone(), cx),
-        cx,
-    );
+    use feature_flags::FeatureFlagAppExt;
 
     registry.register_provider(
         AnthropicLanguageModelProvider::new(client.http_client(), cx),
@@ -73,4 +70,23 @@ fn register_language_model_providers(
         cx,
     );
     registry.register_provider(CopilotChatLanguageModelProvider::new(cx), cx);
+
+    cx.observe_flag::<feature_flags::LanguageModelsFeatureFlag, _>(move |enabled, cx| {
+        let user_store = user_store.clone();
+        let client = client.clone();
+        LanguageModelRegistry::global(cx).update(cx, move |registry, cx| {
+            if enabled {
+                registry.register_provider(
+                    CloudLanguageModelProvider::new(user_store.clone(), client.clone(), cx),
+                    cx,
+                );
+            } else {
+                registry.unregister_provider(
+                    LanguageModelProviderId::from(ZED_CLOUD_PROVIDER_ID.to_string()),
+                    cx,
+                );
+            }
+        });
+    })
+    .detach();
 }

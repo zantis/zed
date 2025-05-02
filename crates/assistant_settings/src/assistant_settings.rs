@@ -6,7 +6,7 @@ use ::open_ai::Model as OpenAiModel;
 use anthropic::Model as AnthropicModel;
 use anyhow::{Result, bail};
 use deepseek::Model as DeepseekModel;
-use feature_flags::{AgentStreamEditsFeatureFlag, Assistant2FeatureFlag, FeatureFlagAppExt};
+use feature_flags::{Assistant2FeatureFlag, FeatureFlagAppExt};
 use gpui::{App, Pixels};
 use indexmap::IndexMap;
 use language_model::{CloudModel, LanguageModel};
@@ -87,14 +87,9 @@ pub struct AssistantSettings {
     pub profiles: IndexMap<AgentProfileId, AgentProfile>,
     pub always_allow_tool_actions: bool,
     pub notify_when_agent_waiting: NotifyWhenAgentWaiting,
-    pub stream_edits: bool,
 }
 
 impl AssistantSettings {
-    pub fn stream_edits(&self, cx: &App) -> bool {
-        cx.has_flag::<AgentStreamEditsFeatureFlag>() || self.stream_edits
-    }
-
     pub fn are_live_diffs_enabled(&self, cx: &App) -> bool {
         if cx.has_flag::<Assistant2FeatureFlag>() {
             return false;
@@ -117,25 +112,11 @@ impl AssistantSettings {
 }
 
 /// Assistant panel settings
-#[derive(Clone, Serialize, Deserialize, Debug, Default)]
-pub struct AssistantSettingsContent {
-    #[serde(flatten)]
-    pub inner: Option<AssistantSettingsContentInner>,
-}
-
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(untagged)]
-pub enum AssistantSettingsContentInner {
+pub enum AssistantSettingsContent {
     Versioned(Box<VersionedAssistantSettingsContent>),
     Legacy(LegacyAssistantSettingsContent),
-}
-
-impl AssistantSettingsContentInner {
-    fn for_v2(content: AssistantSettingsContentV2) -> Self {
-        AssistantSettingsContentInner::Versioned(Box::new(VersionedAssistantSettingsContent::V2(
-            content,
-        )))
-    }
 }
 
 impl JsonSchema for AssistantSettingsContent {
@@ -152,21 +133,26 @@ impl JsonSchema for AssistantSettingsContent {
     }
 }
 
+impl Default for AssistantSettingsContent {
+    fn default() -> Self {
+        Self::Versioned(Box::new(VersionedAssistantSettingsContent::default()))
+    }
+}
+
 impl AssistantSettingsContent {
     pub fn is_version_outdated(&self) -> bool {
-        match &self.inner {
-            Some(AssistantSettingsContentInner::Versioned(settings)) => match **settings {
+        match self {
+            AssistantSettingsContent::Versioned(settings) => match **settings {
                 VersionedAssistantSettingsContent::V1(_) => true,
                 VersionedAssistantSettingsContent::V2(_) => false,
             },
-            Some(AssistantSettingsContentInner::Legacy(_)) => true,
-            None => false,
+            AssistantSettingsContent::Legacy(_) => true,
         }
     }
 
     fn upgrade(&self) -> AssistantSettingsContentV2 {
-        match &self.inner {
-            Some(AssistantSettingsContentInner::Versioned(settings)) => match **settings {
+        match self {
+            AssistantSettingsContent::Versioned(settings) => match **settings {
                 VersionedAssistantSettingsContent::V1(ref settings) => AssistantSettingsContentV2 {
                     enabled: settings.enabled,
                     button: settings.button,
@@ -223,11 +209,10 @@ impl AssistantSettingsContent {
                     profiles: None,
                     always_allow_tool_actions: None,
                     notify_when_agent_waiting: None,
-                    stream_edits: None,
                 },
                 VersionedAssistantSettingsContent::V2(ref settings) => settings.clone(),
             },
-            Some(AssistantSettingsContentInner::Legacy(settings)) => AssistantSettingsContentV2 {
+            AssistantSettingsContent::Legacy(settings) => AssistantSettingsContentV2 {
                 enabled: None,
                 button: settings.button,
                 dock: settings.dock,
@@ -251,15 +236,13 @@ impl AssistantSettingsContent {
                 profiles: None,
                 always_allow_tool_actions: None,
                 notify_when_agent_waiting: None,
-                stream_edits: None,
             },
-            None => AssistantSettingsContentV2::default(),
         }
     }
 
     pub fn set_dock(&mut self, dock: AssistantDockPosition) {
-        match &mut self.inner {
-            Some(AssistantSettingsContentInner::Versioned(settings)) => match **settings {
+        match self {
+            AssistantSettingsContent::Versioned(settings) => match **settings {
                 VersionedAssistantSettingsContent::V1(ref mut settings) => {
                     settings.dock = Some(dock);
                 }
@@ -267,16 +250,8 @@ impl AssistantSettingsContent {
                     settings.dock = Some(dock);
                 }
             },
-            Some(AssistantSettingsContentInner::Legacy(settings)) => {
+            AssistantSettingsContent::Legacy(settings) => {
                 settings.dock = Some(dock);
-            }
-            None => {
-                self.inner = Some(AssistantSettingsContentInner::for_v2(
-                    AssistantSettingsContentV2 {
-                        dock: Some(dock),
-                        ..Default::default()
-                    },
-                ))
             }
         }
     }
@@ -285,8 +260,8 @@ impl AssistantSettingsContent {
         let model = language_model.id().0.to_string();
         let provider = language_model.provider_id().0.to_string();
 
-        match &mut self.inner {
-            Some(AssistantSettingsContentInner::Versioned(settings)) => match **settings {
+        match self {
+            AssistantSettingsContent::Versioned(settings) => match **settings {
                 VersionedAssistantSettingsContent::V1(ref mut settings) => {
                     match provider.as_ref() {
                         "zed.dev" => {
@@ -362,80 +337,56 @@ impl AssistantSettingsContent {
                     settings.default_model = Some(LanguageModelSelection { provider, model });
                 }
             },
-            Some(AssistantSettingsContentInner::Legacy(settings)) => {
+            AssistantSettingsContent::Legacy(settings) => {
                 if let Ok(model) = OpenAiModel::from_id(&language_model.id().0) {
                     settings.default_open_ai_model = Some(model);
                 }
-            }
-            None => {
-                self.inner = Some(AssistantSettingsContentInner::for_v2(
-                    AssistantSettingsContentV2 {
-                        default_model: Some(LanguageModelSelection { provider, model }),
-                        ..Default::default()
-                    },
-                ));
             }
         }
     }
 
     pub fn set_inline_assistant_model(&mut self, provider: String, model: String) {
-        self.v2_setting(|setting| {
-            setting.inline_assistant_model = Some(LanguageModelSelection { provider, model });
-            Ok(())
-        })
-        .ok();
+        if let AssistantSettingsContent::Versioned(boxed) = self {
+            if let VersionedAssistantSettingsContent::V2(ref mut settings) = **boxed {
+                settings.inline_assistant_model = Some(LanguageModelSelection { provider, model });
+            }
+        }
     }
 
     pub fn set_commit_message_model(&mut self, provider: String, model: String) {
-        self.v2_setting(|setting| {
-            setting.commit_message_model = Some(LanguageModelSelection { provider, model });
-            Ok(())
-        })
-        .ok();
-    }
-
-    pub fn v2_setting(
-        &mut self,
-        f: impl FnOnce(&mut AssistantSettingsContentV2) -> anyhow::Result<()>,
-    ) -> anyhow::Result<()> {
-        match self.inner.get_or_insert_with(|| {
-            AssistantSettingsContentInner::for_v2(AssistantSettingsContentV2 {
-                ..Default::default()
-            })
-        }) {
-            AssistantSettingsContentInner::Versioned(boxed) => {
-                if let VersionedAssistantSettingsContent::V2(ref mut settings) = **boxed {
-                    f(settings)
-                } else {
-                    Ok(())
-                }
+        if let AssistantSettingsContent::Versioned(boxed) = self {
+            if let VersionedAssistantSettingsContent::V2(ref mut settings) = **boxed {
+                settings.commit_message_model = Some(LanguageModelSelection { provider, model });
             }
-            _ => Ok(()),
         }
     }
 
     pub fn set_thread_summary_model(&mut self, provider: String, model: String) {
-        self.v2_setting(|setting| {
-            setting.thread_summary_model = Some(LanguageModelSelection { provider, model });
-            Ok(())
-        })
-        .ok();
+        if let AssistantSettingsContent::Versioned(boxed) = self {
+            if let VersionedAssistantSettingsContent::V2(ref mut settings) = **boxed {
+                settings.thread_summary_model = Some(LanguageModelSelection { provider, model });
+            }
+        }
     }
 
     pub fn set_always_allow_tool_actions(&mut self, allow: bool) {
-        self.v2_setting(|setting| {
-            setting.always_allow_tool_actions = Some(allow);
-            Ok(())
-        })
-        .ok();
+        let AssistantSettingsContent::Versioned(boxed) = self else {
+            return;
+        };
+
+        if let VersionedAssistantSettingsContent::V2(ref mut settings) = **boxed {
+            settings.always_allow_tool_actions = Some(allow);
+        }
     }
 
     pub fn set_profile(&mut self, profile_id: AgentProfileId) {
-        self.v2_setting(|setting| {
-            setting.default_profile = Some(profile_id);
-            Ok(())
-        })
-        .ok();
+        let AssistantSettingsContent::Versioned(boxed) = self else {
+            return;
+        };
+
+        if let VersionedAssistantSettingsContent::V2(ref mut settings) = **boxed {
+            settings.default_profile = Some(profile_id);
+        }
     }
 
     pub fn create_profile(
@@ -443,7 +394,11 @@ impl AssistantSettingsContent {
         profile_id: AgentProfileId,
         profile: AgentProfile,
     ) -> Result<()> {
-        self.v2_setting(|settings| {
+        let AssistantSettingsContent::Versioned(boxed) = self else {
+            return Ok(());
+        };
+
+        if let VersionedAssistantSettingsContent::V2(ref mut settings) = **boxed {
             let profiles = settings.profiles.get_or_insert_default();
             if profiles.contains_key(&profile_id) {
                 bail!("profile with ID '{profile_id}' already exists");
@@ -469,9 +424,9 @@ impl AssistantSettingsContent {
                         .collect(),
                 },
             );
+        }
 
-            Ok(())
-        })
+        Ok(())
     }
 }
 
@@ -502,12 +457,11 @@ impl Default for VersionedAssistantSettingsContent {
             profiles: None,
             always_allow_tool_actions: None,
             notify_when_agent_waiting: None,
-            stream_edits: None,
         })
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, JsonSchema, Debug, Default)]
+#[derive(Clone, Serialize, Deserialize, JsonSchema, Debug)]
 pub struct AssistantSettingsContentV2 {
     /// Whether the Assistant is enabled.
     ///
@@ -558,10 +512,6 @@ pub struct AssistantSettingsContentV2 {
     ///
     /// Default: "primary_screen"
     notify_when_agent_waiting: Option<NotifyWhenAgentWaiting>,
-    /// Whether to stream edits from the agent as they are received.
-    ///
-    /// Default: false
-    stream_edits: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -724,7 +674,6 @@ impl Settings for AssistantSettings {
                 &mut settings.notify_when_agent_waiting,
                 value.notify_when_agent_waiting,
             );
-            merge(&mut settings.stream_edits, value.stream_edits);
             merge(&mut settings.default_profile, value.default_profile);
 
             if let Some(profiles) = value.profiles {
@@ -758,39 +707,6 @@ impl Settings for AssistantSettings {
         }
 
         Ok(settings)
-    }
-
-    fn import_from_vscode(vscode: &settings::VsCodeSettings, current: &mut Self::FileContent) {
-        if let Some(b) = vscode
-            .read_value("chat.agent.enabled")
-            .and_then(|b| b.as_bool())
-        {
-            match &mut current.inner {
-                Some(AssistantSettingsContentInner::Versioned(versioned)) => {
-                    match versioned.as_mut() {
-                        VersionedAssistantSettingsContent::V1(setting) => {
-                            setting.enabled = Some(b);
-                            setting.button = Some(b);
-                        }
-
-                        VersionedAssistantSettingsContent::V2(setting) => {
-                            setting.enabled = Some(b);
-                            setting.button = Some(b);
-                        }
-                    }
-                }
-                Some(AssistantSettingsContentInner::Legacy(setting)) => setting.button = Some(b),
-                None => {
-                    current.inner = Some(AssistantSettingsContentInner::for_v2(
-                        AssistantSettingsContentV2 {
-                            enabled: Some(b),
-                            button: Some(b),
-                            ..Default::default()
-                        },
-                    ));
-                }
-            }
-        }
     }
 }
 
@@ -835,31 +751,28 @@ mod tests {
             settings::SettingsStore::global(cx).update_settings_file::<AssistantSettings>(
                 fs.clone(),
                 |settings, _| {
-                    *settings = AssistantSettingsContent {
-                        inner: Some(AssistantSettingsContentInner::for_v2(
-                            AssistantSettingsContentV2 {
-                                default_model: Some(LanguageModelSelection {
-                                    provider: "test-provider".into(),
-                                    model: "gpt-99".into(),
-                                }),
-                                inline_assistant_model: None,
-                                commit_message_model: None,
-                                thread_summary_model: None,
-                                inline_alternatives: None,
-                                enabled: None,
-                                button: None,
-                                dock: None,
-                                default_width: None,
-                                default_height: None,
-                                enable_experimental_live_diffs: None,
-                                default_profile: None,
-                                profiles: None,
-                                always_allow_tool_actions: None,
-                                notify_when_agent_waiting: None,
-                                stream_edits: None,
-                            },
-                        )),
-                    }
+                    *settings = AssistantSettingsContent::Versioned(Box::new(
+                        VersionedAssistantSettingsContent::V2(AssistantSettingsContentV2 {
+                            default_model: Some(LanguageModelSelection {
+                                provider: "test-provider".into(),
+                                model: "gpt-99".into(),
+                            }),
+                            inline_assistant_model: None,
+                            commit_message_model: None,
+                            thread_summary_model: None,
+                            inline_alternatives: None,
+                            enabled: None,
+                            button: None,
+                            dock: None,
+                            default_width: None,
+                            default_height: None,
+                            enable_experimental_live_diffs: None,
+                            default_profile: None,
+                            profiles: None,
+                            always_allow_tool_actions: None,
+                            notify_when_agent_waiting: None,
+                        }),
+                    ))
                 },
             );
         });

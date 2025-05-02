@@ -29,10 +29,7 @@ pub mod search_history;
 mod yarn;
 
 use crate::git_store::GitStore;
-pub use git_store::{
-    ConflictRegion, ConflictSet, ConflictSetSnapshot, ConflictSetUpdate,
-    git_traversal::{ChildEntriesGitIter, GitEntry, GitEntryRef, GitTraversal},
-};
+pub use git_store::git_traversal::{ChildEntriesGitIter, GitEntry, GitEntryRef, GitTraversal};
 
 use anyhow::{Context as _, Result, anyhow};
 use buffer_store::{BufferStore, BufferStoreEvent};
@@ -41,14 +38,13 @@ use client::{
 };
 use clock::ReplicaId;
 
-use dap::{DapRegistry, client::DebugAdapterClient};
+use dap::client::DebugAdapterClient;
 
 use collections::{BTreeSet, HashMap, HashSet};
 use debounced_delay::DebouncedDelay;
 use debugger::{
-    breakpoint_store::{ActiveStackFrame, BreakpointStore},
+    breakpoint_store::BreakpointStore,
     dap_store::{DapStore, DapStoreEvent},
-    session::Session,
 };
 pub use environment::ProjectEnvironment;
 #[cfg(test)]
@@ -56,7 +52,7 @@ use futures::future::join_all;
 use futures::{
     StreamExt,
     channel::mpsc::{self, UnboundedReceiver},
-    future::{Shared, try_join_all},
+    future::try_join_all,
 };
 pub use image_store::{ImageItem, ImageStore};
 use image_store::{ImageItemEvent, ImageStoreEvent};
@@ -64,7 +60,7 @@ use image_store::{ImageItemEvent, ImageStoreEvent};
 use ::git::{blame::Blame, status::FileStatus};
 use gpui::{
     AnyEntity, App, AppContext, AsyncApp, BorrowAppContext, Context, Entity, EventEmitter, Hsla,
-    SharedString, Task, WeakEntity, Window, prelude::FluentBuilder,
+    SharedString, Task, WeakEntity, Window,
 };
 use itertools::Itertools;
 use language::{
@@ -826,7 +822,7 @@ impl Project {
         SettingsObserver::init(&client);
         TaskStore::init(Some(&client));
         ToolchainStore::init(&client);
-        DapStore::init(&client, cx);
+        DapStore::init(&client);
         BreakpointStore::init(&client);
     }
 
@@ -1159,7 +1155,7 @@ impl Project {
             SettingsObserver::init(&ssh_proto);
             TaskStore::init(Some(&ssh_proto));
             ToolchainStore::init(&ssh_proto);
-            DapStore::init(&ssh_proto, cx);
+            DapStore::init(&ssh_proto);
             GitStore::init(&ssh_proto);
 
             this
@@ -1552,15 +1548,6 @@ impl Project {
         self.breakpoint_store.clone()
     }
 
-    pub fn active_debug_session(&self, cx: &App) -> Option<(Entity<Session>, ActiveStackFrame)> {
-        let active_position = self.breakpoint_store.read(cx).active_position()?;
-        let session = self
-            .dap_store
-            .read(cx)
-            .session_by_id(active_position.session_id)?;
-        Some((session, active_position.clone()))
-    }
-
     pub fn lsp_store(&self) -> Entity<LspStore> {
         self.lsp_store.clone()
     }
@@ -1603,17 +1590,6 @@ impl Project {
 
     pub fn cli_environment(&self, cx: &App) -> Option<HashMap<String, String>> {
         self.environment.read(cx).get_cli_environment()
-    }
-
-    pub fn buffer_environment<'a>(
-        &'a self,
-        buffer: &Entity<Buffer>,
-        worktree_store: &Entity<WorktreeStore>,
-        cx: &'a mut App,
-    ) -> Shared<Task<Option<HashMap<String, String>>>> {
-        self.environment.update(cx, |environment, cx| {
-            environment.get_buffer_environment(&buffer, &worktree_store, cx)
-        })
     }
 
     pub fn shell_environment_errors<'a>(
@@ -3502,69 +3478,6 @@ impl Project {
     ) -> Task<Result<Option<Transaction>>> {
         self.lsp_store.update(cx, |lsp_store, cx| {
             lsp_store.on_type_format(buffer, position, trigger, push_to_history, cx)
-        })
-    }
-
-    pub fn inline_values(
-        &mut self,
-        session: Entity<Session>,
-        active_stack_frame: ActiveStackFrame,
-        buffer_handle: Entity<Buffer>,
-        range: Range<text::Anchor>,
-        cx: &mut Context<Self>,
-    ) -> Task<anyhow::Result<Vec<InlayHint>>> {
-        let snapshot = buffer_handle.read(cx).snapshot();
-
-        let Some(inline_value_provider) = session
-            .read(cx)
-            .adapter_name()
-            .map(|adapter_name| DapRegistry::global(cx).adapter(&adapter_name))
-            .and_then(|adapter| adapter.inline_value_provider())
-        else {
-            return Task::ready(Err(anyhow::anyhow!("Inline value provider not found")));
-        };
-
-        let mut text_objects =
-            snapshot.text_object_ranges(range.end..range.end, Default::default());
-        let text_object_range = text_objects
-            .find(|(_, obj)| matches!(obj, language::TextObject::AroundFunction))
-            .map(|(range, _)| snapshot.anchor_before(range.start))
-            .unwrap_or(range.start);
-
-        let variable_ranges = snapshot
-            .debug_variable_ranges(
-                text_object_range.to_offset(&snapshot)..range.end.to_offset(&snapshot),
-            )
-            .filter_map(|range| {
-                let lsp_range = language::range_to_lsp(
-                    range.range.start.to_point_utf16(&snapshot)
-                        ..range.range.end.to_point_utf16(&snapshot),
-                )
-                .ok()?;
-
-                Some((
-                    snapshot.text_for_range(range.range).collect::<String>(),
-                    lsp_range,
-                ))
-            })
-            .collect::<Vec<_>>();
-
-        let inline_values = inline_value_provider.provide(variable_ranges);
-
-        let stack_frame_id = active_stack_frame.stack_frame_id;
-        cx.spawn(async move |this, cx| {
-            this.update(cx, |project, cx| {
-                project.dap_store().update(cx, |dap_store, cx| {
-                    dap_store.resolve_inline_values(
-                        session,
-                        stack_frame_id,
-                        buffer_handle,
-                        inline_values,
-                        cx,
-                    )
-                })
-            })?
-            .await
         })
     }
 

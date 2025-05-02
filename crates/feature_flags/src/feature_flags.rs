@@ -59,12 +59,6 @@ impl FeatureFlag for Assistant2FeatureFlag {
     const NAME: &'static str = "assistant2";
 }
 
-pub struct AgentStreamEditsFeatureFlag;
-
-impl FeatureFlag for AgentStreamEditsFeatureFlag {
-    const NAME: &'static str = "agent-stream-edits";
-}
-
 pub struct NewBillingFeatureFlag;
 
 impl FeatureFlag for NewBillingFeatureFlag {
@@ -78,6 +72,11 @@ impl FeatureFlag for NewBillingFeatureFlag {
 pub struct PredictEditsRateCompletionsFeatureFlag;
 impl FeatureFlag for PredictEditsRateCompletionsFeatureFlag {
     const NAME: &'static str = "predict-edits-rate-completions";
+}
+
+pub struct LanguageModelsFeatureFlag {}
+impl FeatureFlag for LanguageModelsFeatureFlag {
+    const NAME: &'static str = "language-models";
 }
 
 pub struct LlmClosedBetaFeatureFlag {}

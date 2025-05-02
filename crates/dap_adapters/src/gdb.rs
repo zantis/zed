@@ -2,9 +2,9 @@ use std::{collections::HashMap, ffi::OsStr};
 
 use anyhow::{Result, bail};
 use async_trait::async_trait;
-use dap::{StartDebuggingRequestArguments, adapters::DebugTaskDefinition};
+use dap::StartDebuggingRequestArguments;
 use gpui::AsyncApp;
-use task::DebugRequest;
+use task::{DebugRequest, DebugTaskDefinition};
 
 use crate::*;
 

@@ -64,14 +64,6 @@ impl Inlay {
             text: text.into(),
         }
     }
-
-    pub fn debugger_hint<T: Into<Rope>>(id: usize, position: Anchor, text: T) -> Self {
-        Self {
-            id: InlayId::DebuggerValue(id),
-            position,
-            text: text.into(),
-        }
-    }
 }
 
 impl sum_tree::Item for Transform {
@@ -295,7 +287,6 @@ impl<'a> Iterator for InlayChunks<'a> {
                         })
                     }
                     InlayId::Hint(_) => self.highlight_styles.inlay_hint,
-                    InlayId::DebuggerValue(_) => self.highlight_styles.inlay_hint,
                 };
                 let next_inlay_highlight_endpoint;
                 let offset_in_inlay = self.output_offset - self.transforms.start().0;

@@ -27,22 +27,21 @@ static QUEUES: LazyLock<RwLock<HashMap<Arc<str>, WriteQueue>>> = LazyLock::new(D
 /// Thread safe connection to a given database file or in memory db. This can be cloned, shared, static,
 /// whatever. It derefs to a synchronous connection by thread that is read only. A write capable connection
 /// may be accessed by passing a callback to the `write` function which will queue the callback
-#[derive(Clone)]
-pub struct ThreadSafeConnection {
+pub struct ThreadSafeConnection<M: Migrator + 'static = ()> {
     uri: Arc<str>,
     persistent: bool,
     connection_initialize_query: Option<&'static str>,
     connections: Arc<ThreadLocal<Connection>>,
+    _migrator: PhantomData<*mut M>,
 }
 
-unsafe impl Send for ThreadSafeConnection {}
-unsafe impl Sync for ThreadSafeConnection {}
+unsafe impl<M: Migrator> Send for ThreadSafeConnection<M> {}
+unsafe impl<M: Migrator> Sync for ThreadSafeConnection<M> {}
 
 pub struct ThreadSafeConnectionBuilder<M: Migrator + 'static = ()> {
     db_initialize_query: Option<&'static str>,
     write_queue_constructor: Option<WriteQueueConstructor>,
-    connection: ThreadSafeConnection,
-    _migrator: PhantomData<*mut M>,
+    connection: ThreadSafeConnection<M>,
 }
 
 impl<M: Migrator> ThreadSafeConnectionBuilder<M> {
@@ -73,7 +72,7 @@ impl<M: Migrator> ThreadSafeConnectionBuilder<M> {
         self
     }
 
-    pub async fn build(self) -> anyhow::Result<ThreadSafeConnection> {
+    pub async fn build(self) -> anyhow::Result<ThreadSafeConnection<M>> {
         self.connection
             .initialize_queues(self.write_queue_constructor);
 
@@ -112,7 +111,7 @@ impl<M: Migrator> ThreadSafeConnectionBuilder<M> {
     }
 }
 
-impl ThreadSafeConnection {
+impl<M: Migrator> ThreadSafeConnection<M> {
     fn initialize_queues(&self, write_queue_constructor: Option<WriteQueueConstructor>) -> bool {
         if !QUEUES.read().contains_key(&self.uri) {
             let mut queues = QUEUES.write();
@@ -126,7 +125,7 @@ impl ThreadSafeConnection {
         false
     }
 
-    pub fn builder<M: Migrator>(uri: &str, persistent: bool) -> ThreadSafeConnectionBuilder<M> {
+    pub fn builder(uri: &str, persistent: bool) -> ThreadSafeConnectionBuilder<M> {
         ThreadSafeConnectionBuilder::<M> {
             db_initialize_query: None,
             write_queue_constructor: None,
@@ -135,8 +134,8 @@ impl ThreadSafeConnection {
                 persistent,
                 connection_initialize_query: None,
                 connections: Default::default(),
+                _migrator: PhantomData,
             },
-            _migrator: PhantomData,
         }
     }
 
@@ -201,7 +200,7 @@ impl ThreadSafeConnection {
     }
 }
 
-impl ThreadSafeConnection {
+impl ThreadSafeConnection<()> {
     /// Special constructor for ThreadSafeConnection which disallows db initialization and migrations.
     /// This allows construction to be infallible and not write to the db.
     pub fn new(
@@ -215,6 +214,7 @@ impl ThreadSafeConnection {
             persistent,
             connection_initialize_query,
             connections: Default::default(),
+            _migrator: PhantomData,
         };
 
         connection.initialize_queues(write_queue_constructor);
@@ -222,7 +222,19 @@ impl ThreadSafeConnection {
     }
 }
 
-impl Deref for ThreadSafeConnection {
+impl<M: Migrator> Clone for ThreadSafeConnection<M> {
+    fn clone(&self) -> Self {
+        Self {
+            uri: self.uri.clone(),
+            persistent: self.persistent,
+            connection_initialize_query: self.connection_initialize_query,
+            connections: self.connections.clone(),
+            _migrator: PhantomData,
+        }
+    }
+}
+
+impl<M: Migrator> Deref for ThreadSafeConnection<M> {
     type Target = Connection;
 
     fn deref(&self) -> &Self::Target {
@@ -289,7 +301,7 @@ mod test {
         for _ in 0..100 {
             handles.push(thread::spawn(|| {
                 let builder =
-                    ThreadSafeConnection::builder::<TestDomain>("annoying-test.db", false)
+                    ThreadSafeConnection::<TestDomain>::builder("annoying-test.db", false)
                         .with_db_initialization_query("PRAGMA journal_mode=WAL")
                         .with_connection_initialize_query(indoc! {"
                                 PRAGMA synchronous=NORMAL;
@@ -341,7 +353,7 @@ mod test {
         }
 
         let builder =
-            ThreadSafeConnection::builder::<TestWorkspace>("wild_zed_lost_failure", false)
+            ThreadSafeConnection::<TestWorkspace>::builder("wild_zed_lost_failure", false)
                 .with_connection_initialize_query("PRAGMA FOREIGN_KEYS=true");
 
         smol::block_on(builder.build()).unwrap();

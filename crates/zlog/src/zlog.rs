@@ -61,8 +61,6 @@ impl log::Log for Zlog {
             scope: module_scope,
             level,
             message: record.args(),
-            // PERF(batching): store non-static paths in a cache + leak them and pass static str here
-            module_path: record.module_path().or(record.file()),
         });
     }
 
@@ -82,7 +80,6 @@ macro_rules! log {
                 scope: logger.scope,
                 level,
                 message: &format_args!($($arg)+),
-                module_path: Some(module_path!()),
             });
         }
     }
@@ -203,7 +200,7 @@ macro_rules! crate_name {
 pub mod private {
     use super::*;
 
-    pub const fn extract_crate_name_from_module_path(module_path: &str) -> &str {
+    pub const fn extract_crate_name_from_module_path(module_path: &'static str) -> &'static str {
         let mut i = 0;
         let mod_path_bytes = module_path.as_bytes();
         let mut index = mod_path_bytes.len();
@@ -270,7 +267,6 @@ impl log::Log for Logger {
             scope: self.scope,
             level,
             message: record.args(),
-            module_path: record.module_path(),
         });
     }
 

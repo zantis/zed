@@ -39,7 +39,7 @@ use language_model::{
     Role,
 };
 use language_model_selector::{
-    LanguageModelSelector, LanguageModelSelectorPopoverMenu, ToggleModelSelector,
+    LanguageModelSelector, LanguageModelSelectorPopoverMenu, ModelType, ToggleModelSelector,
 };
 use multi_buffer::MultiBufferRow;
 use picker::Picker;
@@ -48,14 +48,7 @@ use project::{Project, Worktree};
 use rope::Point;
 use serde::{Deserialize, Serialize};
 use settings::{Settings, SettingsStore, update_settings_file};
-use std::{
-    any::TypeId,
-    cmp,
-    ops::Range,
-    path::{Path, PathBuf},
-    sync::Arc,
-    time::Duration,
-};
+use std::{any::TypeId, cmp, ops::Range, path::PathBuf, sync::Arc, time::Duration};
 use text::SelectionGoal;
 use ui::{
     ButtonLike, Disclosure, ElevationIndex, KeyBinding, PopoverMenuHandle, TintColor, Tooltip,
@@ -146,7 +139,7 @@ pub trait AssistantPanelDelegate {
     fn open_saved_context(
         &self,
         workspace: &mut Workspace,
-        path: Arc<Path>,
+        path: PathBuf,
         window: &mut Window,
         cx: &mut Context<Workspace>,
     ) -> Task<Result<()>>;
@@ -298,7 +291,6 @@ impl ContextEditor {
             dragged_file_worktrees: Vec::new(),
             language_model_selector: cx.new(|cx| {
                 LanguageModelSelector::new(
-                    |cx| LanguageModelRegistry::read_global(cx).default_model(),
                     move |model, cx| {
                         update_settings_file::<AssistantSettings>(
                             fs.clone(),
@@ -306,6 +298,7 @@ impl ContextEditor {
                             move |settings, _| settings.set_model(model.clone()),
                         );
                     },
+                    ModelType::Default,
                     window,
                     cx,
                 )
@@ -3163,8 +3156,8 @@ impl Focusable for ContextEditor {
 impl Item for ContextEditor {
     type Event = editor::EditorEvent;
 
-    fn tab_content_text(&self, _detail: usize, cx: &App) -> SharedString {
-        util::truncate_and_trailoff(&self.title(cx), MAX_TAB_TITLE_LEN).into()
+    fn tab_content_text(&self, _window: &Window, cx: &App) -> Option<SharedString> {
+        Some(util::truncate_and_trailoff(&self.title(cx), MAX_TAB_TITLE_LEN).into())
     }
 
     fn to_item_events(event: &Self::Event, mut f: impl FnMut(item::ItemEvent)) {
@@ -3771,7 +3764,7 @@ pub fn make_lsp_adapter_delegate(
         let Some(worktree) = project.worktrees(cx).next() else {
             return Ok(None::<Arc<dyn LspAdapterDelegate>>);
         };
-        let http_client = project.client().http_client();
+        let http_client = project.client().http_client().clone();
         project.lsp_store().update(cx, |_, cx| {
             Ok(Some(LocalLspAdapterDelegate::new(
                 project.languages().clone(),

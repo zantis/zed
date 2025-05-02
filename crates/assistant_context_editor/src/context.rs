@@ -35,7 +35,7 @@ use std::{
     fmt::Debug,
     iter, mem,
     ops::Range,
-    path::Path,
+    path::{Path, PathBuf},
     str::FromStr as _,
     sync::Arc,
     time::{Duration, Instant},
@@ -46,7 +46,7 @@ use ui::IconName;
 use util::{ResultExt, TryFutureExt, post_inc};
 use uuid::Uuid;
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ContextId(String);
 
 impl ContextId {
@@ -648,7 +648,7 @@ pub struct AssistantContext {
     pending_token_count: Task<Option<()>>,
     pending_save: Task<Result<()>>,
     pending_cache_warming_task: Task<Option<()>>,
-    path: Option<Arc<Path>>,
+    path: Option<PathBuf>,
     _subscriptions: Vec<Subscription>,
     telemetry: Option<Arc<Telemetry>>,
     language_registry: Arc<LanguageRegistry>,
@@ -839,7 +839,7 @@ impl AssistantContext {
 
     pub fn deserialize(
         saved_context: SavedContext,
-        path: Arc<Path>,
+        path: PathBuf,
         language_registry: Arc<LanguageRegistry>,
         prompt_builder: Arc<PromptBuilder>,
         slash_commands: Arc<SlashCommandWorkingSet>,
@@ -1147,8 +1147,8 @@ impl AssistantContext {
         self.prompt_builder.clone()
     }
 
-    pub fn path(&self) -> Option<&Arc<Path>> {
-        self.path.as_ref()
+    pub fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
     }
 
     pub fn summary(&self) -> Option<&ContextSummary> {
@@ -3181,7 +3181,7 @@ impl AssistantContext {
                 fs.atomic_write(new_path.clone(), serde_json::to_string(&context).unwrap())
                     .await?;
                 if let Some(old_path) = old_path {
-                    if new_path.as_path() != old_path.as_ref() {
+                    if new_path != old_path {
                         fs.remove_file(
                             &old_path,
                             RemoveOptions {
@@ -3193,7 +3193,7 @@ impl AssistantContext {
                     }
                 }
 
-                this.update(cx, |this, _| this.path = Some(new_path.into()))?;
+                this.update(cx, |this, _| this.path = Some(new_path))?;
             }
 
             Ok(())
@@ -3589,6 +3589,6 @@ impl SavedContextV0_1_0 {
 #[derive(Debug, Clone)]
 pub struct SavedContextMetadata {
     pub title: String,
-    pub path: Arc<Path>,
+    pub path: PathBuf,
     pub mtime: chrono::DateTime<chrono::Local>,
 }

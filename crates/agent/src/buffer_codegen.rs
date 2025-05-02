@@ -504,7 +504,7 @@ impl CodegenAlternative {
             }
         }
 
-        let http_client = cx.http_client();
+        let http_client = cx.http_client().clone();
         let telemetry = self.telemetry.clone();
         let language_name = {
             let multibuffer = self.buffer.read(cx);

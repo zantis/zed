@@ -152,7 +152,6 @@ struct AuthenticatedUserParams {
 struct AuthenticatedUserResponse {
     user: User,
     metrics_id: String,
-    feature_flags: Vec<String>,
 }
 
 async fn get_authenticated_user(
@@ -173,12 +172,7 @@ async fn get_authenticated_user(
         )
         .await?;
     let metrics_id = app.db.get_user_metrics_id(user.id).await?;
-    let feature_flags = app.db.get_user_flags(user.id).await?;
-    Ok(Json(AuthenticatedUserResponse {
-        user,
-        metrics_id,
-        feature_flags,
-    }))
+    Ok(Json(AuthenticatedUserResponse { user, metrics_id }))
 }
 
 #[derive(Deserialize, Debug)]

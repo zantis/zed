@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use util::serde::default_true;
 use util::{ResultExt, truncate_and_remove_front};
 
+use crate::debug_format::TcpArgumentsTemplate;
 use crate::{
     AttachRequest, ResolvedTask, RevealTarget, Shell, SpawnInTerminal, TaskContext, TaskId,
     VariableName, ZED_VARIABLE_NAME_PREFIX,
@@ -58,6 +59,9 @@ pub struct TaskTemplate {
     /// * `on_success` — hide the terminal tab on task success only, otherwise behaves similar to `always`.
     #[serde(default)]
     pub hide: HideStrategy,
+    /// If this task should start a debugger or not
+    #[serde(default, skip)]
+    pub task_type: TaskType,
     /// Represents the tags which this template attaches to.
     /// Adding this removes this task from other UI and gives you ability to run it by tag.
     #[serde(default, deserialize_with = "non_empty_string_vec")]
@@ -81,6 +85,43 @@ pub enum DebugArgsRequest {
     Launch,
     /// Attach
     Attach(AttachRequest),
+}
+
+#[derive(Deserialize, Eq, PartialEq, Clone, Debug)]
+/// This represents the arguments for the debug task.
+pub struct DebugArgs {
+    /// The launch type
+    pub request: DebugArgsRequest,
+    /// Adapter choice
+    pub adapter: String,
+    /// TCP connection to make with debug adapter
+    pub tcp_connection: Option<TcpArgumentsTemplate>,
+    /// Args to send to debug adapter
+    pub initialize_args: Option<serde_json::value::Value>,
+    /// the locator to use
+    pub locator: Option<String>,
+    /// Whether to tell the debug adapter to stop on entry
+    pub stop_on_entry: Option<bool>,
+}
+
+/// Represents the type of task that is being ran
+#[derive(Default, Eq, PartialEq, Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
+pub enum TaskType {
+    /// Act like a typically task that runs commands
+    #[default]
+    Script,
+    /// This task starts the debugger for a language
+    Debug(DebugArgs),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+/// The type of task modal to spawn
+pub enum TaskModal {
+    /// Show regular tasks
+    ScriptModal,
+    /// Show debug tasks
+    DebugModal,
 }
 
 /// What to do with the terminal pane and tab, after the command was started.
@@ -133,7 +174,9 @@ impl TaskTemplate {
     /// Every [`ResolvedTask`] gets a [`TaskId`], based on the `id_base` (to avoid collision with various task sources),
     /// and hashes of its template and [`TaskContext`], see [`ResolvedTask`] fields' documentation for more details.
     pub fn resolve_task(&self, id_base: &str, cx: &TaskContext) -> Option<ResolvedTask> {
-        if self.label.trim().is_empty() || self.command.trim().is_empty() {
+        if self.label.trim().is_empty()
+            || (self.command.trim().is_empty() && matches!(self.task_type, TaskType::Script))
+        {
             return None;
         }
 
@@ -242,7 +285,7 @@ impl TaskTemplate {
             substituted_variables,
             original_task: self.clone(),
             resolved_label: full_label.clone(),
-            resolved: SpawnInTerminal {
+            resolved: Some(SpawnInTerminal {
                 id,
                 cwd,
                 full_label,
@@ -267,7 +310,7 @@ impl TaskTemplate {
                 show_summary: self.show_summary,
                 show_command: self.show_command,
                 show_rerun: true,
-            },
+            }),
         })
     }
 }
@@ -293,7 +336,7 @@ fn to_hex_hash(object: impl Serialize) -> anyhow::Result<String> {
     Ok(hex::encode(hasher.finalize()))
 }
 
-pub fn substitute_all_template_variables_in_str<A: AsRef<str>>(
+fn substitute_all_template_variables_in_str<A: AsRef<str>>(
     template_str: &str,
     task_variables: &HashMap<String, A>,
     variable_names: &HashMap<String, VariableName>,
@@ -431,7 +474,12 @@ mod tests {
                 .resolve_task(TEST_ID_BASE, task_cx)
                 .unwrap_or_else(|| panic!("failed to resolve task {task_without_cwd:?}"));
             assert_substituted_variables(&resolved_task, Vec::new());
-            resolved_task.resolved
+            resolved_task
+                .resolved
+                .clone()
+                .unwrap_or_else(|| {
+                    panic!("failed to get resolve data for resolved task. Template: {task_without_cwd:?} Resolved: {resolved_task:?}")
+                })
         };
 
         let cx = TaskContext {
@@ -578,7 +626,10 @@ mod tests {
                 all_variables.iter().map(|(name, _)| name.clone()).collect(),
             );
 
-            let spawn_in_terminal = &resolved_task.resolved;
+            let spawn_in_terminal = resolved_task
+                .resolved
+                .as_ref()
+                .expect("should have resolved a spawn in terminal task");
             assert_eq!(
                 spawn_in_terminal.label,
                 format!(
@@ -662,7 +713,7 @@ mod tests {
             .resolve_task(TEST_ID_BASE, &TaskContext::default())
             .unwrap();
         assert_substituted_variables(&resolved_task, Vec::new());
-        let resolved = resolved_task.resolved;
+        let resolved = resolved_task.resolved.unwrap();
         assert_eq!(resolved.label, task.label);
         assert_eq!(resolved.command, task.command);
         assert_eq!(resolved.args, task.args);
@@ -831,7 +882,8 @@ mod tests {
         let resolved = template
             .resolve_task(TEST_ID_BASE, &context)
             .unwrap()
-            .resolved;
+            .resolved
+            .unwrap();
 
         assert_eq!(resolved.env["TASK_ENV_VAR1"], "TASK_ENV_VAR1_VALUE");
         assert_eq!(resolved.env["TASK_ENV_VAR2"], "env_var_2 1234 5678");

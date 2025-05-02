@@ -16,11 +16,12 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 pub use debug_format::{
-    AttachRequest, DebugRequest, DebugScenario, DebugTaskFile, LaunchRequest, TcpArgumentsTemplate,
+    AttachRequest, DebugRequest, DebugTaskDefinition, DebugTaskFile, DebugTaskTemplate,
+    LaunchRequest, TcpArgumentsTemplate,
 };
 pub use task_template::{
-    DebugArgsRequest, HideStrategy, RevealStrategy, TaskTemplate, TaskTemplates,
-    substitute_all_template_variables_in_str,
+    DebugArgs, DebugArgsRequest, HideStrategy, RevealStrategy, TaskModal, TaskTemplate,
+    TaskTemplates, TaskType,
 };
 pub use vscode_debug_format::VsCodeDebugTaskFile;
 pub use vscode_format::VsCodeTaskFile;
@@ -71,36 +72,6 @@ pub struct SpawnInTerminal {
     pub show_rerun: bool,
 }
 
-impl SpawnInTerminal {
-    pub fn to_proto(&self) -> proto::SpawnInTerminal {
-        proto::SpawnInTerminal {
-            label: self.label.clone(),
-            command: self.command.clone(),
-            args: self.args.clone(),
-            env: self
-                .env
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect(),
-            cwd: self
-                .cwd
-                .clone()
-                .map(|cwd| cwd.to_string_lossy().into_owned()),
-        }
-    }
-
-    pub fn from_proto(proto: proto::SpawnInTerminal) -> Self {
-        Self {
-            label: proto.label.clone(),
-            command: proto.command.clone(),
-            args: proto.args.clone(),
-            env: proto.env.into_iter().collect(),
-            cwd: proto.cwd.map(PathBuf::from).clone(),
-            ..Default::default()
-        }
-    }
-}
-
 /// A final form of the [`TaskTemplate`], that got resolved with a particular [`TaskContext`] and now is ready to spawn the actual task.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResolvedTask {
@@ -118,13 +89,70 @@ pub struct ResolvedTask {
     substituted_variables: HashSet<VariableName>,
     /// Further actions that need to take place after the resolved task is spawned,
     /// with all task variables resolved.
-    pub resolved: SpawnInTerminal,
+    pub resolved: Option<SpawnInTerminal>,
 }
 
 impl ResolvedTask {
     /// A task template before the resolution.
     pub fn original_task(&self) -> &TaskTemplate {
         &self.original_task
+    }
+
+    /// Get the task type that determines what this task is used for
+    /// And where is it shown in the UI
+    pub fn task_type(&self) -> TaskType {
+        self.original_task.task_type.clone()
+    }
+
+    /// Get the configuration for the debug adapter that should be used for this task.
+    pub fn resolved_debug_adapter_config(&self) -> Option<DebugTaskTemplate> {
+        match self.original_task.task_type.clone() {
+            TaskType::Debug(debug_args) if self.resolved.is_some() => {
+                let resolved = self
+                    .resolved
+                    .as_ref()
+                    .expect("We just checked if this was some");
+
+                let args = resolved
+                    .args
+                    .iter()
+                    .cloned()
+                    .map(|arg| {
+                        if arg.starts_with("$") {
+                            arg.strip_prefix("$")
+                                .and_then(|arg| resolved.env.get(arg).map(ToOwned::to_owned))
+                                .unwrap_or_else(|| arg)
+                        } else {
+                            arg
+                        }
+                    })
+                    .collect();
+
+                Some(DebugTaskTemplate {
+                    locator: debug_args.locator.clone(),
+                    definition: DebugTaskDefinition {
+                        label: resolved.label.clone(),
+                        adapter: debug_args.adapter.clone(),
+                        request: match debug_args.request {
+                            crate::task_template::DebugArgsRequest::Launch => {
+                                DebugRequest::Launch(LaunchRequest {
+                                    program: resolved.command.clone(),
+                                    cwd: resolved.cwd.clone(),
+                                    args,
+                                })
+                            }
+                            crate::task_template::DebugArgsRequest::Attach(attach_config) => {
+                                DebugRequest::Attach(attach_config)
+                            }
+                        },
+                        initialize_args: debug_args.initialize_args,
+                        tcp_connection: debug_args.tcp_connection,
+                        stop_on_entry: debug_args.stop_on_entry,
+                    },
+                })
+            }
+            _ => None,
+        }
     }
 
     /// Variables that were substituted during the task template resolution.
@@ -134,7 +162,10 @@ impl ResolvedTask {
 
     /// A human-readable label to display in the UI.
     pub fn display_label(&self) -> &str {
-        self.resolved.label.as_str()
+        self.resolved
+            .as_ref()
+            .map(|resolved| resolved.label.as_str())
+            .unwrap_or_else(|| self.resolved_label.as_str())
     }
 }
 
@@ -266,10 +297,6 @@ impl TaskVariables {
                 true
             }
         })
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (&VariableName, &String)> {
-        self.0.iter()
     }
 }
 

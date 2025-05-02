@@ -12,7 +12,6 @@ use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicI32, Ordering},
 };
-use util::path;
 
 #[gpui::test]
 async fn test_module_list(executor: BackgroundExecutor, cx: &mut TestAppContext) {
@@ -20,7 +19,7 @@ async fn test_module_list(executor: BackgroundExecutor, cx: &mut TestAppContext)
 
     let fs = FakeFs::new(executor.clone());
 
-    let project = Project::test(fs, [path!("/project").as_ref()], cx).await;
+    let project = Project::test(fs, ["/project".as_ref()], cx).await;
     let workspace = init_test_workspace(&project, cx).await;
     workspace
         .update(cx, |workspace, window, cx| {
@@ -106,11 +105,14 @@ async fn test_module_list(executor: BackgroundExecutor, cx: &mut TestAppContext)
     let running_state =
         active_debug_session_panel(workspace, cx).update_in(cx, |item, window, cx| {
             cx.focus_self(window);
-            item.running_state().clone()
+            item.mode()
+                .as_running()
+                .expect("Session should be running by this point")
+                .clone()
         });
 
     running_state.update_in(cx, |this, window, cx| {
-        this.activate_item(crate::persistence::DebuggerPaneItem::Modules, window, cx);
+        this.activate_modules_list(window, cx);
         cx.refresh_windows();
     });
 
@@ -212,4 +214,12 @@ async fn test_module_list(executor: BackgroundExecutor, cx: &mut TestAppContext)
         assert_eq!(actual_modules.len(), 2);
         assert!(!actual_modules.contains(&changed_module));
     });
+
+    let shutdown_session = project.update(cx, |project, cx| {
+        project.dap_store().update(cx, |dap_store, cx| {
+            dap_store.shutdown_session(session.read(cx).session_id(), cx)
+        })
+    });
+
+    shutdown_session.await.unwrap();
 }

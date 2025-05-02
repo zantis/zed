@@ -10,7 +10,10 @@ use gpui::{
 use itertools::Itertools;
 use picker::{Picker, PickerDelegate, highlighted_match_with_paths::HighlightedMatch};
 use project::{TaskSourceKind, task_store::TaskStore};
-use task::{DebugScenario, ResolvedTask, RevealTarget, TaskContext, TaskTemplate};
+use task::{
+    DebugRequest, DebugTaskDefinition, ResolvedTask, RevealTarget, TaskContext, TaskModal,
+    TaskTemplate, TaskType,
+};
 use ui::{
     ActiveTheme, Button, ButtonCommon, ButtonSize, Clickable, Color, FluentBuilder as _, Icon,
     IconButton, IconButtonShape, IconName, IconSize, IntoElement, KeyBinding, Label, LabelSize,
@@ -34,6 +37,8 @@ pub(crate) struct TasksModalDelegate {
     prompt: String,
     task_contexts: TaskContexts,
     placeholder_text: Arc<str>,
+    /// If this delegate is responsible for running a scripting task or a debugger
+    task_modal_type: TaskModal,
 }
 
 /// Task template amendments to do before resolving the context.
@@ -48,6 +53,7 @@ impl TasksModalDelegate {
         task_store: Entity<TaskStore>,
         task_contexts: TaskContexts,
         task_overrides: Option<TaskOverrides>,
+        task_modal_type: TaskModal,
         workspace: WeakEntity<Workspace>,
     ) -> Self {
         let placeholder_text = if let Some(TaskOverrides {
@@ -68,6 +74,7 @@ impl TasksModalDelegate {
             selected_index: 0,
             prompt: String::default(),
             task_contexts,
+            task_modal_type,
             task_overrides,
             placeholder_text,
         }
@@ -132,12 +139,19 @@ impl TasksModal {
         task_contexts: TaskContexts,
         task_overrides: Option<TaskOverrides>,
         workspace: WeakEntity<Workspace>,
+        task_modal_type: TaskModal,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let picker = cx.new(|cx| {
             Picker::uniform_list(
-                TasksModalDelegate::new(task_store, task_contexts, task_overrides, workspace),
+                TasksModalDelegate::new(
+                    task_store,
+                    task_contexts,
+                    task_overrides,
+                    task_modal_type,
+                    workspace,
+                ),
                 window,
                 cx,
             )
@@ -173,7 +187,7 @@ impl Render for TasksModal {
 }
 
 pub struct ShowAttachModal {
-    pub debug_config: DebugScenario,
+    pub debug_config: DebugTaskDefinition,
 }
 
 impl EventEmitter<DismissEvent> for TasksModal {}
@@ -220,8 +234,9 @@ impl PickerDelegate for TasksModalDelegate {
         window: &mut Window,
         cx: &mut Context<picker::Picker<Self>>,
     ) -> Task<()> {
+        let task_type = self.task_modal_type.clone();
         let candidates = match &self.candidates {
-            Some(candidates) => Task::ready(string_match_candidates(candidates)),
+            Some(candidates) => Task::ready(string_match_candidates(candidates, task_type)),
             None => {
                 if let Some(task_inventory) = self.task_store.read(cx).task_inventory().cloned() {
                     let (used, current) = task_inventory
@@ -264,7 +279,8 @@ impl PickerDelegate for TasksModalDelegate {
                                     },
                                 ));
                                 new_candidates.extend(current);
-                                let match_candidates = string_match_candidates(&new_candidates);
+                                let match_candidates =
+                                    string_match_candidates(&new_candidates, task_type);
                                 let _ = picker.delegate.candidates.insert(new_candidates);
                                 match_candidates
                             })
@@ -338,20 +354,48 @@ impl PickerDelegate for TasksModalDelegate {
             reveal_target: Some(reveal_target),
         }) = &self.task_overrides
         {
-            task.resolved.reveal_target = *reveal_target;
+            if let Some(resolved_task) = &mut task.resolved {
+                resolved_task.reveal_target = *reveal_target;
+            }
         }
 
-        self.workspace
-            .update(cx, |workspace, cx| {
-                workspace.schedule_resolved_task(
-                    task_source_kind,
-                    task,
-                    omit_history_entry,
-                    window,
-                    cx,
-                );
-            })
-            .ok();
+        match task.task_type() {
+            TaskType::Debug(_) => {
+                let Some(config) = task.resolved_debug_adapter_config() else {
+                    return;
+                };
+                let config = config.definition;
+
+                match &config.request {
+                    DebugRequest::Attach(attach_config) if attach_config.process_id.is_none() => {
+                        cx.emit(ShowAttachModal {
+                            debug_config: config.clone(),
+                        });
+                        return;
+                    }
+                    _ => {
+                        self.workspace
+                            .update(cx, |workspace, cx| {
+                                workspace.schedule_debug_task(task, window, cx);
+                            })
+                            .ok();
+                    }
+                }
+            }
+            TaskType::Script => {
+                self.workspace
+                    .update(cx, |workspace, cx| {
+                        workspace.schedule_resolved_task(
+                            task_source_kind,
+                            task,
+                            omit_history_entry,
+                            window,
+                            cx,
+                        );
+                    })
+                    .ok();
+            }
+        };
 
         cx.emit(DismissEvent);
     }
@@ -378,14 +422,16 @@ impl PickerDelegate for TasksModalDelegate {
         } else {
             String::new()
         };
-
-        if resolved_task.resolved.command_label != resolved_task.resolved_label {
-            if !tooltip_label_text.trim().is_empty() {
-                tooltip_label_text.push('\n');
+        if let Some(resolved) = resolved_task.resolved.as_ref() {
+            if resolved.command_label != display_label
+                && resolved.command_label != resolved_task.resolved_label
+            {
+                if !tooltip_label_text.trim().is_empty() {
+                    tooltip_label_text.push('\n');
+                }
+                tooltip_label_text.push_str(&resolved.command_label);
             }
-            tooltip_label_text.push_str(&resolved_task.resolved.command_label);
         }
-
         if template.tags.len() > 0 {
             tooltip_label_text.push('\n');
             tooltip_label_text.push_str(
@@ -507,7 +553,7 @@ impl PickerDelegate for TasksModalDelegate {
         let task_index = self.matches.get(self.selected_index())?.candidate_id;
         let tasks = self.candidates.as_ref()?;
         let (_, task) = tasks.get(task_index)?;
-        Some(task.resolved.command_label.clone())
+        Some(task.resolved.as_ref()?.command_label.clone())
     }
 
     fn confirm_input(
@@ -524,17 +570,26 @@ impl PickerDelegate for TasksModalDelegate {
             reveal_target: Some(reveal_target),
         }) = self.task_overrides
         {
-            task.resolved.reveal_target = reveal_target;
+            if let Some(resolved_task) = &mut task.resolved {
+                resolved_task.reveal_target = reveal_target;
+            }
         }
         self.workspace
             .update(cx, |workspace, cx| {
-                workspace.schedule_resolved_task(
-                    task_source_kind,
-                    task,
-                    omit_history_entry,
-                    window,
-                    cx,
-                )
+                match task.task_type() {
+                    TaskType::Script => workspace.schedule_resolved_task(
+                        task_source_kind,
+                        task,
+                        omit_history_entry,
+                        window,
+                        cx,
+                    ),
+                    // todo(debugger): Should create a schedule_resolved_debug_task function
+                    // This would allow users to access to debug history and other issues
+                    TaskType::Debug(_) => {
+                        workspace.schedule_debug_task(task, window, cx);
+                    }
+                };
             })
             .ok();
         cx.emit(DismissEvent);
@@ -656,10 +711,15 @@ impl PickerDelegate for TasksModalDelegate {
 
 fn string_match_candidates<'a>(
     candidates: impl IntoIterator<Item = &'a (TaskSourceKind, ResolvedTask)> + 'a,
+    task_modal_type: TaskModal,
 ) -> Vec<StringMatchCandidate> {
     candidates
         .into_iter()
         .enumerate()
+        .filter(|(_, (_, candidate))| match candidate.task_type() {
+            TaskType::Script => task_modal_type == TaskModal::ScriptModal,
+            TaskType::Debug(_) => task_modal_type == TaskModal::DebugModal,
+        })
         .map(|(index, (_, candidate))| StringMatchCandidate::new(index, candidate.display_label()))
         .collect()
 }

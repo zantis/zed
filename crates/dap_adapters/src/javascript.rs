@@ -1,8 +1,8 @@
 use adapters::latest_github_release;
-use dap::{StartDebuggingRequestArguments, adapters::DebugTaskDefinition};
+use dap::StartDebuggingRequestArguments;
 use gpui::AsyncApp;
 use std::{collections::HashMap, path::PathBuf};
-use task::DebugRequest;
+use task::{DebugRequest, DebugTaskDefinition};
 
 use crate::*;
 

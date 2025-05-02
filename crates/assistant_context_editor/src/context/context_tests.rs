@@ -959,7 +959,7 @@ async fn test_workflow_step_parsing(cx: &mut TestAppContext) {
     let deserialized_context = cx.new(|cx| {
         AssistantContext::deserialize(
             serialized_context,
-            Path::new("").into(),
+            Default::default(),
             registry.clone(),
             prompt_builder.clone(),
             Arc::new(SlashCommandWorkingSet::default()),
@@ -1120,7 +1120,7 @@ async fn test_serialization(cx: &mut TestAppContext) {
     let deserialized_context = cx.new(|cx| {
         AssistantContext::deserialize(
             serialized_context,
-            Path::new("").into(),
+            Default::default(),
             registry.clone(),
             prompt_builder.clone(),
             Arc::new(SlashCommandWorkingSet::default()),

@@ -2117,16 +2117,6 @@ impl Window {
             None
         })
     }
-
-    /// Asynchronously load an asset, if the asset hasn't finished loading or doesn't exist this will return None.
-    /// Your view will not be re-drawn once the asset has finished loading.
-    ///
-    /// Note that the multiple calls to this method will only result in one `Asset::load` call at a
-    /// time.
-    pub fn get_asset<A: Asset>(&mut self, source: &A::Source, cx: &mut App) -> Option<A::Output> {
-        let (task, _) = cx.fetch_asset::<A>(source);
-        task.clone().now_or_never()
-    }
     /// Obtain the current element offset. This method should only be called during the
     /// prepaint phase of element drawing.
     pub fn element_offset(&self) -> Point<Pixels> {
@@ -2886,18 +2876,14 @@ impl Window {
     }
 
     /// Executes the provided function with the specified image cache.
-    pub fn with_image_cache<F, R>(&mut self, image_cache: Option<AnyImageCache>, f: F) -> R
+    pub(crate) fn with_image_cache<F, R>(&mut self, image_cache: AnyImageCache, f: F) -> R
     where
         F: FnOnce(&mut Self) -> R,
     {
-        if let Some(image_cache) = image_cache {
-            self.image_cache_stack.push(image_cache);
-            let result = f(self);
-            self.image_cache_stack.pop();
-            result
-        } else {
-            f(self)
-        }
+        self.image_cache_stack.push(image_cache);
+        let result = f(self);
+        self.image_cache_stack.pop();
+        result
     }
 
     /// Sets an input handler, such as [`ElementInputHandler`][element_input_handler], which interfaces with the

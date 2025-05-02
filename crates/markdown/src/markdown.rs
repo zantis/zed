@@ -1,8 +1,6 @@
 pub mod parser;
 mod path_range;
 
-pub use path_range::{LineCol, PathWithRange};
-
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::iter;
@@ -217,21 +215,11 @@ impl Markdown {
     }
 
     pub fn escape(s: &str) -> Cow<str> {
-        let count = s
-            .bytes()
-            .filter(|c| *c == b'\n' || c.is_ascii_punctuation())
-            .count();
+        let count = s.bytes().filter(|c| c.is_ascii_punctuation()).count();
         if count > 0 {
             let mut output = String::with_capacity(s.len() + count);
-            let mut is_newline = false;
             for c in s.chars() {
-                if is_newline && c == ' ' {
-                    continue;
-                }
-                is_newline = c == '\n';
-                if c == '\n' {
-                    output.push('\n')
-                } else if c.is_ascii_punctuation() {
+                if c.is_ascii_punctuation() {
                     output.push('\\')
                 }
                 output.push(c)
@@ -1727,15 +1715,6 @@ mod tests {
             |_window, _cx| MarkdownElement::new(markdown, MarkdownStyle::default()),
         );
         rendered.text
-    }
-
-    #[test]
-    fn test_escape() {
-        assert_eq!(Markdown::escape("hello `world`"), "hello \\`world\\`");
-        assert_eq!(
-            Markdown::escape("hello\n    cool world"),
-            "hello\n\ncool world"
-        );
     }
 
     #[track_caller]

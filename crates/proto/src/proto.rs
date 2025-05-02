@@ -169,11 +169,6 @@ messages!(
     (LspExtRunnablesResponse, Background),
     (LspExtSwitchSourceHeader, Background),
     (LspExtSwitchSourceHeaderResponse, Background),
-    (LspExtGoToParentModule, Background),
-    (LspExtGoToParentModuleResponse, Background),
-    (LspExtCancelFlycheck, Background),
-    (LspExtRunFlycheck, Background),
-    (LspExtClearFlycheck, Background),
     (MarkNotificationRead, Foreground),
     (MoveChannel, Foreground),
     (MultiLspQuery, Background),
@@ -303,8 +298,8 @@ messages!(
     (GitInit, Background),
     (GetDebugAdapterBinary, Background),
     (DebugAdapterBinary, Background),
-    (RunDebugLocators, Background),
-    (DebugRequest, Background),
+    (RunDebugLocator, Background),
+    (DebugTaskDefinition, Background),
 );
 
 request_messages!(
@@ -427,10 +422,6 @@ request_messages!(
     (CreateContext, CreateContextResponse),
     (SynchronizeContexts, SynchronizeContextsResponse),
     (LspExtSwitchSourceHeader, LspExtSwitchSourceHeaderResponse),
-    (LspExtGoToParentModule, LspExtGoToParentModuleResponse),
-    (LspExtCancelFlycheck, Ack),
-    (LspExtRunFlycheck, Ack),
-    (LspExtClearFlycheck, Ack),
     (AddWorktree, AddWorktreeResponse),
     (ShutdownRemoteServer, Ack),
     (RemoveWorktree, Ack),
@@ -465,7 +456,7 @@ request_messages!(
     (GitInit, Ack),
     (ToggleBreakpoint, Ack),
     (GetDebugAdapterBinary, DebugAdapterBinary),
-    (RunDebugLocators, DebugRequest),
+    (RunDebugLocator, DebugTaskDefinition),
 );
 
 entity_messages!(
@@ -553,10 +544,6 @@ entity_messages!(
     UpdateContext,
     SynchronizeContexts,
     LspExtSwitchSourceHeader,
-    LspExtGoToParentModule,
-    LspExtCancelFlycheck,
-    LspExtRunFlycheck,
-    LspExtClearFlycheck,
     LanguageServerLog,
     Toast,
     HideToast,
@@ -589,7 +576,7 @@ entity_messages!(
     GitInit,
     BreakpointsForFile,
     ToggleBreakpoint,
-    RunDebugLocators,
+    RunDebugLocator,
     GetDebugAdapterBinary,
 );
 

@@ -19,7 +19,6 @@ actions!(
         SelectNext,
         SelectFirst,
         SelectLast,
-        Restart,
-        EndSlot,
+        Restart
     ]
 );

@@ -1341,7 +1341,7 @@ impl InlineAssistant {
                 editor.highlight_rows::<InlineAssist>(
                     row_range,
                     cx.theme().status().info_background,
-                    Default::default(),
+                    false,
                     cx,
                 );
             }
@@ -1406,7 +1406,7 @@ impl InlineAssistant {
                     editor.highlight_rows::<DeletedLines>(
                         Anchor::min()..Anchor::max(),
                         cx.theme().status().deleted_background,
-                        Default::default(),
+                        false,
                         cx,
                     );
                     editor

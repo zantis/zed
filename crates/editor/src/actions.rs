@@ -78,10 +78,6 @@ pub struct ToggleCodeActions {
     #[serde(default)]
     #[serde(skip)]
     pub deployed_from_indicator: Option<DisplayRow>,
-    // Run first available task if there is only one.
-    #[serde(default)]
-    #[serde(skip)]
-    pub quick_launch: bool,
 }
 
 #[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
@@ -249,9 +245,7 @@ actions!(
         ApplyDiffHunk,
         Backspace,
         Cancel,
-        CancelFlycheck,
         CancelLanguageServerWork,
-        ClearFlycheck,
         ConfirmRename,
         ConfirmCompletionInsert,
         ConfirmCompletionReplace,
@@ -310,7 +304,6 @@ actions!(
         GoToImplementation,
         GoToImplementationSplit,
         GoToNextChange,
-        GoToParentModule,
         GoToPreviousChange,
         GoToPreviousDiagnostic,
         GoToTypeDefinition,
@@ -374,7 +367,6 @@ actions!(
         RevertFile,
         ReloadFile,
         Rewrap,
-        RunFlycheck,
         ScrollCursorBottom,
         ScrollCursorCenter,
         ScrollCursorCenterTopBottom,
@@ -427,7 +419,6 @@ actions!(
         OpenGitBlameCommit,
         ToggleIndentGuides,
         ToggleInlayHints,
-        ToggleInlineValues,
         ToggleInlineDiagnostics,
         ToggleEditPrediction,
         ToggleLineNumbers,

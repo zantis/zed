@@ -32,6 +32,4 @@ impl Settings for ZlogSettings {
     {
         sources.json_merge()
     }
-
-    fn import_from_vscode(_vscode: &settings::VsCodeSettings, _current: &mut Self::FileContent) {}
 }

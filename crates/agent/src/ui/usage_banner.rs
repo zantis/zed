@@ -98,10 +98,6 @@ impl RenderOnce for UsageBanner {
 }
 
 impl Component for UsageBanner {
-    fn scope() -> ComponentScope {
-        ComponentScope::Agent
-    }
-
     fn sort_name() -> &'static str {
         "AgentUsageBanner"
     }

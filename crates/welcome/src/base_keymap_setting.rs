@@ -107,8 +107,4 @@ impl Settings for BaseKeymap {
         }
         sources.default.ok_or_else(Self::missing_default)
     }
-
-    fn import_from_vscode(_vscode: &settings::VsCodeSettings, current: &mut Self::FileContent) {
-        *current = Some(BaseKeymap::VSCode);
-    }
 }

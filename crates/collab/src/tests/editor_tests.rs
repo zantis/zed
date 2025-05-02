@@ -25,7 +25,7 @@ use language::{
 use project::{
     ProjectPath, SERVER_PROGRESS_THROTTLE_TIMEOUT,
     lsp_store::{
-        lsp_ext_command::{ExpandedMacro, LspExtExpandMacro},
+        lsp_ext_command::{ExpandedMacro, LspExpandMacro},
         rust_analyzer_ext::RUST_ANALYZER_NAME,
     },
     project_settings::{InlineBlameSettings, ProjectSettings},
@@ -680,7 +680,6 @@ async fn test_collaborating_with_code_actions(
         editor.toggle_code_actions(
             &ToggleCodeActions {
                 deployed_from_indicator: None,
-                quick_launch: false,
             },
             window,
             cx,
@@ -1545,7 +1544,6 @@ async fn test_mutual_editor_inlay_hint_cache_update(
             store.update_user_settings::<AllLanguageSettings>(cx, |settings| {
                 settings.defaults.inlay_hints = Some(InlayHintSettings {
                     enabled: true,
-                    show_value_hints: true,
                     edit_debounce_ms: 0,
                     scroll_debounce_ms: 0,
                     show_type_hints: true,
@@ -1561,7 +1559,6 @@ async fn test_mutual_editor_inlay_hint_cache_update(
         SettingsStore::update_global(cx, |store, cx| {
             store.update_user_settings::<AllLanguageSettings>(cx, |settings| {
                 settings.defaults.inlay_hints = Some(InlayHintSettings {
-                    show_value_hints: true,
                     enabled: true,
                     edit_debounce_ms: 0,
                     scroll_debounce_ms: 0,
@@ -1781,7 +1778,6 @@ async fn test_inlay_hint_refresh_is_forwarded(
         SettingsStore::update_global(cx, |store, cx| {
             store.update_user_settings::<AllLanguageSettings>(cx, |settings| {
                 settings.defaults.inlay_hints = Some(InlayHintSettings {
-                    show_value_hints: true,
                     enabled: false,
                     edit_debounce_ms: 0,
                     scroll_debounce_ms: 0,
@@ -1798,7 +1794,6 @@ async fn test_inlay_hint_refresh_is_forwarded(
         SettingsStore::update_global(cx, |store, cx| {
             store.update_user_settings::<AllLanguageSettings>(cx, |settings| {
                 settings.defaults.inlay_hints = Some(InlayHintSettings {
-                    show_value_hints: true,
                     enabled: true,
                     edit_debounce_ms: 0,
                     scroll_debounce_ms: 0,
@@ -2704,8 +2699,8 @@ async fn test_client_can_query_lsp_ext(cx_a: &mut TestAppContext, cx_b: &mut Tes
     let fake_language_server = fake_language_servers.next().await.unwrap();
 
     // host
-    let mut expand_request_a = fake_language_server.set_request_handler::<LspExtExpandMacro, _, _>(
-        |params, _| async move {
+    let mut expand_request_a =
+        fake_language_server.set_request_handler::<LspExpandMacro, _, _>(|params, _| async move {
             assert_eq!(
                 params.text_document.uri,
                 lsp::Url::from_file_path(path!("/a/main.rs")).unwrap(),
@@ -2715,8 +2710,7 @@ async fn test_client_can_query_lsp_ext(cx_a: &mut TestAppContext, cx_b: &mut Tes
                 name: "test_macro_name".to_string(),
                 expansion: "test_macro_expansion on the host".to_string(),
             }))
-        },
-    );
+        });
 
     editor_a.update_in(cx_a, |editor, window, cx| {
         expand_macro_recursively(editor, &ExpandMacroRecursively, window, cx)
@@ -2739,8 +2733,8 @@ async fn test_client_can_query_lsp_ext(cx_a: &mut TestAppContext, cx_b: &mut Tes
     });
 
     // client
-    let mut expand_request_b = fake_language_server.set_request_handler::<LspExtExpandMacro, _, _>(
-        |params, _| async move {
+    let mut expand_request_b =
+        fake_language_server.set_request_handler::<LspExpandMacro, _, _>(|params, _| async move {
             assert_eq!(
                 params.text_document.uri,
                 lsp::Url::from_file_path(path!("/a/main.rs")).unwrap(),
@@ -2750,8 +2744,7 @@ async fn test_client_can_query_lsp_ext(cx_a: &mut TestAppContext, cx_b: &mut Tes
                 name: "test_macro_name".to_string(),
                 expansion: "test_macro_expansion on the client".to_string(),
             }))
-        },
-    );
+        });
 
     editor_b.update_in(cx_b, |editor, window, cx| {
         expand_macro_recursively(editor, &ExpandMacroRecursively, window, cx)

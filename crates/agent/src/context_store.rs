@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use collections::{HashSet, IndexSet};
+use futures::future::join_all;
 use futures::{self, FutureExt};
 use gpui::{App, Context, Entity, Image, SharedString, Task, WeakEntity};
 use language::Buffer;
@@ -13,6 +14,7 @@ use project::{Project, ProjectItem, ProjectPath, Symbol};
 use prompt_store::UserPromptId;
 use ref_cast::RefCast as _;
 use text::{Anchor, OffsetRangeExt};
+use util::ResultExt as _;
 
 use crate::ThreadStore;
 use crate::context::{
@@ -21,11 +23,12 @@ use crate::context::{
     SymbolContextHandle, ThreadContextHandle,
 };
 use crate::context_strip::SuggestedContext;
-use crate::thread::{MessageId, Thread, ThreadId};
+use crate::thread::{Thread, ThreadId};
 
 pub struct ContextStore {
     project: WeakEntity<Project>,
     thread_store: Option<WeakEntity<ThreadStore>>,
+    thread_summary_tasks: Vec<Task<()>>,
     next_context_id: ContextId,
     context_set: IndexSet<AgentContextKey>,
     context_thread_ids: HashSet<ThreadId>,
@@ -39,6 +42,7 @@ impl ContextStore {
         Self {
             project,
             thread_store,
+            thread_summary_tasks: Vec::new(),
             next_context_id: ContextId::zero(),
             context_set: IndexSet::default(),
             context_thread_ids: HashSet::default(),
@@ -54,14 +58,9 @@ impl ContextStore {
         self.context_thread_ids.clear();
     }
 
-    pub fn new_context_for_thread(
-        &self,
-        thread: &Thread,
-        exclude_messages_from_id: Option<MessageId>,
-    ) -> Vec<AgentContextHandle> {
+    pub fn new_context_for_thread(&self, thread: &Thread) -> Vec<AgentContextHandle> {
         let existing_context = thread
             .messages()
-            .take_while(|message| exclude_messages_from_id.is_none_or(|id| message.id != id))
             .flat_map(|message| {
                 message
                     .loaded_context
@@ -207,6 +206,41 @@ impl ContextStore {
         }
     }
 
+    fn start_summarizing_thread_if_needed(
+        &mut self,
+        thread: &Entity<Thread>,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(summary_task) =
+            thread.update(cx, |thread, cx| thread.generate_detailed_summary(cx))
+        {
+            let thread = thread.clone();
+            let thread_store = self.thread_store.clone();
+
+            self.thread_summary_tasks.push(cx.spawn(async move |_, cx| {
+                summary_task.await;
+
+                if let Some(thread_store) = thread_store {
+                    // Save thread so its summary can be reused later
+                    let save_task = thread_store
+                        .update(cx, |thread_store, cx| thread_store.save_thread(&thread, cx));
+
+                    if let Some(save_task) = save_task.ok() {
+                        save_task.await.log_err();
+                    }
+                }
+            }));
+        }
+    }
+
+    pub fn wait_for_summaries(&mut self, cx: &App) -> Task<()> {
+        let tasks = std::mem::take(&mut self.thread_summary_tasks);
+
+        cx.spawn(async move |_cx| {
+            join_all(tasks).await;
+        })
+    }
+
     pub fn add_rules(
         &mut self,
         prompt_id: UserPromptId,
@@ -344,15 +378,9 @@ impl ContextStore {
     fn insert_context(&mut self, context: AgentContextHandle, cx: &mut Context<Self>) -> bool {
         match &context {
             AgentContextHandle::Thread(thread_context) => {
-                if let Some(thread_store) = self.thread_store.clone() {
-                    thread_context.thread.update(cx, |thread, cx| {
-                        thread.start_generating_detailed_summary_if_needed(thread_store, cx);
-                    });
-                    self.context_thread_ids
-                        .insert(thread_context.thread.read(cx).id().clone());
-                } else {
-                    return false;
-                }
+                self.context_thread_ids
+                    .insert(thread_context.thread.read(cx).id().clone());
+                self.start_summarizing_thread_if_needed(&thread_context.thread, cx);
             }
             _ => {}
         }

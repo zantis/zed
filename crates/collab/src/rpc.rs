@@ -1,7 +1,6 @@
 mod connection_pool;
 
 use crate::api::{CloudflareIpCountryHeader, SystemIdHeader};
-use crate::db::billing_subscription::SubscriptionKind;
 use crate::llm::LlmTokenClaims;
 use crate::{
     AppState, Error, Result, auth,
@@ -179,23 +178,15 @@ impl Session {
         Ok(db.has_active_billing_subscription(user_id).await?)
     }
 
-    pub async fn current_plan(&self, db: &MutexGuard<'_, DbHandle>) -> anyhow::Result<proto::Plan> {
-        let user_id = self.user_id();
-
-        let subscription = db.get_active_billing_subscription(user_id).await?;
-        let subscription_kind = subscription.and_then(|subscription| subscription.kind);
-
-        let plan = if let Some(subscription_kind) = subscription_kind {
-            match subscription_kind {
-                SubscriptionKind::ZedPro => proto::Plan::ZedPro,
-                SubscriptionKind::ZedProTrial => proto::Plan::ZedProTrial,
-                SubscriptionKind::ZedFree => proto::Plan::Free,
-            }
+    pub async fn current_plan(
+        &self,
+        _db: &MutexGuard<'_, DbHandle>,
+    ) -> anyhow::Result<proto::Plan> {
+        if self.is_staff() {
+            Ok(proto::Plan::ZedPro)
         } else {
-            proto::Plan::Free
-        };
-
-        Ok(plan)
+            Ok(proto::Plan::Free)
+        }
     }
 
     fn user_id(&self) -> UserId {
@@ -327,10 +318,6 @@ impl Server {
             .add_request_handler(
                 forward_read_only_project_request::<proto::LspExtSwitchSourceHeader>,
             )
-            .add_request_handler(forward_read_only_project_request::<proto::LspExtGoToParentModule>)
-            .add_request_handler(forward_read_only_project_request::<proto::LspExtCancelFlycheck>)
-            .add_request_handler(forward_read_only_project_request::<proto::LspExtRunFlycheck>)
-            .add_request_handler(forward_read_only_project_request::<proto::LspExtClearFlycheck>)
             .add_request_handler(
                 forward_read_only_project_request::<proto::LanguageServerIdForName>,
             )
