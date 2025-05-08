@@ -83,6 +83,9 @@ impl Column for SerializedEditor {
     }
 }
 
+// TODO kb write/select from buffer data.
+// TODO kb remove previous BLOB data from the DB schemas.
+
 define_connection!(
     // Current schema shape using pseudo-rust syntax:
     // editors(
@@ -92,6 +95,21 @@ define_connection!(
     //   scroll_top_row: usize,
     //   scroll_vertical_offset: f32,
     //   scroll_horizontal_offset: f32,
+    //   contents: Option<String>,
+    //   language: Option<String>,
+    //   mtime_seconds: Option<i64>,
+    //   mtime_nanos: Option<i32>,
+    // )
+    //
+    // editor_excerpts (
+    //   editor_id: usize,
+    //   buffer_id: usize,
+    // )
+    //
+    // buffers (
+    //   buffer_id: usize,
+    //   workspace_id: usize,
+    //   path: Option<PathBuf>,
     //   contents: Option<String>,
     //   language: Option<String>,
     //   mtime_seconds: Option<i64>,
@@ -186,6 +204,32 @@ define_connection!(
                 PRIMARY KEY(item_id),
                 FOREIGN KEY(editor_id, workspace_id) REFERENCES editors(item_id, workspace_id)
                 ON DELETE CASCADE
+            ) STRICT;
+        ),
+        sql! (
+            CREATE TABLE editor_excerpts (
+                editor_id INTEGER NOT NULL,
+                buffer_id INTEGER NOT NULL,
+                PRIMARY KEY(editor_id, buffer_id),
+                FOREIGN KEY(editor_id) REFERENCES editors(item_id)
+                ON DELETE CASCADE,
+                FOREIGN KEY(buffer_id) REFERENCES buffers(buffer_id)
+                ON DELETE CASCADE
+            ) STRICT;
+        ),
+        sql! (
+            CREATE TABLE buffers (
+                buffer_id INTEGER NOT NULL,
+                workspace_id INTEGER NOT NULL,
+                path TEXT,
+                contents TEXT,
+                language TEXT,
+                mtime_seconds INTEGER,
+                mtime_nanos INTEGER,
+                PRIMARY KEY(buffer_id, workspace_id),
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(workspace_id)
+                ON DELETE CASCADE
+                ON UPDATE CASCADE
             ) STRICT;
         ),
     ];
