@@ -134,7 +134,7 @@ impl From<ErrorCode> for anyhow::Error {
         RpcError {
             request: None,
             code: value,
-            msg: format!("{:?}", value),
+            msg: format!("{:?}", value).to_string(),
             tags: Default::default(),
         }
         .into()
@@ -241,7 +241,7 @@ impl From<ErrorCode> for RpcError {
         RpcError {
             request: None,
             code,
-            msg: format!("{:?}", code),
+            msg: format!("{:?}", code).to_string(),
             tags: Default::default(),
         }
     }

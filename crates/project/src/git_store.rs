@@ -163,7 +163,7 @@ struct LocalDownstreamState {
     _task: Task<Result<()>>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct GitStoreCheckpoint {
     checkpoints_by_work_dir_abs_path: HashMap<Arc<Path>, GitRepositoryCheckpoint>,
 }

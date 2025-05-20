@@ -170,6 +170,7 @@ pub fn run(
     anyhow::Ok(())
 }
 
+#[allow(clippy::large_enum_variant)]
 pub enum SessionSupport {
     ActiveSession(Entity<Session>),
     Inactive(KernelSpecification),

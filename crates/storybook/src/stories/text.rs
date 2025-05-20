@@ -14,9 +14,9 @@ impl TextStory {
 }
 
 impl Render for TextStory {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        Story::container(cx)
-            .child(Story::title("Text", cx))
+    fn render(&mut self, window: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        Story::container()
+            .child(Story::title("Text"))
             .children(vec![
                 StorySection::new()
                     .child(

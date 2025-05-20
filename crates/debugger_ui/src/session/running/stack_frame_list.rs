@@ -39,6 +39,7 @@ pub struct StackFrameList {
     _refresh_task: Task<()>,
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq, Eq)]
 pub enum StackFrameEntry {
     Normal(dap::StackFrame),

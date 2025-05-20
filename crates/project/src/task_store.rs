@@ -21,7 +21,7 @@ use crate::{
     worktree_store::WorktreeStore,
 };
 
-// platform-dependent warning
+#[allow(clippy::large_enum_variant)] // platform-dependent warning
 pub enum TaskStore {
     Functional(StoreState),
     Noop,

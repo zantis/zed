@@ -876,7 +876,7 @@ impl WorktreeStore {
 
     async fn filter_paths(
         fs: &Arc<dyn Fs>,
-        input: Receiver<MatchingEntry>,
+        mut input: Receiver<MatchingEntry>,
         query: &SearchQuery,
     ) -> Result<()> {
         let mut input = pin!(input);

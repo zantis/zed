@@ -17,8 +17,9 @@ use stripe::{
     CreateBillingPortalSessionFlowDataAfterCompletionRedirect,
     CreateBillingPortalSessionFlowDataSubscriptionUpdateConfirm,
     CreateBillingPortalSessionFlowDataSubscriptionUpdateConfirmItems,
-    CreateBillingPortalSessionFlowDataType, Customer, CustomerId, EventObject, EventType,
-    Expandable, ListEvents, PaymentMethod, Subscription, SubscriptionId, SubscriptionStatus,
+    CreateBillingPortalSessionFlowDataType, CreateCustomer, Customer, CustomerId, EventObject,
+    EventType, Expandable, ListEvents, PaymentMethod, Subscription, SubscriptionId,
+    SubscriptionStatus,
 };
 use util::{ResultExt, maybe};
 
@@ -59,10 +60,6 @@ pub fn router() -> Router {
         .route(
             "/billing/subscriptions/migrate",
             post(migrate_to_new_billing),
-        )
-        .route(
-            "/billing/subscriptions/sync",
-            post(sync_billing_subscription),
         )
         .route("/billing/monthly_spend", get(get_monthly_spend))
         .route("/billing/usage", get(get_current_usage))
@@ -279,7 +276,7 @@ async fn list_billing_subscriptions(
     }))
 }
 
-#[derive(Debug, PartialEq, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum ProductCode {
     ZedPro,
@@ -290,7 +287,7 @@ enum ProductCode {
 #[derive(Debug, Deserialize)]
 struct CreateBillingSubscriptionBody {
     github_user_id: i32,
-    product: ProductCode,
+    product: Option<ProductCode>,
 }
 
 #[derive(Debug, Serialize)]
@@ -309,6 +306,13 @@ async fn create_billing_subscription(
         .await?
         .ok_or_else(|| anyhow!("user not found"))?;
 
+    let Some(stripe_client) = app.stripe_client.clone() else {
+        log::error!("failed to retrieve Stripe client");
+        Err(Error::http(
+            StatusCode::NOT_IMPLEMENTED,
+            "not supported".into(),
+        ))?
+    };
     let Some(stripe_billing) = app.stripe_billing.clone() else {
         log::error!("failed to retrieve Stripe billing object");
         Err(Error::http(
@@ -317,16 +321,11 @@ async fn create_billing_subscription(
         ))?
     };
 
-    if let Some(existing_subscription) = app.db.get_active_billing_subscription(user.id).await? {
-        let is_checkout_allowed = body.product == ProductCode::ZedProTrial
-            && existing_subscription.kind == Some(SubscriptionKind::ZedFree);
-
-        if !is_checkout_allowed {
-            return Err(Error::http(
-                StatusCode::CONFLICT,
-                "user already has an active subscription".into(),
-            ));
-        }
+    if app.db.has_active_billing_subscription(user.id).await? {
+        return Err(Error::http(
+            StatusCode::CONFLICT,
+            "user already has an active subscription".into(),
+        ));
     }
 
     let existing_billing_customer = app.db.get_billing_customer_by_user_id(user.id).await?;
@@ -343,9 +342,35 @@ async fn create_billing_subscription(
         CustomerId::from_str(&existing_customer.stripe_customer_id)
             .context("failed to parse customer ID")?
     } else {
-        stripe_billing
-            .find_or_create_customer_by_email(user.email_address.as_deref())
-            .await?
+        let existing_customer = if let Some(email) = user.email_address.as_deref() {
+            let customers = Customer::list(
+                &stripe_client,
+                &stripe::ListCustomers {
+                    email: Some(email),
+                    ..Default::default()
+                },
+            )
+            .await?;
+
+            customers.data.first().cloned()
+        } else {
+            None
+        };
+
+        if let Some(existing_customer) = existing_customer {
+            existing_customer.id
+        } else {
+            let customer = Customer::create(
+                &stripe_client,
+                CreateCustomer {
+                    email: user.email_address.as_deref(),
+                    ..Default::default()
+                },
+            )
+            .await?;
+
+            customer.id
+        }
     };
 
     let success_url = format!(
@@ -354,12 +379,12 @@ async fn create_billing_subscription(
     );
 
     let checkout_session_url = match body.product {
-        ProductCode::ZedPro => {
+        Some(ProductCode::ZedPro) => {
             stripe_billing
                 .checkout_with_zed_pro(customer_id, &user.github_login, &success_url)
                 .await?
         }
-        ProductCode::ZedProTrial => {
+        Some(ProductCode::ZedProTrial) => {
             if let Some(existing_billing_customer) = &existing_billing_customer {
                 if existing_billing_customer.trial_started_at.is_some() {
                     return Err(Error::http(
@@ -380,10 +405,16 @@ async fn create_billing_subscription(
                 )
                 .await?
         }
-        ProductCode::ZedFree => {
+        Some(ProductCode::ZedFree) => {
             stripe_billing
                 .checkout_with_zed_free(customer_id, &user.github_login, &success_url)
                 .await?
+        }
+        None => {
+            return Err(Error::http(
+                StatusCode::BAD_REQUEST,
+                "No product selected".into(),
+            ));
         }
     };
 
@@ -706,73 +737,6 @@ async fn migrate_to_new_billing(
     }))
 }
 
-#[derive(Debug, Deserialize)]
-struct SyncBillingSubscriptionBody {
-    github_user_id: i32,
-}
-
-#[derive(Debug, Serialize)]
-struct SyncBillingSubscriptionResponse {
-    stripe_customer_id: String,
-}
-
-async fn sync_billing_subscription(
-    Extension(app): Extension<Arc<AppState>>,
-    extract::Json(body): extract::Json<SyncBillingSubscriptionBody>,
-) -> Result<Json<SyncBillingSubscriptionResponse>> {
-    let Some(stripe_client) = app.stripe_client.clone() else {
-        log::error!("failed to retrieve Stripe client");
-        Err(Error::http(
-            StatusCode::NOT_IMPLEMENTED,
-            "not supported".into(),
-        ))?
-    };
-
-    let user = app
-        .db
-        .get_user_by_github_user_id(body.github_user_id)
-        .await?
-        .ok_or_else(|| anyhow!("user not found"))?;
-
-    let billing_customer = app
-        .db
-        .get_billing_customer_by_user_id(user.id)
-        .await?
-        .ok_or_else(|| anyhow!("billing customer not found"))?;
-    let stripe_customer_id = billing_customer
-        .stripe_customer_id
-        .parse::<stripe::CustomerId>()
-        .context("failed to parse Stripe customer ID from database")?;
-
-    let subscriptions = Subscription::list(
-        &stripe_client,
-        &stripe::ListSubscriptions {
-            customer: Some(stripe_customer_id),
-            // Sync all non-canceled subscriptions.
-            status: None,
-            ..Default::default()
-        },
-    )
-    .await?;
-
-    for subscription in subscriptions.data {
-        let subscription_id = subscription.id.clone();
-
-        sync_subscription(&app, &stripe_client, subscription)
-            .await
-            .with_context(|| {
-                format!(
-                    "failed to sync subscription {subscription_id} for user {}",
-                    user.id,
-                )
-            })?;
-    }
-
-    Ok(Json(SyncBillingSubscriptionResponse {
-        stripe_customer_id: billing_customer.stripe_customer_id.clone(),
-    }))
-}
-
 /// The amount of time we wait in between each poll of Stripe events.
 ///
 /// This value should strike a balance between:
@@ -937,7 +901,7 @@ async fn poll_stripe_events(
                 .create_processed_stripe_event(&processed_event_params)
                 .await?;
 
-            continue;
+            return Ok(());
         }
 
         let process_result = match event.type_ {
@@ -1015,18 +979,41 @@ async fn handle_customer_event(
     Ok(())
 }
 
-async fn sync_subscription(
+async fn handle_customer_subscription_event(
     app: &Arc<AppState>,
+    rpc_server: &Arc<Server>,
     stripe_client: &stripe::Client,
-    subscription: stripe::Subscription,
-) -> anyhow::Result<billing_customer::Model> {
-    let subscription_kind = if let Some(stripe_billing) = &app.stripe_billing {
-        stripe_billing
-            .determine_subscription_kind(&subscription)
-            .await
-    } else {
-        None
+    event: stripe::Event,
+) -> anyhow::Result<()> {
+    let EventObject::Subscription(subscription) = event.data.object else {
+        bail!("unexpected event payload for {}", event.id);
     };
+
+    log::info!("handling Stripe {} event: {}", event.type_, event.id);
+
+    let subscription_kind = maybe!(async {
+        let stripe_billing = app.stripe_billing.clone()?;
+
+        let zed_pro_price_id = stripe_billing.zed_pro_price_id().await.ok()?;
+        let zed_free_price_id = stripe_billing.zed_free_price_id().await.ok()?;
+
+        subscription.items.data.iter().find_map(|item| {
+            let price = item.price.as_ref()?;
+
+            if price.id == zed_pro_price_id {
+                Some(if subscription.status == SubscriptionStatus::Trialing {
+                    SubscriptionKind::ZedProTrial
+                } else {
+                    SubscriptionKind::ZedPro
+                })
+            } else if price.id == zed_free_price_id {
+                Some(SubscriptionKind::ZedFree)
+            } else {
+                None
+            }
+        })
+    })
+    .await;
 
     let billing_customer =
         find_or_create_billing_customer(app, stripe_client, subscription.customer)
@@ -1107,51 +1094,31 @@ async fn sync_subscription(
             )
             .await?;
     } else {
-        if let Some(existing_subscription) = app
+        // If the user already has an active billing subscription, ignore the
+        // event and return an `Ok` to signal that it was processed
+        // successfully.
+        //
+        // There is the possibility that this could cause us to not create a
+        // subscription in the following scenario:
+        //
+        //   1. User has an active subscription A
+        //   2. User cancels subscription A
+        //   3. User creates a new subscription B
+        //   4. We process the new subscription B before the cancellation of subscription A
+        //   5. User ends up with no subscriptions
+        //
+        // In theory this situation shouldn't arise as we try to process the events in the order they occur.
+        if app
             .db
-            .get_active_billing_subscription(billing_customer.user_id)
+            .has_active_billing_subscription(billing_customer.user_id)
             .await?
         {
-            if existing_subscription.kind == Some(SubscriptionKind::ZedFree)
-                && subscription_kind == Some(SubscriptionKind::ZedProTrial)
-            {
-                let stripe_subscription_id = existing_subscription
-                    .stripe_subscription_id
-                    .parse::<stripe::SubscriptionId>()
-                    .context("failed to parse Stripe subscription ID from database")?;
-
-                Subscription::cancel(
-                    &stripe_client,
-                    &stripe_subscription_id,
-                    stripe::CancelSubscription {
-                        invoice_now: None,
-                        ..Default::default()
-                    },
-                )
-                .await?;
-            } else {
-                // If the user already has an active billing subscription, ignore the
-                // event and return an `Ok` to signal that it was processed
-                // successfully.
-                //
-                // There is the possibility that this could cause us to not create a
-                // subscription in the following scenario:
-                //
-                //   1. User has an active subscription A
-                //   2. User cancels subscription A
-                //   3. User creates a new subscription B
-                //   4. We process the new subscription B before the cancellation of subscription A
-                //   5. User ends up with no subscriptions
-                //
-                // In theory this situation shouldn't arise as we try to process the events in the order they occur.
-
-                log::info!(
-                    "user {user_id} already has an active subscription, skipping creation of subscription {subscription_id}",
-                    user_id = billing_customer.user_id,
-                    subscription_id = subscription.id
-                );
-                return Ok(billing_customer);
-            }
+            log::info!(
+                "user {user_id} already has an active subscription, skipping creation of subscription {subscription_id}",
+                user_id = billing_customer.user_id,
+                subscription_id = subscription.id
+            );
+            return Ok(());
         }
 
         app.db
@@ -1169,44 +1136,6 @@ async fn sync_subscription(
             })
             .await?;
     }
-
-    if let Some(stripe_billing) = app.stripe_billing.as_ref() {
-        if subscription.status == SubscriptionStatus::Canceled
-            || subscription.status == SubscriptionStatus::Paused
-        {
-            let already_has_active_billing_subscription = app
-                .db
-                .has_active_billing_subscription(billing_customer.user_id)
-                .await?;
-            if !already_has_active_billing_subscription {
-                let stripe_customer_id = billing_customer
-                    .stripe_customer_id
-                    .parse::<stripe::CustomerId>()
-                    .context("failed to parse Stripe customer ID from database")?;
-
-                stripe_billing
-                    .subscribe_to_zed_free(stripe_customer_id)
-                    .await?;
-            }
-        }
-    }
-
-    Ok(billing_customer)
-}
-
-async fn handle_customer_subscription_event(
-    app: &Arc<AppState>,
-    rpc_server: &Arc<Server>,
-    stripe_client: &stripe::Client,
-    event: stripe::Event,
-) -> anyhow::Result<()> {
-    let EventObject::Subscription(subscription) = event.data.object else {
-        bail!("unexpected event payload for {}", event.id);
-    };
-
-    log::info!("handling Stripe {} event: {}", event.type_, event.id);
-
-    let billing_customer = sync_subscription(app, stripe_client, subscription).await?;
 
     // When the user's subscription changes, push down any changes to their plan.
     rpc_server
@@ -1453,7 +1382,7 @@ impl From<CancellationDetailsReason> for StripeCancellationReason {
 }
 
 /// Finds or creates a billing customer using the provided customer.
-pub async fn find_or_create_billing_customer(
+async fn find_or_create_billing_customer(
     app: &Arc<AppState>,
     stripe_client: &stripe::Client,
     customer_or_id: Expandable<Customer>,

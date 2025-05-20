@@ -38,9 +38,7 @@ use crate::{
     PlatformDisplay, PlatformKeyboardLayout, Point, PromptBuilder, PromptHandle, PromptLevel,
     Render, RenderImage, RenderablePromptHandle, Reservation, ScreenCaptureSource, SharedString,
     SubscriberSet, Subscription, SvgRenderer, Task, TextSystem, Window, WindowAppearance,
-    WindowHandle, WindowId, WindowInvalidator,
-    colors::{Colors, GlobalColors},
-    current_platform, hash, init_app_menus,
+    WindowHandle, WindowId, WindowInvalidator, current_platform, hash, init_app_menus,
 };
 
 mod async_context;
@@ -1657,13 +1655,6 @@ impl App {
         if let Some(window) = current_window {
             _ = window.drop_image(image);
         }
-    }
-
-    /// Initializes gpui's default colors for the application.
-    ///
-    /// These colors can be accessed through `cx.default_colors()`.
-    pub fn init_colors(&mut self) {
-        self.set_global(GlobalColors(Arc::new(Colors::default())));
     }
 }
 

@@ -19,8 +19,7 @@ fn test_sort_matches_local_variable_over_global_variable(_cx: &mut TestAppContex
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 2,
-            sort_label: "foo_bar_baz",
+            sort_key: (2, "foo_bar_baz"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -31,8 +30,7 @@ fn test_sort_matches_local_variable_over_global_variable(_cx: &mut TestAppContex
             },
             is_snippet: false,
             sort_text: Some("7ffffffe"),
-            sort_kind: 1,
-            sort_label: "foo_bar_qux",
+            sort_key: (1, "foo_bar_qux"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -43,8 +41,7 @@ fn test_sort_matches_local_variable_over_global_variable(_cx: &mut TestAppContex
             },
             is_snippet: false,
             sort_text: Some("80000000"),
-            sort_kind: 2,
-            sort_label: "floorf64",
+            sort_key: (2, "floorf64"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -55,8 +52,7 @@ fn test_sort_matches_local_variable_over_global_variable(_cx: &mut TestAppContex
             },
             is_snippet: false,
             sort_text: Some("80000000"),
-            sort_kind: 2,
-            sort_label: "floorf32",
+            sort_key: (2, "floorf32"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -67,8 +63,7 @@ fn test_sort_matches_local_variable_over_global_variable(_cx: &mut TestAppContex
             },
             is_snippet: false,
             sort_text: Some("80000000"),
-            sort_kind: 2,
-            sort_label: "floorf16",
+            sort_key: (2, "floorf16"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -79,8 +74,7 @@ fn test_sort_matches_local_variable_over_global_variable(_cx: &mut TestAppContex
             },
             is_snippet: false,
             sort_text: Some("80000000"),
-            sort_kind: 2,
-            sort_label: "floorf128",
+            sort_key: (2, "floorf128"),
         },
     ];
     CompletionsMenu::sort_matches(&mut matches, query, SnippetSortOrder::default());
@@ -117,8 +111,7 @@ fn test_sort_matches_local_variable_over_global_variable(_cx: &mut TestAppContex
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 2,
-            sort_label: "foo_bar_baz",
+            sort_key: (2, "foo_bar_baz"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -129,8 +122,7 @@ fn test_sort_matches_local_variable_over_global_variable(_cx: &mut TestAppContex
             },
             is_snippet: false,
             sort_text: Some("7ffffffe"),
-            sort_kind: 1,
-            sort_label: "foo_bar_qux",
+            sort_key: (1, "foo_bar_qux"),
         },
     ];
     CompletionsMenu::sort_matches(&mut matches, query, SnippetSortOrder::default());
@@ -160,8 +152,7 @@ fn test_sort_matches_local_variable_over_global_enum(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 2,
-            sort_label: "ElementType",
+            sort_key: (2, "ElementType"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -172,8 +163,7 @@ fn test_sort_matches_local_variable_over_global_enum(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7ffffffe"),
-            sort_kind: 1,
-            sort_label: "element_type",
+            sort_key: (1, "element_type"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -184,8 +174,7 @@ fn test_sort_matches_local_variable_over_global_enum(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000000"),
-            sort_kind: 2,
-            sort_label: "simd_select",
+            sort_key: (2, "simd_select"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -196,8 +185,7 @@ fn test_sort_matches_local_variable_over_global_enum(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 0,
-            sort_label: "while let",
+            sort_key: (0, "while let"),
         },
     ];
     CompletionsMenu::sort_matches(&mut matches, query, SnippetSortOrder::default());
@@ -224,8 +212,7 @@ fn test_sort_matches_local_variable_over_global_enum(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 2,
-            sort_label: "ElementType",
+            sort_key: (2, "ElementType"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -236,8 +223,7 @@ fn test_sort_matches_local_variable_over_global_enum(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7ffffffe"),
-            sort_kind: 1,
-            sort_label: "element_type",
+            sort_key: (1, "element_type"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -248,8 +234,7 @@ fn test_sort_matches_local_variable_over_global_enum(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000000"),
-            sort_kind: 2,
-            sort_label: "REPLACEMENT_CHARACTER",
+            sort_key: (2, "REPLACEMENT_CHARACTER"),
         },
     ];
     CompletionsMenu::sort_matches(&mut matches, query, SnippetSortOrder::default());
@@ -276,8 +261,7 @@ fn test_sort_matches_local_variable_over_global_enum(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 2,
-            sort_label: "ElementType",
+            sort_key: (2, "ElementType"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -288,8 +272,7 @@ fn test_sort_matches_local_variable_over_global_enum(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7ffffffe"),
-            sort_kind: 1,
-            sort_label: "element_type",
+            sort_key: (1, "element_type"),
         },
     ];
     CompletionsMenu::sort_matches(&mut matches, query, SnippetSortOrder::default());
@@ -319,8 +302,7 @@ fn test_sort_matches_for_unreachable(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000000"),
-            sort_kind: 2,
-            sort_label: "unreachable",
+            sort_key: (2, "unreachable"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -331,8 +313,7 @@ fn test_sort_matches_for_unreachable(_cx: &mut TestAppContext) {
             },
             is_snippet: true,
             sort_text: Some("7fffffff"),
-            sort_kind: 2,
-            sort_label: "unreachable!(…)",
+            sort_key: (2, "unreachable!(…)"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -343,8 +324,7 @@ fn test_sort_matches_for_unreachable(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000000"),
-            sort_kind: 2,
-            sort_label: "unchecked_rem",
+            sort_key: (2, "unchecked_rem"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -355,8 +335,7 @@ fn test_sort_matches_for_unreachable(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000000"),
-            sort_kind: 2,
-            sort_label: "unreachable_unchecked",
+            sort_key: (2, "unreachable_unchecked"),
         },
     ];
     CompletionsMenu::sort_matches(&mut matches, query, SnippetSortOrder::default());
@@ -378,8 +357,7 @@ fn test_sort_matches_for_unreachable(_cx: &mut TestAppContext) {
             },
             is_snippet: true,
             sort_text: Some("80000000"),
-            sort_kind: 3,
-            sort_label: "unreachable",
+            sort_key: (3, "unreachable"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -390,8 +368,7 @@ fn test_sort_matches_for_unreachable(_cx: &mut TestAppContext) {
             },
             is_snippet: true,
             sort_text: Some("7fffffff"),
-            sort_kind: 3,
-            sort_label: "unreachable!(…)",
+            sort_key: (3, "unreachable!(…)"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -402,8 +379,7 @@ fn test_sort_matches_for_unreachable(_cx: &mut TestAppContext) {
             },
             is_snippet: true,
             sort_text: Some("80000000"),
-            sort_kind: 3,
-            sort_label: "unreachable_unchecked",
+            sort_key: (3, "unreachable_unchecked"),
         },
     ];
     CompletionsMenu::sort_matches(&mut matches, query, SnippetSortOrder::default());
@@ -425,8 +401,7 @@ fn test_sort_matches_for_unreachable(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000000"),
-            sort_kind: 2,
-            sort_label: "unreachable",
+            sort_key: (2, "unreachable"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -437,8 +412,7 @@ fn test_sort_matches_for_unreachable(_cx: &mut TestAppContext) {
             },
             is_snippet: true,
             sort_text: Some("7fffffff"),
-            sort_kind: 2,
-            sort_label: "unreachable!(…)",
+            sort_key: (2, "unreachable!(…)"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -449,8 +423,7 @@ fn test_sort_matches_for_unreachable(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000000"),
-            sort_kind: 2,
-            sort_label: "unreachable_unchecked",
+            sort_key: (2, "unreachable_unchecked"),
         },
     ];
     CompletionsMenu::sort_matches(&mut matches, query, SnippetSortOrder::default());
@@ -472,8 +445,7 @@ fn test_sort_matches_for_unreachable(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000000"),
-            sort_kind: 3,
-            sort_label: "unreachable",
+            sort_key: (3, "unreachable"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -484,8 +456,7 @@ fn test_sort_matches_for_unreachable(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 3,
-            sort_label: "unreachable!(…)",
+            sort_key: (3, "unreachable!(…)"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -496,8 +467,7 @@ fn test_sort_matches_for_unreachable(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000000"),
-            sort_kind: 3,
-            sort_label: "unreachable_unchecked",
+            sort_key: (3, "unreachable_unchecked"),
         },
     ];
     CompletionsMenu::sort_matches(&mut matches, query, SnippetSortOrder::default());
@@ -519,8 +489,7 @@ fn test_sort_matches_for_unreachable(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000000"),
-            sort_kind: 2,
-            sort_label: "unreachable",
+            sort_key: (2, "unreachable"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -531,8 +500,7 @@ fn test_sort_matches_for_unreachable(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 2,
-            sort_label: "unreachable!(…)",
+            sort_key: (2, "unreachable!(…)"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -543,15 +511,14 @@ fn test_sort_matches_for_unreachable(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000000"),
-            sort_kind: 2,
-            sort_label: "unreachable_unchecked",
+            sort_key: (2, "unreachable_unchecked"),
         },
     ];
     CompletionsMenu::sort_matches(&mut matches, query, SnippetSortOrder::default());
     assert_eq!(
         matches[0].string_match.string.as_str(),
-        "unreachable!(…)",
-        "LSP should take over even when fuzzy perfect matches"
+        "unreachable",
+        "Perfect fuzzy match should be preferred over others"
     );
 }
 
@@ -569,8 +536,7 @@ fn test_sort_matches_variable_and_constants_over_function(_cx: &mut TestAppConte
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 3,
-            sort_label: "var", // function
+            sort_key: (3, "var"), // function
         },
         SortableMatch {
             string_match: StringMatch {
@@ -581,8 +547,7 @@ fn test_sort_matches_variable_and_constants_over_function(_cx: &mut TestAppConte
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 1,
-            sort_label: "var", // variable
+            sort_key: (1, "var"), // variable
         },
     ];
     CompletionsMenu::sort_matches(&mut matches, query, SnippetSortOrder::default());
@@ -607,8 +572,7 @@ fn test_sort_matches_variable_and_constants_over_function(_cx: &mut TestAppConte
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 3,
-            sort_label: "var", // function
+            sort_key: (3, "var"), // function
         },
         SortableMatch {
             string_match: StringMatch {
@@ -619,8 +583,7 @@ fn test_sort_matches_variable_and_constants_over_function(_cx: &mut TestAppConte
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 2,
-            sort_label: "var", // constant
+            sort_key: (2, "var"), // constant
         },
     ];
     CompletionsMenu::sort_matches(&mut matches, query, SnippetSortOrder::default());
@@ -635,7 +598,7 @@ fn test_sort_matches_variable_and_constants_over_function(_cx: &mut TestAppConte
 }
 
 #[gpui::test]
-fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
+fn test_sort_matches_jsx_event_handler(_cx: &mut TestAppContext) {
     // Case 1: "on"
     let query: Option<&str> = Some("on");
     let mut matches: Vec<SortableMatch<'_>> = vec![
@@ -648,8 +611,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onCut?",
+            sort_key: (3, "onCut?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -660,8 +622,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onPlay?",
+            sort_key: (3, "onPlay?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -672,8 +633,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "color?",
+            sort_key: (3, "color?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -684,8 +644,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "defaultValue?",
+            sort_key: (3, "defaultValue?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -696,8 +655,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "style?",
+            sort_key: (3, "style?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -708,8 +666,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "className?",
+            sort_key: (3, "className?"),
         },
     ];
     CompletionsMenu::sort_matches(&mut matches, query, SnippetSortOrder::default());
@@ -734,8 +691,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onAbort?",
+            sort_key: (3, "onAbort?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -746,8 +702,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onAuxClick?",
+            sort_key: (3, "onAuxClick?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -758,8 +713,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onPlay?",
+            sort_key: (3, "onPlay?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -770,8 +724,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onLoad?",
+            sort_key: (3, "onLoad?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -782,8 +735,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onDrag?",
+            sort_key: (3, "onDrag?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -794,8 +746,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onPause?",
+            sort_key: (3, "onPause?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -806,8 +757,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onPaste?",
+            sort_key: (3, "onPaste?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -818,8 +768,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onAnimationEnd?",
+            sort_key: (3, "onAnimationEnd?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -830,8 +779,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onAbortCapture?",
+            sort_key: (3, "onAbortCapture?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -842,8 +790,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onChange?",
+            sort_key: (3, "onChange?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -854,8 +801,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onWaiting?",
+            sort_key: (3, "onWaiting?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -866,8 +812,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onCanPlay?",
+            sort_key: (3, "onCanPlay?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -878,8 +823,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onAnimationStart?",
+            sort_key: (3, "onAnimationStart?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -890,8 +834,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onAuxClickCapture?",
+            sort_key: (3, "onAuxClickCapture?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -902,8 +845,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onStalled?",
+            sort_key: (3, "onStalled?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -914,8 +856,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onPlaying?",
+            sort_key: (3, "onPlaying?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -926,8 +867,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onDragEnd?",
+            sort_key: (3, "onDragEnd?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -938,8 +878,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onInvalid?",
+            sort_key: (3, "onInvalid?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -950,8 +889,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onDragOver?",
+            sort_key: (3, "onDragOver?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -962,8 +900,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onDragExit?",
+            sort_key: (3, "onDragExit?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -974,8 +911,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onAnimationIteration?",
+            sort_key: (3, "onAnimationIteration?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -986,8 +922,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onRateChange?",
+            sort_key: (3, "onRateChange?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -998,8 +933,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onLoadStart?",
+            sort_key: (3, "onLoadStart?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1010,8 +944,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onDragStart?",
+            sort_key: (3, "onDragStart?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1022,8 +955,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onDragLeave?",
+            sort_key: (3, "onDragLeave?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1034,8 +966,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onDragEnter?",
+            sort_key: (3, "onDragEnter?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1046,8 +977,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onAnimationEndCapture?",
+            sort_key: (3, "onAnimationEndCapture?"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1058,8 +988,7 @@ fn test_sort_matches_for_jsx_event_handler(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("12"),
-            sort_kind: 3,
-            sort_label: "onLoadedData?",
+            sort_key: (3, "onLoadedData?"),
         },
     ];
     CompletionsMenu::sort_matches(&mut matches, query, SnippetSortOrder::default());
@@ -1100,8 +1029,7 @@ fn test_sort_matches_for_snippets(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000000"),
-            sort_kind: 2,
-            sort_label: "println",
+            sort_key: (2, "println"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1112,8 +1040,7 @@ fn test_sort_matches_for_snippets(_cx: &mut TestAppContext) {
             },
             is_snippet: true,
             sort_text: Some("80000000"),
-            sort_kind: 2,
-            sort_label: "println!(…)",
+            sort_key: (2, "println!(…)"),
         },
     ];
     CompletionsMenu::sort_matches(&mut matches, query, SnippetSortOrder::Top);
@@ -1138,8 +1065,7 @@ fn test_sort_matches_for_exact_match(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 3,
-            sort_label: "set_text",
+            sort_key: (3, "set_text"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1150,8 +1076,7 @@ fn test_sort_matches_for_exact_match(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 3,
-            sort_label: "set_placeholder_text",
+            sort_key: (3, "set_placeholder_text"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1162,8 +1087,7 @@ fn test_sort_matches_for_exact_match(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 3,
-            sort_label: "set_text_style_refinement",
+            sort_key: (3, "set_text_style_refinement"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1174,8 +1098,7 @@ fn test_sort_matches_for_exact_match(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 3,
-            sort_label: "set_context_menu_options",
+            sort_key: (3, "set_context_menu_options"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1186,8 +1109,7 @@ fn test_sort_matches_for_exact_match(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 3,
-            sort_label: "select_to_next_word_end",
+            sort_key: (3, "select_to_next_word_end"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1198,8 +1120,7 @@ fn test_sort_matches_for_exact_match(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 3,
-            sort_label: "select_to_next_subword_end",
+            sort_key: (3, "select_to_next_subword_end"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1210,8 +1131,7 @@ fn test_sort_matches_for_exact_match(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 3,
-            sort_label: "set_custom_context_menu",
+            sort_key: (3, "set_custom_context_menu"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1222,8 +1142,7 @@ fn test_sort_matches_for_exact_match(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 3,
-            sort_label: "select_to_end_of_excerpt",
+            sort_key: (3, "select_to_end_of_excerpt"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1234,8 +1153,7 @@ fn test_sort_matches_for_exact_match(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 3,
-            sort_label: "select_to_start_of_excerpt",
+            sort_key: (3, "select_to_start_of_excerpt"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1246,8 +1164,7 @@ fn test_sort_matches_for_exact_match(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 3,
-            sort_label: "select_to_start_of_next_excerpt",
+            sort_key: (3, "select_to_start_of_next_excerpt"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1258,8 +1175,7 @@ fn test_sort_matches_for_exact_match(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 3,
-            sort_label: "select_to_end_of_previous_excerpt",
+            sort_key: (3, "select_to_end_of_previous_excerpt"),
         },
     ];
     CompletionsMenu::sort_matches(&mut matches, query, SnippetSortOrder::Top);
@@ -1298,8 +1214,7 @@ fn test_sort_matches_for_prefix_matches(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 3,
-            sort_label: "select_to_beginning",
+            sort_key: (3, "select_to_beginning"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1310,8 +1225,7 @@ fn test_sort_matches_for_prefix_matches(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 3,
-            sort_label: "set_collapse_matches",
+            sort_key: (3, "set_collapse_matches"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1322,8 +1236,7 @@ fn test_sort_matches_for_prefix_matches(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 3,
-            sort_label: "set_autoindent",
+            sort_key: (3, "set_autoindent"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1334,8 +1247,7 @@ fn test_sort_matches_for_prefix_matches(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 3,
-            sort_label: "set_all_diagnostics_active",
+            sort_key: (3, "set_all_diagnostics_active"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1346,8 +1258,7 @@ fn test_sort_matches_for_prefix_matches(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 3,
-            sort_label: "select_to_end_of_line",
+            sort_key: (3, "select_to_end_of_line"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1358,8 +1269,7 @@ fn test_sort_matches_for_prefix_matches(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 3,
-            sort_label: "select_all",
+            sort_key: (3, "select_all"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1370,8 +1280,7 @@ fn test_sort_matches_for_prefix_matches(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 3,
-            sort_label: "select_line",
+            sort_key: (3, "select_line"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1382,8 +1291,7 @@ fn test_sort_matches_for_prefix_matches(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 3,
-            sort_label: "select_left",
+            sort_key: (3, "select_left"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1394,8 +1302,7 @@ fn test_sort_matches_for_prefix_matches(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 3,
-            sort_label: "select_down",
+            sort_key: (3, "select_down"),
         },
     ];
     CompletionsMenu::sort_matches(&mut matches, query, SnippetSortOrder::Top);
@@ -1432,8 +1339,7 @@ fn test_sort_matches_for_await(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 0,
-            sort_label: "await",
+            sort_key: (0, "await"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1444,8 +1350,7 @@ fn test_sort_matches_for_await(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000010"),
-            sort_kind: 3,
-            sort_label: "await.ne",
+            sort_key: (3, "await.ne"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1456,8 +1361,7 @@ fn test_sort_matches_for_await(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000010"),
-            sort_kind: 3,
-            sort_label: "await.eq",
+            sort_key: (3, "await.eq"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1468,8 +1372,7 @@ fn test_sort_matches_for_await(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7ffffff8"),
-            sort_kind: 3,
-            sort_label: "await.or",
+            sort_key: (3, "await.or"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1480,8 +1383,7 @@ fn test_sort_matches_for_await(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000006"),
-            sort_kind: 3,
-            sort_label: "await.zip",
+            sort_key: (3, "await.zip"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1492,8 +1394,7 @@ fn test_sort_matches_for_await(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7ffffff8"),
-            sort_kind: 3,
-            sort_label: "await.xor",
+            sort_key: (3, "await.xor"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1504,8 +1405,7 @@ fn test_sort_matches_for_await(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000006"),
-            sort_kind: 3,
-            sort_label: "await.and",
+            sort_key: (3, "await.and"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1516,8 +1416,7 @@ fn test_sort_matches_for_await(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000006"),
-            sort_kind: 3,
-            sort_label: "await.map",
+            sort_key: (3, "await.map"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1528,8 +1427,7 @@ fn test_sort_matches_for_await(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7ffffff8"),
-            sort_kind: 3,
-            sort_label: "await.take",
+            sort_key: (3, "await.take"),
         },
     ];
     CompletionsMenu::sort_matches(&mut matches, query, SnippetSortOrder::Top);
@@ -1541,13 +1439,13 @@ fn test_sort_matches_for_await(_cx: &mut TestAppContext) {
         vec![
             "await",
             "await.or",
-            "await.eq",
-            "await.ne",
             "await.xor",
             "await.take",
             "await.and",
             "await.map",
-            "await.zip"
+            "await.zip",
+            "await.eq",
+            "await.ne"
         ]
     );
     // Case 2: "await"
@@ -1562,8 +1460,7 @@ fn test_sort_matches_for_await(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 0,
-            sort_label: "await",
+            sort_key: (0, "await"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1574,8 +1471,7 @@ fn test_sort_matches_for_await(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000010"),
-            sort_kind: 3,
-            sort_label: "await.ne",
+            sort_key: (3, "await.ne"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1586,8 +1482,7 @@ fn test_sort_matches_for_await(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000010"),
-            sort_kind: 3,
-            sort_label: "await.eq",
+            sort_key: (3, "await.eq"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1598,8 +1493,7 @@ fn test_sort_matches_for_await(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7ffffff8"),
-            sort_kind: 3,
-            sort_label: "await.or",
+            sort_key: (3, "await.or"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1610,8 +1504,7 @@ fn test_sort_matches_for_await(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000006"),
-            sort_kind: 3,
-            sort_label: "await.zip",
+            sort_key: (3, "await.zip"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1622,8 +1515,7 @@ fn test_sort_matches_for_await(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7ffffff8"),
-            sort_kind: 3,
-            sort_label: "await.xor",
+            sort_key: (3, "await.xor"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1634,8 +1526,7 @@ fn test_sort_matches_for_await(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000006"),
-            sort_kind: 3,
-            sort_label: "await.and",
+            sort_key: (3, "await.and"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1646,8 +1537,7 @@ fn test_sort_matches_for_await(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000006"),
-            sort_kind: 3,
-            sort_label: "await.map",
+            sort_key: (3, "await.map"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1658,8 +1548,7 @@ fn test_sort_matches_for_await(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7ffffff8"),
-            sort_kind: 3,
-            sort_label: "await.take",
+            sort_key: (3, "await.take"),
         },
     ];
     CompletionsMenu::sort_matches(&mut matches, query, SnippetSortOrder::Top);
@@ -1671,13 +1560,13 @@ fn test_sort_matches_for_await(_cx: &mut TestAppContext) {
         vec![
             "await",
             "await.or",
-            "await.eq",
-            "await.ne",
             "await.xor",
             "await.take",
             "await.and",
             "await.map",
-            "await.zip"
+            "await.zip",
+            "await.eq",
+            "await.ne"
         ]
     );
 }
@@ -1696,8 +1585,7 @@ fn test_sort_matches_for_python_init(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("05.0003.__init__"),
-            sort_kind: 3,
-            sort_label: "__init__",
+            sort_key: (3, "__init__"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1708,8 +1596,7 @@ fn test_sort_matches_for_python_init(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("05.0003"),
-            sort_kind: 3,
-            sort_label: "__init__",
+            sort_key: (3, "__init__"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1720,8 +1607,7 @@ fn test_sort_matches_for_python_init(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("05.0005.__instancecheck__"),
-            sort_kind: 3,
-            sort_label: "__instancecheck__",
+            sort_key: (3, "__instancecheck__"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1732,8 +1618,7 @@ fn test_sort_matches_for_python_init(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("05.0004.__init_subclass__"),
-            sort_kind: 3,
-            sort_label: "__init_subclass__",
+            sort_key: (3, "__init_subclass__"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1744,8 +1629,7 @@ fn test_sort_matches_for_python_init(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("05.0005"),
-            sort_kind: 3,
-            sort_label: "__instancecheck__",
+            sort_key: (3, "__instancecheck__"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1756,8 +1640,7 @@ fn test_sort_matches_for_python_init(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("05.0004"),
-            sort_kind: 3,
-            sort_label: "__init_subclass__",
+            sort_key: (3, "__init_subclass__"),
         },
     ];
     CompletionsMenu::sort_matches(&mut matches, query, SnippetSortOrder::Top);
@@ -1787,8 +1670,7 @@ fn test_sort_matches_for_python_init(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("05.0004.__init__"),
-            sort_kind: 3,
-            sort_label: "__init__",
+            sort_key: (3, "__init__"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1799,8 +1681,7 @@ fn test_sort_matches_for_python_init(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("05.0004"),
-            sort_kind: 3,
-            sort_label: "__init__",
+            sort_key: (3, "__init__"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1811,8 +1692,7 @@ fn test_sort_matches_for_python_init(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("05.0003.__init_subclass__"),
-            sort_kind: 3,
-            sort_label: "__init_subclass__",
+            sort_key: (3, "__init_subclass__"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1823,8 +1703,7 @@ fn test_sort_matches_for_python_init(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("05.0003"),
-            sort_kind: 3,
-            sort_label: "__init_subclass__",
+            sort_key: (3, "__init_subclass__"),
         },
     ];
     CompletionsMenu::sort_matches(&mut matches, query, SnippetSortOrder::Top);
@@ -1852,8 +1731,7 @@ fn test_sort_matches_for_python_init(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("05.0000.__init__"),
-            sort_kind: 3,
-            sort_label: "__init__",
+            sort_key: (3, "__init__"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1864,8 +1742,7 @@ fn test_sort_matches_for_python_init(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("05.0000"),
-            sort_kind: 3,
-            sort_label: "__init__",
+            sort_key: (3, "__init__"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1876,8 +1753,7 @@ fn test_sort_matches_for_python_init(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("05.0001.__init_subclass__"),
-            sort_kind: 3,
-            sort_label: "__init_subclass__",
+            sort_key: (3, "__init_subclass__"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1888,8 +1764,7 @@ fn test_sort_matches_for_python_init(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("05.0001"),
-            sort_kind: 3,
-            sort_label: "__init_subclass__",
+            sort_key: (3, "__init_subclass__"),
         },
     ];
     CompletionsMenu::sort_matches(&mut matches, query, SnippetSortOrder::Top);
@@ -1917,8 +1792,7 @@ fn test_sort_matches_for_python_init(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("11.9999.__init__"),
-            sort_kind: 3,
-            sort_label: "__init__",
+            sort_key: (3, "__init__"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1929,8 +1803,7 @@ fn test_sort_matches_for_python_init(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("11.9999"),
-            sort_kind: 3,
-            sort_label: "__init__",
+            sort_key: (3, "__init__"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1941,8 +1814,7 @@ fn test_sort_matches_for_python_init(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("05.0000.__init_subclass__"),
-            sort_kind: 3,
-            sort_label: "__init_subclass__",
+            sort_key: (3, "__init_subclass__"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1953,8 +1825,7 @@ fn test_sort_matches_for_python_init(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("05.0000"),
-            sort_kind: 3,
-            sort_label: "__init_subclass__",
+            sort_key: (3, "__init_subclass__"),
         },
     ];
     CompletionsMenu::sort_matches(&mut matches, query, SnippetSortOrder::Top);
@@ -1986,8 +1857,7 @@ fn test_sort_matches_for_rust_into(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000004"),
-            sort_kind: 3,
-            sort_label: "into",
+            sort_key: (3, "into"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -1998,8 +1868,7 @@ fn test_sort_matches_for_rust_into(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000004"),
-            sort_kind: 3,
-            sort_label: "try_into",
+            sort_key: (3, "try_into"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -2010,8 +1879,7 @@ fn test_sort_matches_for_rust_into(_cx: &mut TestAppContext) {
             },
             is_snippet: true,
             sort_text: Some("80000004"),
-            sort_kind: 3,
-            sort_label: "println",
+            sort_key: (3, "println"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -2022,8 +1890,7 @@ fn test_sort_matches_for_rust_into(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000004"),
-            sort_kind: 3,
-            sort_label: "clone_into",
+            sort_key: (3, "clone_into"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -2034,8 +1901,7 @@ fn test_sort_matches_for_rust_into(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000000"),
-            sort_kind: 3,
-            sort_label: "into_searcher",
+            sort_key: (3, "into_searcher"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -2046,8 +1912,7 @@ fn test_sort_matches_for_rust_into(_cx: &mut TestAppContext) {
             },
             is_snippet: true,
             sort_text: Some("80000004"),
-            sort_kind: 3,
-            sort_label: "eprintln",
+            sort_key: (3, "eprintln"),
         },
     ];
     CompletionsMenu::sort_matches(&mut matches, query, SnippetSortOrder::default());
@@ -2068,8 +1933,7 @@ fn test_sort_matches_for_rust_into(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000004"),
-            sort_kind: 3,
-            sort_label: "into",
+            sort_key: (3, "into"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -2080,8 +1944,7 @@ fn test_sort_matches_for_rust_into(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000004"),
-            sort_kind: 3,
-            sort_label: "try_into",
+            sort_key: (3, "try_into"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -2092,8 +1955,7 @@ fn test_sort_matches_for_rust_into(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000004"),
-            sort_kind: 3,
-            sort_label: "clone_into",
+            sort_key: (3, "clone_into"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -2104,8 +1966,7 @@ fn test_sort_matches_for_rust_into(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("80000000"),
-            sort_kind: 3,
-            sort_label: "into_searcher",
+            sort_key: (3, "into_searcher"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -2116,8 +1977,7 @@ fn test_sort_matches_for_rust_into(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 3,
-            sort_label: "split_terminator",
+            sort_key: (3, "split_terminator"),
         },
         SortableMatch {
             string_match: StringMatch {
@@ -2128,8 +1988,7 @@ fn test_sort_matches_for_rust_into(_cx: &mut TestAppContext) {
             },
             is_snippet: false,
             sort_text: Some("7fffffff"),
-            sort_kind: 3,
-            sort_label: "rsplit_terminator",
+            sort_key: (3, "rsplit_terminator"),
         },
     ];
     CompletionsMenu::sort_matches(&mut matches, query, SnippetSortOrder::default());
@@ -2137,246 +1996,5 @@ fn test_sort_matches_for_rust_into(_cx: &mut TestAppContext) {
         matches[0].string_match.string.as_str(),
         "into",
         "Match order not expected"
-    );
-}
-
-#[gpui::test]
-fn test_sort_matches_for_variable_over_function(_cx: &mut TestAppContext) {
-    // Case 1: "serial"
-    let query: Option<&str> = Some("serial");
-    let mut matches: Vec<SortableMatch<'_>> = vec![
-        SortableMatch {
-            string_match: StringMatch {
-                candidate_id: 33,
-                score: 0.6666666666666666,
-                positions: vec![],
-                string: "serialize".to_string(),
-            },
-            is_snippet: false,
-            sort_text: Some("80000000"),
-            sort_kind: 3,
-            sort_label: "serialize",
-        },
-        SortableMatch {
-            string_match: StringMatch {
-                candidate_id: 32,
-                score: 0.6666666666666666,
-                positions: vec![],
-                string: "serialize".to_string(),
-            },
-            is_snippet: false,
-            sort_text: Some("80000000"),
-            sort_kind: 3,
-            sort_label: "serialize",
-        },
-        SortableMatch {
-            string_match: StringMatch {
-                candidate_id: 103,
-                score: 0.3529411764705882,
-                positions: vec![],
-                string: "serialization_key".to_string(),
-            },
-            is_snippet: false,
-            sort_text: Some("7ffffffe"),
-            sort_kind: 1,
-            sort_label: "serialization_key",
-        },
-        SortableMatch {
-            string_match: StringMatch {
-                candidate_id: 18,
-                score: 0.3529411764705882,
-                positions: vec![],
-                string: "serialize_version".to_string(),
-            },
-            is_snippet: false,
-            sort_text: Some("80000000"),
-            sort_kind: 3,
-            sort_label: "serialize_version",
-        },
-        SortableMatch {
-            string_match: StringMatch {
-                candidate_id: 65,
-                score: 0.32727272727272727,
-                positions: vec![],
-                string: "deserialize".to_string(),
-            },
-            is_snippet: false,
-            sort_text: Some("80000000"),
-            sort_kind: 3,
-            sort_label: "deserialize",
-        },
-    ];
-    CompletionsMenu::sort_matches(&mut matches, query, SnippetSortOrder::default());
-    assert_eq!(
-        matches
-            .iter()
-            .map(|m| m.string_match.string.as_str())
-            .collect::<Vec<&str>>(),
-        vec![
-            "serialization_key",
-            "serialize",
-            "serialize",
-            "serialize_version",
-            "deserialize"
-        ]
-    );
-}
-
-#[gpui::test]
-fn test_sort_matches_for_local_methods_over_library(_cx: &mut TestAppContext) {
-    // Case 1: "setis"
-    let query: Option<&str> = Some("setis");
-    let mut matches: Vec<SortableMatch<'_>> = vec![
-        SortableMatch {
-            string_match: StringMatch {
-                candidate_id: 1200,
-                score: 0.5555555555555556,
-                positions: vec![],
-                string: "setISODay".to_string(),
-            },
-            is_snippet: false,
-            sort_text: Some("16"),
-            sort_kind: 1,
-            sort_label: "setISODay",
-        },
-        SortableMatch {
-            string_match: StringMatch {
-                candidate_id: 1216,
-                score: 0.5,
-                positions: vec![],
-                string: "setISOWeek".to_string(),
-            },
-            is_snippet: false,
-            sort_text: Some("16"),
-            sort_kind: 1,
-            sort_label: "setISOWeek",
-        },
-        SortableMatch {
-            string_match: StringMatch {
-                candidate_id: 1232,
-                score: 0.3571428571428571,
-                positions: vec![],
-                string: "setISOWeekYear".to_string(),
-            },
-            is_snippet: false,
-            sort_text: Some("16"),
-            sort_kind: 1,
-            sort_label: "setISOWeekYear",
-        },
-        SortableMatch {
-            string_match: StringMatch {
-                candidate_id: 1217,
-                score: 0.3571428571428571,
-                positions: vec![],
-                string: "setISOWeekYear".to_string(),
-            },
-            is_snippet: false,
-            sort_text: Some("16"),
-            sort_kind: 3,
-            sort_label: "setISOWeekYear",
-        },
-        SortableMatch {
-            string_match: StringMatch {
-                candidate_id: 53,
-                score: 0.3333333333333333,
-                positions: vec![],
-                string: "setIsRefreshing".to_string(),
-            },
-            is_snippet: false,
-            sort_text: Some("11"),
-            sort_kind: 1,
-            sort_label: "setIsRefreshing",
-        },
-        SortableMatch {
-            string_match: StringMatch {
-                candidate_id: 1180,
-                score: 0.2571428571428571,
-                positions: vec![],
-                string: "setFips".to_string(),
-            },
-            is_snippet: false,
-            sort_text: Some("16"),
-            sort_kind: 3,
-            sort_label: "setFips",
-        },
-    ];
-    CompletionsMenu::sort_matches(&mut matches, query, SnippetSortOrder::default());
-    assert_eq!(
-        matches
-            .iter()
-            .map(|m| m.string_match.string.as_str())
-            .collect::<Vec<&str>>(),
-        vec![
-            "setIsRefreshing",
-            "setISODay",
-            "setISOWeek",
-            "setISOWeekYear",
-            "setISOWeekYear",
-            "setFips"
-        ]
-    );
-}
-
-#[gpui::test]
-fn test_sort_matches_for_priotize_not_exact_match(_cx: &mut TestAppContext) {
-    // Case 1: "item"
-    let query: Option<&str> = Some("item");
-    let mut matches: Vec<SortableMatch<'_>> = vec![
-        SortableMatch {
-            string_match: StringMatch {
-                candidate_id: 1115,
-                score: 1.0,
-                positions: vec![],
-                string: "Item".to_string(),
-            },
-            is_snippet: false,
-            sort_text: Some("16"),
-            sort_kind: 3,
-            sort_label: "Item",
-        },
-        SortableMatch {
-            string_match: StringMatch {
-                candidate_id: 1108,
-                score: 1.0,
-                positions: vec![],
-                string: "Item".to_string(),
-            },
-            is_snippet: false,
-            sort_text: Some("16"),
-            sort_kind: 1,
-            sort_label: "Item",
-        },
-        SortableMatch {
-            string_match: StringMatch {
-                candidate_id: 26,
-                score: 0.8,
-                positions: vec![],
-                string: "items".to_string(),
-            },
-            is_snippet: false,
-            sort_text: Some("11"),
-            sort_kind: 1,
-            sort_label: "items",
-        },
-        SortableMatch {
-            string_match: StringMatch {
-                candidate_id: 1138,
-                score: 0.5,
-                positions: vec![],
-                string: "ItemText".to_string(),
-            },
-            is_snippet: false,
-            sort_text: Some("16"),
-            sort_kind: 3,
-            sort_label: "ItemText",
-        },
-    ];
-    CompletionsMenu::sort_matches(&mut matches, query, SnippetSortOrder::default());
-    assert_eq!(
-        matches
-            .iter()
-            .map(|m| m.string_match.string.as_str())
-            .collect::<Vec<&str>>(),
-        vec!["items", "Item", "Item", "ItemText"]
     );
 }

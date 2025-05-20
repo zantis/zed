@@ -401,7 +401,7 @@ impl MessageEditor {
     fn move_up(&mut self, _: &MoveUp, window: &mut Window, cx: &mut Context<Self>) {
         if self.context_picker_menu_handle.is_deployed() {
             cx.propagate();
-        } else if self.context_strip.read(cx).has_context_items(cx) {
+        } else {
             self.context_strip.focus_handle(cx).focus(window);
         }
     }

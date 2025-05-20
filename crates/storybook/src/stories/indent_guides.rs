@@ -1,12 +1,12 @@
 use std::fmt::format;
 
 use gpui::{
-    DefaultColor, DefaultThemeAppearance, Hsla, Render, colors, div, prelude::*, uniform_list,
+    colors, div, prelude::*, uniform_list, DefaultColor, DefaultThemeAppearance, Hsla, Render,
 };
 use story::Story;
 use strum::IntoEnumIterator;
 use ui::{
-    AbsoluteLength, ActiveTheme, Color, DefiniteLength, Label, LabelCommon, h_flex, px, v_flex,
+    h_flex, px, v_flex, AbsoluteLength, ActiveTheme, Color, DefiniteLength, Label, LabelCommon,
 };
 
 const LENGTH: usize = 100;
@@ -34,7 +34,7 @@ impl IndentGuidesStory {
 
 impl Render for IndentGuidesStory {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        Story::container(cx)
+        Story::container()
             .child(Story::title("Indent guides"))
             .child(
                 v_flex().size_full().child(

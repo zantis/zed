@@ -142,12 +142,6 @@ pub mod git {
     action_with_deprecated_aliases!(git, Branch, ["branches::OpenRecent"]);
 }
 
-pub mod jj {
-    use gpui::actions;
-
-    actions!(jj, [BookmarkList]);
-}
-
 pub mod command_palette {
     use gpui::actions;
 
@@ -243,14 +237,8 @@ pub struct OpenRecent {
     pub create_new_window: bool,
 }
 
-#[derive(PartialEq, Clone, Deserialize, Default, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct OpenRemote {
-    #[serde(default)]
-    pub from_existing_connection: bool,
-}
-
-impl_actions!(projects, [OpenRecent, OpenRemote]);
+impl_actions!(projects, [OpenRecent]);
+actions!(projects, [OpenRemote]);
 
 /// Where to spawn the task in the UI.
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

@@ -1707,7 +1707,6 @@ impl Workspace {
                         pane.update_in(cx, |pane, window, cx| {
                             let item = pane.open_item(
                                 project_entry_id,
-                                project_path,
                                 true,
                                 entry.is_preview,
                                 true,
@@ -2776,17 +2775,10 @@ impl Workspace {
 
     /// Focus the panel of the given type if it isn't already focused. If it is
     /// already focused, then transfer focus back to the workspace center.
-    pub fn toggle_panel_focus<T: Panel>(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> bool {
-        let mut did_focus_panel = false;
+    pub fn toggle_panel_focus<T: Panel>(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.focus_or_unfocus_panel::<T>(window, cx, |panel, window, cx| {
-            did_focus_panel = !panel.panel_focus_handle(cx).contains_focused(window, cx);
-            did_focus_panel
+            !panel.panel_focus_handle(cx).contains_focused(window, cx)
         });
-        did_focus_panel
     }
 
     pub fn activate_panel_for_proto_id(
@@ -2820,7 +2812,7 @@ impl Workspace {
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
-        mut should_focus: impl FnMut(&dyn PanelHandle, &mut Window, &mut Context<Dock>) -> bool,
+        should_focus: impl Fn(&dyn PanelHandle, &mut Window, &mut Context<Dock>) -> bool,
     ) -> Option<Arc<dyn PanelHandle>> {
         let mut result_panel = None;
         let mut serialize = false;
@@ -3099,14 +3091,12 @@ impl Workspace {
             })
         });
 
-        let project_path = path.into();
-        let task = self.load_path(project_path.clone(), window, cx);
+        let task = self.load_path(path.into(), window, cx);
         window.spawn(cx, async move |cx| {
             let (project_entry_id, build_item) = task.await?;
             let result = pane.update_in(cx, |pane, window, cx| {
                 let result = pane.open_item(
                     project_entry_id,
-                    project_path,
                     focus_item,
                     allow_preview,
                     activate,
@@ -3152,8 +3142,7 @@ impl Workspace {
             }
         }
 
-        let project_path = path.into();
-        let task = self.load_path(project_path.clone(), window, cx);
+        let task = self.load_path(path.into(), window, cx);
         cx.spawn_in(window, async move |this, cx| {
             let (project_entry_id, build_item) = task.await?;
             this.update_in(cx, move |this, window, cx| -> Option<_> {
@@ -3167,7 +3156,6 @@ impl Workspace {
                 new_pane.update(cx, |new_pane, cx| {
                     Some(new_pane.open_item(
                         project_entry_id,
-                        project_path,
                         true,
                         allow_preview,
                         true,

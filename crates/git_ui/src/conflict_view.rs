@@ -5,17 +5,16 @@ use editor::{
     display_map::{BlockContext, BlockPlacement, BlockProperties, BlockStyle, CustomBlockId},
 };
 use gpui::{
-    App, Context, Entity, InteractiveElement as _, ParentElement as _, Subscription, Task,
-    WeakEntity,
+    App, Context, Entity, InteractiveElement as _, ParentElement as _, Subscription, WeakEntity,
 };
 use language::{Anchor, Buffer, BufferId};
-use project::{ConflictRegion, ConflictSet, ConflictSetUpdate, ProjectItem as _};
+use project::{ConflictRegion, ConflictSet, ConflictSetUpdate};
 use std::{ops::Range, sync::Arc};
 use ui::{
     ActiveTheme, AnyElement, Element as _, StatefulInteractiveElement, Styled,
-    StyledTypography as _, Window, div, h_flex, rems,
+    StyledTypography as _, div, h_flex, rems,
 };
-use util::{ResultExt as _, debug_panic, maybe};
+use util::{debug_panic, maybe};
 
 pub(crate) struct ConflictAddon {
     buffers: HashMap<BufferId, BufferConflicts>,
@@ -405,16 +404,8 @@ fn render_conflict_buttons(
                     let editor = editor.clone();
                     let conflict = conflict.clone();
                     let ours = conflict.ours.clone();
-                    move |_, window, cx| {
-                        resolve_conflict(
-                            editor.clone(),
-                            excerpt_id,
-                            conflict.clone(),
-                            vec![ours.clone()],
-                            window,
-                            cx,
-                        )
-                        .detach()
+                    move |_, _, cx| {
+                        resolve_conflict(editor.clone(), excerpt_id, &conflict, &[ours.clone()], cx)
                     }
                 }),
         )
@@ -431,16 +422,14 @@ fn render_conflict_buttons(
                     let editor = editor.clone();
                     let conflict = conflict.clone();
                     let theirs = conflict.theirs.clone();
-                    move |_, window, cx| {
+                    move |_, _, cx| {
                         resolve_conflict(
                             editor.clone(),
                             excerpt_id,
-                            conflict.clone(),
-                            vec![theirs.clone()],
-                            window,
+                            &conflict,
+                            &[theirs.clone()],
                             cx,
                         )
-                        .detach()
                     }
                 }),
         )
@@ -458,101 +447,69 @@ fn render_conflict_buttons(
                     let conflict = conflict.clone();
                     let ours = conflict.ours.clone();
                     let theirs = conflict.theirs.clone();
-                    move |_, window, cx| {
+                    move |_, _, cx| {
                         resolve_conflict(
                             editor.clone(),
                             excerpt_id,
-                            conflict.clone(),
-                            vec![ours.clone(), theirs.clone()],
-                            window,
+                            &conflict,
+                            &[ours.clone(), theirs.clone()],
                             cx,
                         )
-                        .detach()
                     }
                 }),
         )
         .into_any()
 }
 
-pub(crate) fn resolve_conflict(
+fn resolve_conflict(
     editor: WeakEntity<Editor>,
     excerpt_id: ExcerptId,
-    resolved_conflict: ConflictRegion,
-    ranges: Vec<Range<Anchor>>,
-    window: &mut Window,
+    resolved_conflict: &ConflictRegion,
+    ranges: &[Range<Anchor>],
     cx: &mut App,
-) -> Task<()> {
-    window.spawn(cx, async move |cx| {
-        let Some((workspace, project, multibuffer, buffer)) = editor
-            .update(cx, |editor, cx| {
-                let workspace = editor.workspace()?;
-                let project = editor.project.clone()?;
-                let multibuffer = editor.buffer().clone();
-                let buffer_id = resolved_conflict.ours.end.buffer_id?;
-                let buffer = multibuffer.read(cx).buffer(buffer_id)?;
-                resolved_conflict.resolve(buffer.clone(), &ranges, cx);
-                let conflict_addon = editor.addon_mut::<ConflictAddon>().unwrap();
-                let snapshot = multibuffer.read(cx).snapshot(cx);
-                let buffer_snapshot = buffer.read(cx).snapshot();
-                let state = conflict_addon
-                    .buffers
-                    .get_mut(&buffer_snapshot.remote_id())?;
-                let ix = state
-                    .block_ids
-                    .binary_search_by(|(range, _)| {
-                        range
-                            .start
-                            .cmp(&resolved_conflict.range.start, &buffer_snapshot)
-                    })
-                    .ok()?;
-                let &(_, block_id) = &state.block_ids[ix];
-                let start = snapshot
-                    .anchor_in_excerpt(excerpt_id, resolved_conflict.range.start)
-                    .unwrap();
-                let end = snapshot
-                    .anchor_in_excerpt(excerpt_id, resolved_conflict.range.end)
-                    .unwrap();
-                editor.remove_highlighted_rows::<ConflictsOuter>(vec![start..end], cx);
-                editor.remove_highlighted_rows::<ConflictsOurs>(vec![start..end], cx);
-                editor.remove_highlighted_rows::<ConflictsTheirs>(vec![start..end], cx);
-                editor.remove_highlighted_rows::<ConflictsOursMarker>(vec![start..end], cx);
-                editor.remove_highlighted_rows::<ConflictsTheirsMarker>(vec![start..end], cx);
-                editor.remove_blocks(HashSet::from_iter([block_id]), None, cx);
-                Some((workspace, project, multibuffer, buffer))
-            })
-            .ok()
-            .flatten()
-        else {
-            return;
-        };
-        let Some(save) = project
-            .update(cx, |project, cx| {
-                if multibuffer.read(cx).all_diff_hunks_expanded() {
-                    project.save_buffer(buffer.clone(), cx)
-                } else {
-                    Task::ready(Ok(()))
-                }
-            })
-            .ok()
-        else {
-            return;
-        };
-        if save.await.log_err().is_none() {
-            let open_path = maybe!({
-                let path = buffer
-                    .read_with(cx, |buffer, cx| buffer.project_path(cx))
-                    .ok()
-                    .flatten()?;
-                workspace
-                    .update_in(cx, |workspace, window, cx| {
-                        workspace.open_path_preview(path, None, false, false, false, window, cx)
-                    })
-                    .ok()
-            });
+) {
+    let Some(editor) = editor.upgrade() else {
+        return;
+    };
 
-            if let Some(open_path) = open_path {
-                open_path.await.log_err();
-            }
-        }
+    let multibuffer = editor.read(cx).buffer().read(cx);
+    let snapshot = multibuffer.snapshot(cx);
+    let Some(buffer) = resolved_conflict
+        .ours
+        .end
+        .buffer_id
+        .and_then(|buffer_id| multibuffer.buffer(buffer_id))
+    else {
+        return;
+    };
+    let buffer_snapshot = buffer.read(cx).snapshot();
+
+    resolved_conflict.resolve(buffer, ranges, cx);
+
+    editor.update(cx, |editor, cx| {
+        let conflict_addon = editor.addon_mut::<ConflictAddon>().unwrap();
+        let Some(state) = conflict_addon.buffers.get_mut(&buffer_snapshot.remote_id()) else {
+            return;
+        };
+        let Ok(ix) = state.block_ids.binary_search_by(|(range, _)| {
+            range
+                .start
+                .cmp(&resolved_conflict.range.start, &buffer_snapshot)
+        }) else {
+            return;
+        };
+        let &(_, block_id) = &state.block_ids[ix];
+        let start = snapshot
+            .anchor_in_excerpt(excerpt_id, resolved_conflict.range.start)
+            .unwrap();
+        let end = snapshot
+            .anchor_in_excerpt(excerpt_id, resolved_conflict.range.end)
+            .unwrap();
+        editor.remove_highlighted_rows::<ConflictsOuter>(vec![start..end], cx);
+        editor.remove_highlighted_rows::<ConflictsOurs>(vec![start..end], cx);
+        editor.remove_highlighted_rows::<ConflictsTheirs>(vec![start..end], cx);
+        editor.remove_highlighted_rows::<ConflictsOursMarker>(vec![start..end], cx);
+        editor.remove_highlighted_rows::<ConflictsTheirsMarker>(vec![start..end], cx);
+        editor.remove_blocks(HashSet::from_iter([block_id]), None, cx);
     })
 }

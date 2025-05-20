@@ -185,14 +185,12 @@ pub(crate) fn default_markdown_style(window: &Window, cx: &App) -> MarkdownStyle
     let ui_font_size = TextSize::Default.rems(cx);
     let buffer_font_size = TextSize::Small.rems(cx);
     let mut text_style = window.text_style();
-    let line_height = buffer_font_size * 1.75;
 
     text_style.refine(&TextStyleRefinement {
         font_family: Some(theme_settings.ui_font.family.clone()),
         font_fallbacks: theme_settings.ui_font.fallbacks.clone(),
         font_features: Some(theme_settings.ui_font.features.clone()),
         font_size: Some(ui_font_size.into()),
-        line_height: Some(line_height.into()),
         color: Some(cx.theme().colors().text),
         ..Default::default()
     });
@@ -333,6 +331,7 @@ fn tool_use_markdown_style(window: &Window, cx: &mut App) -> MarkdownStyle {
 }
 
 const CODEBLOCK_CONTAINER_GROUP: &str = "codeblock_container";
+const MAX_UNCOLLAPSED_LINES_IN_CODE_BLOCK: usize = 10;
 
 fn render_markdown_code_block(
     message_id: MessageId,
@@ -345,20 +344,17 @@ fn render_markdown_code_block(
     _window: &Window,
     cx: &App,
 ) -> Div {
-    let label_size = rems(0.8125);
-
     let label = match kind {
         CodeBlockKind::Indented => None,
         CodeBlockKind::Fenced => Some(
             h_flex()
-                .px_1()
                 .gap_1()
                 .child(
                     Icon::new(IconName::Code)
                         .color(Color::Muted)
                         .size(IconSize::XSmall),
                 )
-                .child(div().text_size(label_size).child("Plain Text"))
+                .child(Label::new("untitled").size(LabelSize::Small))
                 .into_any_element(),
         ),
         CodeBlockKind::FencedLang(raw_language_name) => Some(render_code_language(
@@ -395,7 +391,7 @@ fn render_markdown_code_block(
                         .id(("code-block-header-label", ix))
                         .ml_1()
                         .gap_1()
-                        .child(div().text_size(label_size).child(file_name))
+                        .child(Label::new(file_name).size(LabelSize::Small))
                         .child(Label::new(path).color(Color::Muted).size(LabelSize::Small))
                         .tooltip(move |window, cx| {
                             Tooltip::with_meta(
@@ -408,10 +404,9 @@ fn render_markdown_code_block(
                         })
                         .into_any_element()
                 } else {
-                    div()
+                    Label::new(path_range.path.to_string_lossy().to_string())
+                        .size(LabelSize::Small)
                         .ml_1()
-                        .text_size(label_size)
-                        .child(path_range.path.to_string_lossy().to_string())
                         .into_any_element()
                 };
 
@@ -459,13 +454,19 @@ fn render_markdown_code_block(
         .copied_code_block_ids
         .contains(&(message_id, ix));
 
-    let is_expanded = active_thread.read(cx).is_codeblock_expanded(message_id, ix);
+    let can_expand = metadata.line_count >= MAX_UNCOLLAPSED_LINES_IN_CODE_BLOCK;
+
+    let is_expanded = if can_expand {
+        active_thread.read(cx).is_codeblock_expanded(message_id, ix)
+    } else {
+        false
+    };
 
     let codeblock_header_bg = cx
         .theme()
         .colors()
         .element_background
-        .blend(cx.theme().colors().editor_foreground.opacity(0.025));
+        .blend(cx.theme().colors().editor_foreground.opacity(0.01));
 
     let control_buttons = h_flex()
         .visible_on_hover(CODEBLOCK_CONTAINER_GROUP)
@@ -516,48 +517,44 @@ fn render_markdown_code_block(
                 }
             }),
         )
-        .child(
-            IconButton::new(
-                ("expand-collapse-code", ix),
-                if is_expanded {
-                    IconName::ChevronUp
+        .when(can_expand, |header| {
+            header.child(
+                IconButton::new(
+                    ("expand-collapse-code", ix),
+                    if is_expanded {
+                        IconName::ChevronUp
+                    } else {
+                        IconName::ChevronDown
+                    },
+                )
+                .icon_color(Color::Muted)
+                .shape(ui::IconButtonShape::Square)
+                .tooltip(Tooltip::text(if is_expanded {
+                    "Collapse Code"
                 } else {
-                    IconName::ChevronDown
-                },
+                    "Expand Code"
+                }))
+                .on_click({
+                    let active_thread = active_thread.clone();
+                    move |_event, _window, cx| {
+                        active_thread.update(cx, |this, cx| {
+                            this.toggle_codeblock_expanded(message_id, ix);
+                            cx.notify();
+                        });
+                    }
+                }),
             )
-            .icon_color(Color::Muted)
-            .shape(ui::IconButtonShape::Square)
-            .tooltip(Tooltip::text(if is_expanded {
-                "Collapse Code"
-            } else {
-                "Expand Code"
-            }))
-            .on_click({
-                let active_thread = active_thread.clone();
-                move |_event, _window, cx| {
-                    active_thread.update(cx, |this, cx| {
-                        this.toggle_codeblock_expanded(message_id, ix);
-                        cx.notify();
-                    });
-                }
-            }),
-        );
+        });
 
     let codeblock_header = h_flex()
         .relative()
         .p_1()
         .gap_1()
         .justify_between()
+        .border_b_1()
+        .border_color(cx.theme().colors().border.opacity(0.6))
         .bg(codeblock_header_bg)
-        .map(|this| {
-            if !is_expanded {
-                this.rounded_md()
-            } else {
-                this.rounded_t_md()
-                    .border_b_1()
-                    .border_color(cx.theme().colors().border.opacity(0.6))
-            }
-        })
+        .rounded_t_md()
         .children(label)
         .child(control_buttons);
 
@@ -565,12 +562,12 @@ fn render_markdown_code_block(
         .group(CODEBLOCK_CONTAINER_GROUP)
         .my_2()
         .overflow_hidden()
-        .rounded_md()
+        .rounded_lg()
         .border_1()
         .border_color(cx.theme().colors().border.opacity(0.6))
         .bg(cx.theme().colors().editor_background)
         .child(codeblock_header)
-        .when(!is_expanded, |this| this.h(rems_from_px(31.)))
+        .when(can_expand && !is_expanded, |this| this.max_h_80())
 }
 
 fn open_path(
@@ -631,13 +628,10 @@ fn render_code_language(
         .map(|language| language.name().into())
         .unwrap_or(name_fallback);
 
-    let label_size = rems(0.8125);
-
     h_flex()
-        .px_1()
-        .gap_1p5()
-        .children(icon_path.map(|icon| icon.color(Color::Muted).size(IconSize::XSmall)))
-        .child(div().text_size(label_size).child(language_label))
+        .gap_1()
+        .children(icon_path.map(|icon| icon.color(Color::Muted).size(IconSize::Small)))
+        .child(Label::new(language_label).size(LabelSize::Small))
         .into_any_element()
 }
 
@@ -1018,7 +1012,6 @@ impl ActiveThread {
                     self.push_message(message_id, &message_segments, window, cx);
                 }
 
-                self.scroll_to_bottom(cx);
                 self.save_thread(cx);
                 cx.notify();
             }
@@ -1032,7 +1025,6 @@ impl ActiveThread {
                     self.edited_message(message_id, &message_segments, window, cx);
                 }
 
-                self.scroll_to_bottom(cx);
                 self.save_thread(cx);
                 cx.notify();
             }
@@ -1546,15 +1538,11 @@ impl ActiveThread {
         let project = self.thread.read(cx).project().clone();
         let prompt_store = self.thread_store.read(cx).prompt_store().clone();
 
-        let git_store = project.read(cx).git_store().clone();
-        let checkpoint = git_store.update(cx, |git_store, cx| git_store.checkpoint(cx));
-
         let load_context_task =
             crate::context::load_context(new_context, &project, &prompt_store, cx);
         self._load_edited_message_context_task =
             Some(cx.spawn_in(window, async move |this, cx| {
-                let (context, checkpoint) =
-                    futures::future::join(load_context_task, checkpoint).await;
+                let context = load_context_task.await;
                 let _ = this
                     .update_in(cx, |this, window, cx| {
                         this.thread.update(cx, |thread, cx| {
@@ -1563,7 +1551,6 @@ impl ActiveThread {
                                 Role::User,
                                 vec![MessageSegment::Text(edited_text)],
                                 Some(context.loaded_context),
-                                checkpoint.ok(),
                                 cx,
                             );
                             for message_id in this.messages_after(message_id) {
@@ -1733,11 +1720,10 @@ impl ActiveThread {
             .on_action(cx.listener(Self::confirm_editing_message))
             .capture_action(cx.listener(Self::paste))
             .min_h_6()
-            .w_full()
             .flex_grow()
+            .w_full()
             .gap_2()
-            .child(state.context_strip.clone())
-            .child(div().pt(px(-3.)).px_neg_0p5().child(EditorElement::new(
+            .child(EditorElement::new(
                 &state.editor,
                 EditorStyle {
                     background: colors.editor_background,
@@ -1746,7 +1732,8 @@ impl ActiveThread {
                     syntax: cx.theme().syntax().clone(),
                     ..Default::default()
                 },
-            )))
+            ))
+            .child(state.context_strip.clone())
     }
 
     fn render_message(&self, ix: usize, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
@@ -1874,8 +1861,7 @@ impl ActiveThread {
                         .child(open_as_markdown),
                 )
                 .into_any_element(),
-            None if AssistantSettings::get_global(cx).enable_feedback =>
-                feedback_container
+            None => feedback_container
                 .child(
                     div().visible_on_hover("feedback_container").child(
                         Label::new(
@@ -1918,9 +1904,6 @@ impl ActiveThread {
                         .child(open_as_markdown),
                 )
                 .into_any_element(),
-            None => feedback_container
-                .child(h_flex().child(open_as_markdown))
-                .into_any_element(),
         };
 
         let message_is_empty = message.should_display_content();
@@ -1934,6 +1917,16 @@ impl ActiveThread {
                 v_flex()
                     .w_full()
                     .gap_1()
+                    .when(!message_is_empty, |parent| {
+                        parent.child(div().min_h_6().child(self.render_message_content(
+                            message_id,
+                            rendered_message,
+                            has_tool_uses,
+                            workspace.clone(),
+                            window,
+                            cx,
+                        )))
+                    })
                     .when(!added_context.is_empty(), |parent| {
                         parent.child(h_flex().flex_wrap().gap_1().children(
                             added_context.into_iter().map(|added_context| {
@@ -1951,16 +1944,6 @@ impl ActiveThread {
                                 )
                             }),
                         ))
-                    })
-                    .when(!message_is_empty, |parent| {
-                        parent.child(div().pt_0p5().min_h_6().child(self.render_message_content(
-                            message_id,
-                            rendered_message,
-                            has_tool_uses,
-                            workspace.clone(),
-                            window,
-                            cx,
-                        )))
                     })
                     .into_any_element()
             }
@@ -1987,7 +1970,6 @@ impl ActiveThread {
                             h_flex()
                                 .p_2p5()
                                 .gap_1()
-                                .items_end()
                                 .children(message_content)
                                 .when_some(editing_message_state, |this, state| {
                                     let focus_handle = state.editor.focus_handle(cx).clone();
@@ -2001,7 +1983,6 @@ impl ActiveThread {
                                                 )
                                                 .shape(ui::IconButtonShape::Square)
                                                 .icon_color(Color::Error)
-                                                .icon_size(IconSize::Small)
                                                 .tooltip({
                                                     let focus_handle = focus_handle.clone();
                                                     move |window, cx| {
@@ -2019,12 +2000,11 @@ impl ActiveThread {
                                             .child(
                                                 IconButton::new(
                                                     "confirm-edit-message",
-                                                    IconName::Return,
+                                                    IconName::Check,
                                                 )
                                                 .disabled(state.editor.read(cx).is_empty(cx))
                                                 .shape(ui::IconButtonShape::Square)
-                                                .icon_color(Color::Muted)
-                                                .icon_size(IconSize::Small)
+                                                .icon_color(Color::Success)
                                                 .tooltip({
                                                     let focus_handle = focus_handle.clone();
                                                     move |window, cx| {
@@ -2044,6 +2024,9 @@ impl ActiveThread {
                                     )
                                 }),
                         )
+                        .when(editing_message_state.is_none(), |this| {
+                            this.tooltip(Tooltip::text("Click To Edit"))
+                        })
                         .on_click(cx.listener({
                             let message_segments = message.segments.clone();
                             move |this, _, window, cx| {
@@ -2083,16 +2066,6 @@ impl ActiveThread {
             });
 
         let panel_background = cx.theme().colors().panel_background;
-
-        let backdrop = div()
-            .id("backdrop")
-            .stop_mouse_events_except_scroll()
-            .absolute()
-            .inset_0()
-            .size_full()
-            .bg(panel_background)
-            .opacity(0.8)
-            .on_click(cx.listener(Self::handle_cancel_click));
 
         v_flex()
             .w_full()
@@ -2263,7 +2236,15 @@ impl ActiveThread {
             })
             .when(after_editing_message, |parent| {
                 // Backdrop to dim out the whole thread below the editing user message
-                parent.relative().child(backdrop)
+                parent.relative().child(
+                    div()
+                        .stop_mouse_events_except_scroll()
+                        .absolute()
+                        .inset_0()
+                        .size_full()
+                        .bg(panel_background)
+                        .opacity(0.8),
+                )
             })
             .into_any()
     }
@@ -2373,17 +2354,39 @@ impl ActiveThread {
                                         }),
                                         transform: Some(Arc::new({
                                             let active_thread = cx.entity();
+                                            let editor_bg = cx.theme().colors().editor_background;
 
-                                            move |element, range, _, _, cx| {
+                                            move |el, range, metadata, _, cx| {
+                                                let can_expand = metadata.line_count
+                                                    >= MAX_UNCOLLAPSED_LINES_IN_CODE_BLOCK;
+                                                if !can_expand {
+                                                    return el;
+                                                }
+
                                                 let is_expanded = active_thread
                                                     .read(cx)
                                                     .is_codeblock_expanded(message_id, range.start);
-
                                                 if is_expanded {
-                                                    return element;
+                                                    return el;
                                                 }
 
-                                                element
+                                                el.child(
+                                                    div()
+                                                        .absolute()
+                                                        .bottom_0()
+                                                        .left_0()
+                                                        .w_full()
+                                                        .h_1_4()
+                                                        .rounded_b_lg()
+                                                        .bg(linear_gradient(
+                                                            0.,
+                                                            linear_color_stop(editor_bg, 0.),
+                                                            linear_color_stop(
+                                                                editor_bg.opacity(0.),
+                                                                1.,
+                                                            ),
+                                                        )),
+                                                )
                                             }
                                         })),
                                     },
@@ -3385,20 +3388,15 @@ impl ActiveThread {
         self.expanded_code_blocks
             .get(&(message_id, ix))
             .copied()
-            .unwrap_or(true)
+            .unwrap_or(false)
     }
 
     pub fn toggle_codeblock_expanded(&mut self, message_id: MessageId, ix: usize) {
         let is_expanded = self
             .expanded_code_blocks
             .entry((message_id, ix))
-            .or_insert(true);
+            .or_insert(false);
         *is_expanded = !*is_expanded;
-    }
-
-    pub fn scroll_to_bottom(&mut self, cx: &mut Context<Self>) {
-        self.list_state.reset(self.messages.len());
-        cx.notify();
     }
 }
 
@@ -3413,7 +3411,6 @@ impl Render for ActiveThread {
         v_flex()
             .size_full()
             .relative()
-            .bg(cx.theme().colors().panel_background)
             .on_mouse_move(cx.listener(|this, _, _, cx| {
                 this.show_scrollbar = true;
                 this.hide_scrollbar_later(cx);

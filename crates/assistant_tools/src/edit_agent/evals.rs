@@ -15,7 +15,7 @@ use gpui::{AppContext, TestAppContext};
 use indoc::{formatdoc, indoc};
 use language_model::{
     LanguageModelRegistry, LanguageModelRequestTool, LanguageModelToolResult,
-    LanguageModelToolResultContent, LanguageModelToolUse, LanguageModelToolUseId, SelectedModel,
+    LanguageModelToolResultContent, LanguageModelToolUse, LanguageModelToolUseId,
 };
 use project::Project;
 use rand::prelude::*;
@@ -25,7 +25,6 @@ use std::{
     cmp::Reverse,
     fmt::{self, Display},
     io::Write as _,
-    str::FromStr,
     sync::mpsc,
 };
 use util::path;
@@ -1217,7 +1216,7 @@ fn report_progress(evaluated_count: usize, failed_count: usize, iterations: usiz
         passed_count as f64 / evaluated_count as f64
     };
     print!(
-        "\r\x1b[KEvaluated {}/{} ({:.2}% passed)",
+        "\r\x1b[KEvaluated {}/{} ({:.2}%)",
         evaluated_count,
         iterations,
         passed_ratio * 100.0
@@ -1256,21 +1255,13 @@ impl EditAgentTest {
 
         fs.insert_tree("/root", json!({})).await;
         let project = Project::test(fs.clone(), [path!("/root").as_ref()], cx).await;
-        let agent_model = SelectedModel::from_str(
-            &std::env::var("ZED_AGENT_MODEL")
-                .unwrap_or("anthropic/claude-3-7-sonnet-latest".into()),
-        )
-        .unwrap();
-        let judge_model = SelectedModel::from_str(
-            &std::env::var("ZED_JUDGE_MODEL")
-                .unwrap_or("anthropic/claude-3-7-sonnet-latest".into()),
-        )
-        .unwrap();
         let (agent_model, judge_model) = cx
             .update(|cx| {
                 cx.spawn(async move |cx| {
-                    let agent_model = Self::load_model(&agent_model, cx).await;
-                    let judge_model = Self::load_model(&judge_model, cx).await;
+                    let agent_model =
+                        Self::load_model("anthropic", "claude-3-7-sonnet-latest", cx).await;
+                    let judge_model =
+                        Self::load_model("anthropic", "claude-3-7-sonnet-latest", cx).await;
                     (agent_model.unwrap(), judge_model.unwrap())
                 })
             })
@@ -1285,17 +1276,15 @@ impl EditAgentTest {
     }
 
     async fn load_model(
-        selected_model: &SelectedModel,
+        provider: &str,
+        id: &str,
         cx: &mut AsyncApp,
     ) -> Result<Arc<dyn LanguageModel>> {
         let (provider, model) = cx.update(|cx| {
             let models = LanguageModelRegistry::read_global(cx);
             let model = models
                 .available_models(cx)
-                .find(|model| {
-                    model.provider_id() == selected_model.provider
-                        && model.id() == selected_model.model
-                })
+                .find(|model| model.provider_id().0 == provider && model.id().0 == id)
                 .unwrap();
             let provider = models.provider(&model.provider_id()).unwrap();
             (provider, model)

@@ -67,7 +67,6 @@ pub enum Model {
         max_tokens: usize,
         max_output_tokens: Option<u32>,
         max_completion_tokens: Option<u32>,
-        supports_tools: Option<bool>,
     },
 }
 
@@ -134,18 +133,6 @@ impl Model {
             _ => None,
         }
     }
-
-    pub fn supports_tools(&self) -> bool {
-        match self {
-            Self::CodestralLatest
-            | Self::MistralLargeLatest
-            | Self::MistralMediumLatest
-            | Self::MistralSmallLatest
-            | Self::OpenMistralNemo
-            | Self::OpenCodestralMamba => true,
-            Self::Custom { supports_tools, .. } => supports_tools.unwrap_or(false),
-        }
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -159,10 +146,6 @@ pub struct Request {
     pub temperature: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response_format: Option<ResponseFormat>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tool_choice: Option<ToolChoice>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub parallel_tool_calls: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<ToolDefinition>,
 }
@@ -207,13 +190,12 @@ pub enum Prediction {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(untagged)]
 pub enum ToolChoice {
     Auto,
     Required,
     None,
-    Any,
-    Function(ToolDefinition),
+    Other(ToolDefinition),
 }
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]

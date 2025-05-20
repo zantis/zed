@@ -81,10 +81,6 @@ impl RunningState {
     pub(crate) fn thread_id(&self) -> Option<ThreadId> {
         self.thread_id
     }
-
-    pub(crate) fn active_pane(&self) -> Option<&Entity<Pane>> {
-        self.active_pane.as_ref()
-    }
 }
 
 impl Render for RunningState {
@@ -506,15 +502,20 @@ impl DebugTerminal {
 
 impl gpui::Render for DebugTerminal {
     fn render(&mut self, _window: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .size_full()
-            .track_focus(&self.focus_handle)
-            .children(self.terminal.clone())
+        if let Some(terminal) = self.terminal.clone() {
+            terminal.into_any_element()
+        } else {
+            div().track_focus(&self.focus_handle).into_any_element()
+        }
     }
 }
 impl Focusable for DebugTerminal {
-    fn focus_handle(&self, _cx: &App) -> FocusHandle {
-        self.focus_handle.clone()
+    fn focus_handle(&self, cx: &App) -> FocusHandle {
+        if let Some(terminal) = self.terminal.as_ref() {
+            return terminal.focus_handle(cx);
+        } else {
+            self.focus_handle.clone()
+        }
     }
 }
 
