@@ -331,17 +331,11 @@ fn update_conflict_highlighting(
     let outer_end = buffer
         .anchor_in_excerpt(excerpt_id, conflict.range.end)
         .unwrap();
-    let our_start = buffer
-        .anchor_in_excerpt(excerpt_id, conflict.ours.start)
-        .unwrap();
     let our_end = buffer
         .anchor_in_excerpt(excerpt_id, conflict.ours.end)
         .unwrap();
     let their_start = buffer
         .anchor_in_excerpt(excerpt_id, conflict.theirs.start)
-        .unwrap();
-    let their_end = buffer
-        .anchor_in_excerpt(excerpt_id, conflict.theirs.end)
         .unwrap();
 
     let ours_background = cx.theme().colors().version_control_conflict_marker_ours;
@@ -355,23 +349,22 @@ fn update_conflict_highlighting(
 
     // Prevent diff hunk highlighting within the entire conflict region.
     editor.highlight_rows::<ConflictsOuter>(outer_start..outer_end, theirs_background, options, cx);
-    editor.highlight_rows::<ConflictsOurs>(our_start..our_end, ours_background, options, cx);
-    editor.highlight_rows::<ConflictsOursMarker>(
-        outer_start..our_start,
+    editor.highlight_rows::<ConflictsOurs>(
+        outer_start..our_end,
         ours_background,
-        options,
+        RowHighlightOptions {
+            border: Some(gpui::red()),
+            ..options
+        },
         cx,
     );
     editor.highlight_rows::<ConflictsTheirs>(
-        their_start..their_end,
+        their_start..outer_end,
         theirs_background,
-        options,
-        cx,
-    );
-    editor.highlight_rows::<ConflictsTheirsMarker>(
-        their_end..outer_end,
-        theirs_background,
-        options,
+        RowHighlightOptions {
+            border: Some(gpui::blue()),
+            ..options
+        },
         cx,
     );
 }
