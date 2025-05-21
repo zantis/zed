@@ -30,6 +30,9 @@ use crate::{
 };
 
 #[cfg(any(feature = "wayland", feature = "x11"))]
+use super::LinuxKeyboardMapper;
+
+#[cfg(any(feature = "wayland", feature = "x11"))]
 pub(crate) const SCROLL_LINES: f32 = 3.0;
 
 // Values match the defaults on GTK.
@@ -683,6 +686,20 @@ impl CursorStyle {
             }
         }
         .to_string()
+    }
+}
+
+#[cfg(any(feature = "wayland", feature = "x11"))]
+struct KeyboardState {
+    state: xkb::State,
+    mapper: LinuxKeyboardMapper,
+}
+
+#[cfg(any(feature = "wayland", feature = "x11"))]
+impl KeyboardState {
+    fn new(state: xkb::State) -> Self {
+        let mapper = LinuxKeyboardMapper::new(&state);
+        Self { state, mapper }
     }
 }
 
