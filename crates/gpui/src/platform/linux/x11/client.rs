@@ -1,4 +1,4 @@
-use crate::platform::scap_screen_capture::scap_screen_sources;
+use crate::platform::{linux::KeyboardState, scap_screen_capture::scap_screen_sources};
 use core::str;
 use std::{
     cell::RefCell,
@@ -182,7 +182,7 @@ pub struct X11ClientState {
     pub(crate) windows: HashMap<xproto::Window, WindowRef>,
     pub(crate) mouse_focused_window: Option<xproto::Window>,
     pub(crate) keyboard_focused_window: Option<xproto::Window>,
-    pub(crate) xkb: xkbc::State,
+    pub(crate) keyboard_state: KeyboardState,
     previous_xkb_state: XKBStateNotiy,
     pub(crate) ximc: Option<X11rbClient<Rc<XCBConnection>>>,
     pub(crate) xim_handler: Option<XimHandler>,
@@ -371,6 +371,7 @@ impl X11Client {
             );
             xkbc::x11::state_new_from_device(&xkb_keymap, &xcb_connection, xkb_device_id)
         };
+        let keyboard_state = KeyboardState::new(xkb_state);
         let compose_state = get_xkb_compose_state(&xkb_context);
         let resource_database = x11rb::resource_manager::new_from_default(&xcb_connection).unwrap();
 
@@ -458,7 +459,7 @@ impl X11Client {
             windows: HashMap::default(),
             mouse_focused_window: None,
             keyboard_focused_window: None,
-            xkb: xkb_state,
+            keyboard_state,
             previous_xkb_state: XKBStateNotiy::default(),
             ximc,
             xim_handler,
@@ -848,13 +849,16 @@ impl X11Client {
                     latched_layout,
                     locked_layout,
                 };
-                state.xkb = xkb_state;
+                state.keyboard_state = KeyboardState::new(xkb_state);
             }
             Event::XkbStateNotify(event) => {
                 let mut state = self.0.borrow_mut();
-                let old_layout = state.xkb.serialize_layout(STATE_LAYOUT_EFFECTIVE);
+                let old_layout = state
+                    .keyboard_state
+                    .state
+                    .serialize_layout(STATE_LAYOUT_EFFECTIVE);
                 let new_layout = u32::from(event.group);
-                state.xkb.update_mask(
+                state.keyboard_state.state.update_mask(
                     event.base_mods.into(),
                     event.latched_mods.into(),
                     event.locked_mods.into(),
@@ -878,7 +882,7 @@ impl X11Client {
                     }
                 }
 
-                let modifiers = Modifiers::from_xkb(&state.xkb);
+                let modifiers = Modifiers::from_xkb(&state.keyboard_state.state);
                 if state.last_modifiers_changed_event == modifiers {
                     drop(state);
                 } else {
@@ -903,7 +907,7 @@ impl X11Client {
                 let keystroke = {
                     let code = event.detail.into();
                     let xkb_state = state.previous_xkb_state.clone();
-                    state.xkb.update_mask(
+                    state.keyboard_state.state.update_mask(
                         event.state.bits() as ModMask,
                         0,
                         0,
@@ -911,8 +915,9 @@ impl X11Client {
                         xkb_state.latched_layout,
                         xkb_state.locked_layout,
                     );
-                    let mut keystroke = crate::Keystroke::from_xkb(&state.xkb, modifiers, code);
-                    let keysym = state.xkb.key_get_one_sym(code);
+                    let mut keystroke =
+                        crate::Keystroke::from_xkb(&state.keyboard_state.state, modifiers, code);
+                    let keysym = state.keyboard_state.state.key_get_one_sym(code);
                     if keysym.is_modifier_key() {
                         return Some(());
                     }
@@ -977,7 +982,7 @@ impl X11Client {
                 let keystroke = {
                     let code = event.detail.into();
                     let xkb_state = state.previous_xkb_state.clone();
-                    state.xkb.update_mask(
+                    state.keyboard_state.state.update_mask(
                         event.state.bits() as ModMask,
                         0,
                         0,
@@ -985,8 +990,9 @@ impl X11Client {
                         xkb_state.latched_layout,
                         xkb_state.locked_layout,
                     );
-                    let keystroke = crate::Keystroke::from_xkb(&state.xkb, modifiers, code);
-                    let keysym = state.xkb.key_get_one_sym(code);
+                    let keystroke =
+                        crate::Keystroke::from_xkb(&state.keyboard_state.state, modifiers, code);
+                    let keysym = state.keyboard_state.state.key_get_one_sym(code);
                     if keysym.is_modifier_key() {
                         return Some(());
                     }
@@ -1204,7 +1210,7 @@ impl X11Client {
             Event::KeyPress(event) | Event::KeyRelease(event) => {
                 let mut state = self.0.borrow_mut();
                 state.pre_key_char_down = Some(Keystroke::from_xkb(
-                    &state.xkb,
+                    &state.keyboard_state.state,
                     state.modifiers,
                     event.detail.into(),
                 ));
@@ -1299,10 +1305,14 @@ impl LinuxClient for X11Client {
 
     fn keyboard_layout(&self) -> Box<dyn PlatformKeyboardLayout> {
         let state = self.0.borrow();
-        let layout_idx = state.xkb.serialize_layout(STATE_LAYOUT_EFFECTIVE);
+        let layout_idx = state
+            .keyboard_state
+            .state
+            .serialize_layout(STATE_LAYOUT_EFFECTIVE);
         Box::new(LinuxKeyboardLayout::new(
             state
-                .xkb
+                .keyboard_state
+                .state
                 .get_keymap()
                 .layout_get_name(layout_idx)
                 .to_string(),
