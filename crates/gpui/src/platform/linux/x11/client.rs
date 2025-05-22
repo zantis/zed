@@ -187,7 +187,8 @@ pub struct X11ClientState {
     pub(crate) xkb: State,
     previous_xkb_state: XKBStateNotiy,
     pub(crate) keyboard_layout: Box<LinuxKeyboardLayout>,
-    pub(crate) keyboard_mapper: LinuxKeyboardMapper,
+    pub(crate) keyboard_mapper: Rc<LinuxKeyboardMapper>,
+    pub(crate) keyboard_mapper_cache: HashMap<String, Rc<LinuxKeyboardMapper>>,
     pub(crate) ximc: Option<X11rbClient<Rc<XCBConnection>>>,
     pub(crate) xim_handler: Option<XimHandler>,
     pub modifiers: Modifiers,
@@ -378,7 +379,9 @@ impl X11Client {
         let compose_state = get_xkb_compose_state(&xkb_context);
         let resource_database = x11rb::resource_manager::new_from_default(&xcb_connection).unwrap();
         let keyboard_layout = Box::new(LinuxKeyboardLayout::new(&xkb_state));
-        let keyboard_mapper = LinuxKeyboardMapper::new(0, 0, 0);
+        let keyboard_mapper = Rc::new(LinuxKeyboardMapper::new(0, 0, 0));
+        let mut keyboard_mapper_cache = HashMap::default();
+        keyboard_mapper_cache.insert(keyboard_layout.id().to_string(), keyboard_mapper.clone());
 
         let gpu_context = BladeContext::new().expect("Unable to init GPU context");
 
@@ -468,6 +471,7 @@ impl X11Client {
             previous_xkb_state: XKBStateNotiy::default(),
             keyboard_layout,
             keyboard_mapper,
+            keyboard_mapper_cache,
             ximc,
             xim_handler,
 
@@ -856,10 +860,20 @@ impl X11Client {
                     latched_layout,
                     locked_layout,
                 };
+                let keyboard_layout = LinuxKeyboardLayout::new(&xkb_state);
+                println!("X11 Keyboard layout: {:#?}", keyboard_layout.id());
                 state.xkb = xkb_state;
-                state.keyboard_mapper = LinuxKeyboardMapper::new(0, 0, 0);
-                let layout = LinuxKeyboardLayout::new(&state.xkb).id().to_string();
-                println!("X11 Keyboard layout: {:#?}", layout);
+                state.keyboard_mapper =
+                    if let Some(mapper) = state.keyboard_mapper_cache.get(keyboard_layout.id()) {
+                        Rc::clone(mapper)
+                    } else {
+                        let mapper = Rc::new(LinuxKeyboardMapper::new(0, 0, 0));
+                        state
+                            .keyboard_mapper_cache
+                            .insert(keyboard_layout.id().to_string(), Rc::clone(&mapper));
+                        mapper
+                    };
+                state.keyboard_layout = Box::new(keyboard_layout);
             }
             Event::XkbStateNotify(event) => {
                 let mut state = self.0.borrow_mut();
@@ -883,10 +897,27 @@ impl X11Client {
                 };
 
                 if new_layout != old_layout {
-                    state.keyboard_mapper =
-                        LinuxKeyboardMapper::new(base_group, latched_group, locked_group);
-                    let layout = LinuxKeyboardLayout::new(&state.xkb).id().to_string();
-                    println!("X11 Keyboard layout (modifiers?): {:#?}", layout);
+                    let keyboard_layout = LinuxKeyboardLayout::new(&state.xkb);
+                    println!(
+                        "X11 Keyboard layout (modifiers?): {:#?}",
+                        keyboard_layout.id()
+                    );
+                    state.keyboard_mapper = if let Some(mapper) =
+                        state.keyboard_mapper_cache.get(keyboard_layout.id())
+                    {
+                        Rc::clone(mapper)
+                    } else {
+                        let mapper = Rc::new(LinuxKeyboardMapper::new(
+                            base_group,
+                            latched_group,
+                            locked_group,
+                        ));
+                        state
+                            .keyboard_mapper_cache
+                            .insert(keyboard_layout.id().to_string(), Rc::clone(&mapper));
+                        mapper
+                    };
+                    state.keyboard_layout = Box::new(keyboard_layout);
                     if let Some(mut callback) = state.common.callbacks.keyboard_layout_change.take()
                     {
                         drop(state);
