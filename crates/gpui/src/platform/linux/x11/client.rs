@@ -854,7 +854,7 @@ impl X11Client {
                     locked_layout,
                 };
                 state.xkb = xkb_state;
-                state.keyboard_mapper = LinuxKeyboardMapper::new();
+                state.keyboard_mapper = LinuxKeyboardMapper::new(None);
                 let layout_idx = state.xkb.serialize_layout(STATE_LAYOUT_EFFECTIVE);
                 let layout = LinuxKeyboardLayout::new(
                     state
@@ -886,7 +886,8 @@ impl X11Client {
                 };
 
                 if new_layout != old_layout {
-                    state.keyboard_mapper = LinuxKeyboardMapper::new();
+                    state.keyboard_mapper =
+                        LinuxKeyboardMapper::new(Some(event.locked_group.into()));
                     let layout_idx = state.xkb.serialize_layout(STATE_LAYOUT_EFFECTIVE);
                     let layout = LinuxKeyboardLayout::new(
                         state
