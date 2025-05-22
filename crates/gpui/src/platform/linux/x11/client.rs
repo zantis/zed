@@ -1,7 +1,5 @@
 use crate::{
-    LinuxKeyboardMapper,
-    platform::{keyboard, scap_screen_capture::scap_screen_sources},
-    underlying_dead_key,
+    LinuxKeyboardMapper, platform::scap_screen_capture::scap_screen_sources, underlying_dead_key,
 };
 use core::str;
 use std::{
