@@ -380,8 +380,7 @@ impl X11Client {
         let resource_database = x11rb::resource_manager::new_from_default(&xcb_connection).unwrap();
         let keyboard_layout = Box::new(LinuxKeyboardLayout::new(&xkb_state));
         let keyboard_mapper = Rc::new(LinuxKeyboardMapper::new(0, 0, 0));
-        let mut keyboard_mapper_cache = HashMap::default();
-        keyboard_mapper_cache.insert(keyboard_layout.id().to_string(), keyboard_mapper.clone());
+        let keyboard_mapper_cache = HashMap::default();
 
         let gpu_context = BladeContext::new().expect("Unable to init GPU context");
 
