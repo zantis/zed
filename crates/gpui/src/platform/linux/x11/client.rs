@@ -376,7 +376,7 @@ impl X11Client {
         };
         let compose_state = get_xkb_compose_state(&xkb_context);
         let resource_database = x11rb::resource_manager::new_from_default(&xcb_connection).unwrap();
-        let keyboard_mapper = LinuxKeyboardMapper::new();
+        let keyboard_mapper = LinuxKeyboardMapper::new(None);
 
         let gpu_context = BladeContext::new().expect("Unable to init GPU context");
 
