@@ -1185,7 +1185,7 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                 };
                 state.keymap_state = Some(xkb::State::new(&keymap));
                 state.compose_state = get_xkb_compose_state(&xkb_context);
-                state.keyboard_mapper = Some(LinuxKeyboardMapper::new(None));
+                state.keyboard_mapper = Some(LinuxKeyboardMapper::new(0, 0, 0));
 
                 if let Some(mut callback) = state.common.callbacks.keyboard_layout_change.take() {
                     drop(state);
@@ -1236,7 +1236,7 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                 state.modifiers = Modifiers::from_xkb(&keymap_state);
 
                 if group != old_layout {
-                    state.keyboard_mapper = Some(LinuxKeyboardMapper::new(Some(group)));
+                    state.keyboard_mapper = Some(LinuxKeyboardMapper::new(0, 0, group));
                     if let Some(mut callback) = state.common.callbacks.keyboard_layout_change.take()
                     {
                         println!("Wayland Keyboard layout changed (modifiers?)");

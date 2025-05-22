@@ -376,7 +376,7 @@ impl X11Client {
         };
         let compose_state = get_xkb_compose_state(&xkb_context);
         let resource_database = x11rb::resource_manager::new_from_default(&xcb_connection).unwrap();
-        let keyboard_mapper = LinuxKeyboardMapper::new(None);
+        let keyboard_mapper = LinuxKeyboardMapper::new(0, 0, 0);
 
         let gpu_context = BladeContext::new().expect("Unable to init GPU context");
 
@@ -854,7 +854,7 @@ impl X11Client {
                     locked_layout,
                 };
                 state.xkb = xkb_state;
-                state.keyboard_mapper = LinuxKeyboardMapper::new(None);
+                state.keyboard_mapper = LinuxKeyboardMapper::new(0, 0, 0);
                 let layout_idx = state.xkb.serialize_layout(STATE_LAYOUT_EFFECTIVE);
                 let layout = LinuxKeyboardLayout::new(
                     state
@@ -871,23 +871,26 @@ impl X11Client {
                 let mut state = self.0.borrow_mut();
                 let old_layout = state.xkb.serialize_layout(STATE_LAYOUT_EFFECTIVE);
                 let new_layout = u32::from(event.group);
+                let base_group = event.base_group as u32;
+                let latched_group = event.latched_group as u32;
+                let locked_group = event.locked_group.into();
                 state.xkb.update_mask(
                     event.base_mods.into(),
                     event.latched_mods.into(),
                     event.locked_mods.into(),
-                    event.base_group as u32,
-                    event.latched_group as u32,
-                    event.locked_group.into(),
+                    base_group,
+                    latched_group,
+                    locked_group,
                 );
                 state.previous_xkb_state = XKBStateNotiy {
-                    depressed_layout: event.base_group as u32,
-                    latched_layout: event.latched_group as u32,
-                    locked_layout: event.locked_group.into(),
+                    depressed_layout: base_group,
+                    latched_layout: latched_group,
+                    locked_layout: locked_group,
                 };
 
                 if new_layout != old_layout {
                     state.keyboard_mapper =
-                        LinuxKeyboardMapper::new(Some(event.locked_group.into()));
+                        LinuxKeyboardMapper::new(base_group, latched_group, locked_group);
                     let layout_idx = state.xkb.serialize_layout(STATE_LAYOUT_EFFECTIVE);
                     let layout = LinuxKeyboardLayout::new(
                         state
