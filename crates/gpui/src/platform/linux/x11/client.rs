@@ -1,5 +1,7 @@
 use crate::{
-    LinuxKeyboardMapper, platform::scap_screen_capture::scap_screen_sources, underlying_dead_key,
+    LinuxKeyboardMapper,
+    platform::{keyboard, scap_screen_capture::scap_screen_sources},
+    underlying_dead_key,
 };
 use core::str;
 use std::{
@@ -863,17 +865,7 @@ impl X11Client {
                 let keyboard_layout = LinuxKeyboardLayout::new(&xkb_state);
                 println!("X11 Keyboard layout: {:#?}", keyboard_layout.id());
                 state.xkb = xkb_state;
-                state.keyboard_mapper =
-                    if let Some(mapper) = state.keyboard_mapper_cache.get(keyboard_layout.id()) {
-                        Rc::clone(mapper)
-                    } else {
-                        let mapper = Rc::new(LinuxKeyboardMapper::new(0, 0, 0));
-                        state
-                            .keyboard_mapper_cache
-                            .insert(keyboard_layout.id().to_string(), Rc::clone(&mapper));
-                        mapper
-                    };
-                state.keyboard_layout = Box::new(keyboard_layout);
+                update_keyboard_mapper(&mut state, keyboard_layout, 0, 0, 0);
             }
             Event::XkbStateNotify(event) => {
                 let mut state = self.0.borrow_mut();
@@ -902,22 +894,13 @@ impl X11Client {
                         "X11 Keyboard layout (modifiers?): {:#?}",
                         keyboard_layout.id()
                     );
-                    state.keyboard_mapper = if let Some(mapper) =
-                        state.keyboard_mapper_cache.get(keyboard_layout.id())
-                    {
-                        Rc::clone(mapper)
-                    } else {
-                        let mapper = Rc::new(LinuxKeyboardMapper::new(
-                            base_group,
-                            latched_group,
-                            locked_group,
-                        ));
-                        state
-                            .keyboard_mapper_cache
-                            .insert(keyboard_layout.id().to_string(), Rc::clone(&mapper));
-                        mapper
-                    };
-                    state.keyboard_layout = Box::new(keyboard_layout);
+                    update_keyboard_mapper(
+                        &mut state,
+                        keyboard_layout,
+                        base_group,
+                        latched_group,
+                        locked_group,
+                    );
                     if let Some(mut callback) = state.common.callbacks.keyboard_layout_change.take()
                     {
                         drop(state);
@@ -2035,4 +2018,28 @@ fn create_invisible_cursor(
 
     connection.flush()?;
     Ok(cursor)
+}
+
+fn update_keyboard_mapper(
+    client: &mut X11ClientState,
+    keyboard_layout: LinuxKeyboardLayout,
+    base_group: u32,
+    latched_group: u32,
+    locked_group: u32,
+) {
+    client.keyboard_mapper =
+        if let Some(mapper) = client.keyboard_mapper_cache.get(keyboard_layout.id()) {
+            Rc::clone(mapper)
+        } else {
+            let mapper = Rc::new(LinuxKeyboardMapper::new(
+                base_group,
+                latched_group,
+                locked_group,
+            ));
+            client
+                .keyboard_mapper_cache
+                .insert(keyboard_layout.id().to_string(), Rc::clone(&mapper));
+            mapper
+        };
+    client.keyboard_layout = Box::new(keyboard_layout);
 }
