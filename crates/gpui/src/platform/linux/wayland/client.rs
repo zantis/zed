@@ -1187,24 +1187,6 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                 };
                 state.keyboard_state = Some(KeyboardState::new(xkb::State::new(&keymap)));
                 state.compose_state = get_xkb_compose_state(&xkb_context);
-                let layout = {
-                    let layout_idx = state
-                        .keyboard_state
-                        .as_mut()
-                        .unwrap()
-                        .state
-                        .serialize_layout(xkbcommon::xkb::STATE_LAYOUT_EFFECTIVE);
-                    let id = state
-                        .keyboard_state
-                        .as_mut()
-                        .unwrap()
-                        .state
-                        .get_keymap()
-                        .layout_get_name(layout_idx)
-                        .to_string();
-                    LinuxKeyboardLayout::new(id).id().to_string()
-                };
-                println!("Wayland Keyboard layout changed to {layout}");
 
                 if let Some(mut callback) = state.common.callbacks.keyboard_layout_change.take() {
                     drop(state);
@@ -1260,24 +1242,12 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                     0,
                     group,
                 );
-                let layout = {
-                    let layout_idx = keyboard_state
-                        .state
-                        .serialize_layout(xkbcommon::xkb::STATE_LAYOUT_EFFECTIVE);
-                    let id = keyboard_state
-                        .state
-                        .get_keymap()
-                        .layout_get_name(layout_idx)
-                        .to_string();
-                    LinuxKeyboardLayout::new(id).id().to_string()
-                };
-                println!("Wayland Keyboard layout changed to {layout}");
                 state.modifiers = Modifiers::from_xkb(&keyboard_state.state);
 
                 if group != old_layout {
-                    println!("Wayland Keyboard layout changed (modifiers?)");
                     if let Some(mut callback) = state.common.callbacks.keyboard_layout_change.take()
                     {
+                        println!("Wayland Keyboard layout changed (modifiers?)");
                         drop(state);
                         callback();
                         state = client.borrow_mut();
