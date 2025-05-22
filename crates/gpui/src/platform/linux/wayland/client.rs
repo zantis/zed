@@ -212,6 +212,7 @@ pub(crate) struct WaylandClientState {
     in_progress_outputs: HashMap<ObjectId, InProgressOutput>,
     keymap_state: Option<State>,
     compose_state: Option<xkb::compose::State>,
+    keyboard_layout: Box<LinuxKeyboardLayout>,
     keyboard_mapper: Option<LinuxKeyboardMapper>,
     drag: DragState,
     click: ClickState,
@@ -419,6 +420,7 @@ impl WaylandClient {
     pub(crate) fn new() -> Self {
         let conn = Connection::connect_to_env().unwrap();
 
+        let keyboard_layout = Box::new(LinuxKeyboardLayout::unknown());
         let (globals, mut event_queue) =
             registry_queue_init::<WaylandClientStatePtr>(&conn).unwrap();
         let qh = event_queue.handle();
@@ -542,6 +544,7 @@ impl WaylandClient {
             keymap_state: None,
             compose_state: None,
             keyboard_mapper: None,
+            keyboard_layout,
             drag: DragState {
                 data_offer: None,
                 window: None,
@@ -597,17 +600,7 @@ impl WaylandClient {
 
 impl LinuxClient for WaylandClient {
     fn keyboard_layout(&self) -> Box<dyn PlatformKeyboardLayout> {
-        let state = self.0.borrow();
-        let id = if let Some(keymap_state) = &state.keymap_state {
-            let layout_idx = keymap_state.serialize_layout(xkbcommon::xkb::STATE_LAYOUT_EFFECTIVE);
-            keymap_state
-                .get_keymap()
-                .layout_get_name(layout_idx)
-                .to_string()
-        } else {
-            "unknown".to_string()
-        };
-        Box::new(LinuxKeyboardLayout::new(id))
+        self.0.borrow().keyboard_layout.clone()
     }
 
     fn displays(&self) -> Vec<Rc<dyn PlatformDisplay>> {
@@ -1183,9 +1176,12 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                     .flatten()
                     .expect("Failed to create keymap")
                 };
+                let keymap_state = xkb::State::new(&keymap);
+                let keyboard_layout = LinuxKeyboardLayout::new(&keymap_state);
                 state.keymap_state = Some(xkb::State::new(&keymap));
                 state.compose_state = get_xkb_compose_state(&xkb_context);
                 state.keyboard_mapper = Some(LinuxKeyboardMapper::new(0, 0, 0));
+                state.keyboard_layout = Box::new(keyboard_layout);
 
                 if let Some(mut callback) = state.common.callbacks.keyboard_layout_change.take() {
                     drop(state);
@@ -1236,6 +1232,9 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                 state.modifiers = Modifiers::from_xkb(&keymap_state);
 
                 if group != old_layout {
+                    state.keyboard_layout = Box::new(LinuxKeyboardLayout::new(
+                        &state.keymap_state.as_ref().unwrap(),
+                    ));
                     state.keyboard_mapper = Some(LinuxKeyboardMapper::new(0, 0, group));
                     if let Some(mut callback) = state.common.callbacks.keyboard_layout_change.take()
                     {
