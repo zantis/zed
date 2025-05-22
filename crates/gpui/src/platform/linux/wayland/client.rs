@@ -1383,6 +1383,7 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                             state.repeat.current_keycode = None;
                         }
 
+                        println!("\nWayland Key released: {:#?}", input);
                         drop(state);
                         focused_window.handle_input(input);
                     }
