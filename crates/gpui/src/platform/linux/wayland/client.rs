@@ -1171,6 +1171,7 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                     log::error!("Received keymap format {:?}, expected XkbV1", format);
                     return;
                 }
+                println!("Wayland Keymap changed");
                 let xkb_context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
                 let keymap = unsafe {
                     xkb::Keymap::new_from_fd(
@@ -1246,6 +1247,7 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                 if group != old_layout {
                     if let Some(mut callback) = state.common.callbacks.keyboard_layout_change.take()
                     {
+                        println!("Wayland Keyboard layout changed (modifiers?)");
                         drop(state);
                         callback();
                         state = client.borrow_mut();
