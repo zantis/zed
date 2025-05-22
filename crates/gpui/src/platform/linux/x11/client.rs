@@ -861,7 +861,13 @@ impl X11Client {
                 };
                 let keyboard_layout = LinuxKeyboardLayout::new(&xkb_state);
                 state.xkb = xkb_state;
-                update_keyboard_mapper(&mut state, keyboard_layout, 0, 0, 0);
+                update_keyboard_mapper(
+                    &mut state,
+                    keyboard_layout,
+                    depressed_layout,
+                    latched_layout,
+                    locked_layout,
+                );
             }
             Event::XkbStateNotify(event) => {
                 let mut state = self.0.borrow_mut();
