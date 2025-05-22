@@ -75,10 +75,10 @@ use super::{
 use crate::{
     AnyWindowHandle, Bounds, CursorStyle, DOUBLE_CLICK_INTERVAL, DevicePixels, DisplayId,
     FileDropEvent, ForegroundExecutor, KeyDownEvent, KeyUpEvent, Keystroke, LinuxCommon,
-    LinuxKeyboardLayout, Modifiers, ModifiersChangedEvent, MouseButton, MouseDownEvent,
-    MouseExitEvent, MouseMoveEvent, MouseUpEvent, NavigationDirection, Pixels, PlatformDisplay,
-    PlatformInput, PlatformKeyboardLayout, Point, SCROLL_LINES, ScaledPixels, ScreenCaptureSource,
-    ScrollDelta, ScrollWheelEvent, Size, TouchPhase, WindowParams,
+    LinuxKeyboardLayout, LinuxKeyboardMapper, Modifiers, ModifiersChangedEvent, MouseButton,
+    MouseDownEvent, MouseExitEvent, MouseMoveEvent, MouseUpEvent, NavigationDirection, Pixels,
+    PlatformDisplay, PlatformInput, PlatformKeyboardLayout, Point, SCROLL_LINES, ScaledPixels,
+    ScreenCaptureSource, ScrollDelta, ScrollWheelEvent, Size, TouchPhase, WindowParams,
     platform::{
         PlatformWindow,
         blade::BladeContext,
@@ -212,6 +212,7 @@ pub(crate) struct WaylandClientState {
     in_progress_outputs: HashMap<ObjectId, InProgressOutput>,
     keymap_state: Option<State>,
     compose_state: Option<xkb::compose::State>,
+    keyboard_mapper: Option<LinuxKeyboardMapper>,
     drag: DragState,
     click: ClickState,
     repeat: KeyRepeat,
@@ -540,6 +541,7 @@ impl WaylandClient {
             common,
             keymap_state: None,
             compose_state: None,
+            keyboard_mapper: None,
             drag: DragState {
                 data_offer: None,
                 window: None,
@@ -1183,6 +1185,7 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                 };
                 state.keymap_state = Some(xkb::State::new(&keymap));
                 state.compose_state = get_xkb_compose_state(&xkb_context);
+                state.keyboard_mapper = Some(LinuxKeyboardMapper::new());
 
                 if let Some(mut callback) = state.common.callbacks.keyboard_layout_change.take() {
                     drop(state);
@@ -1233,6 +1236,7 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                 state.modifiers = Modifiers::from_xkb(&keymap_state);
 
                 if group != old_layout {
+                    state.keyboard_mapper = Some(LinuxKeyboardMapper::new());
                     if let Some(mut callback) = state.common.callbacks.keyboard_layout_change.take()
                     {
                         println!("Wayland Keyboard layout changed (modifiers?)");
@@ -1269,13 +1273,18 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                 let focused_window = focused_window.clone();
 
                 let keymap_state = state.keymap_state.as_ref().unwrap();
+                let keyboard_mapper = state.keyboard_mapper.as_ref().unwrap();
                 let keycode = Keycode::from(key + MIN_KEYCODE);
                 let keysym = keymap_state.key_get_one_sym(keycode);
 
                 match key_state {
                     wl_keyboard::KeyState::Pressed if !keysym.is_modifier_key() => {
-                        let mut keystroke =
-                            Keystroke::from_xkb(&keymap_state, state.modifiers, keycode);
+                        let mut keystroke = Keystroke::from_xkb(
+                            keymap_state,
+                            keyboard_mapper,
+                            state.modifiers,
+                            keycode,
+                        );
                         println!("Wayland Before {:#?}", keystroke);
                         if let Some(mut compose) = state.compose_state.take() {
                             compose.feed(keysym);
@@ -1362,7 +1371,12 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                     }
                     wl_keyboard::KeyState::Released if !keysym.is_modifier_key() => {
                         let input = PlatformInput::KeyUp(KeyUpEvent {
-                            keystroke: Keystroke::from_xkb(keymap_state, state.modifiers, keycode),
+                            keystroke: Keystroke::from_xkb(
+                                keymap_state,
+                                keyboard_mapper,
+                                state.modifiers,
+                                keycode,
+                            ),
                         });
 
                         if state.repeat.current_keycode == Some(keycode) {
