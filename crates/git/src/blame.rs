@@ -1,6 +1,6 @@
 use crate::commit::get_messages;
 use crate::{GitRemote, Oid};
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, anyhow};
 use collections::{HashMap, HashSet};
 use futures::AsyncWriteExt;
 use gpui::SharedString;
@@ -80,7 +80,7 @@ async fn run_git_blame(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .context("starting git blame process")?;
+        .map_err(|e| anyhow!("Failed to start git blame process: {}", e))?;
 
     let stdin = child
         .stdin
@@ -92,7 +92,10 @@ async fn run_git_blame(
     }
     stdin.flush().await?;
 
-    let output = child.output().await.context("reading git blame output")?;
+    let output = child
+        .output()
+        .await
+        .map_err(|e| anyhow!("Failed to read git blame output: {}", e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -100,7 +103,7 @@ async fn run_git_blame(
         if trimmed == GIT_BLAME_NO_COMMIT_ERROR || trimmed.contains(GIT_BLAME_NO_PATH) {
             return Ok(String::new());
         }
-        anyhow::bail!("git blame process failed: {stderr}");
+        return Err(anyhow!("git blame process failed: {}", stderr));
     }
 
     Ok(String::from_utf8(output.stdout)?)
@@ -141,21 +144,21 @@ impl BlameEntry {
         let sha = parts
             .next()
             .and_then(|line| line.parse::<Oid>().ok())
-            .context("parsing sha")?;
+            .ok_or_else(|| anyhow!("failed to parse sha"))?;
 
         let original_line_number = parts
             .next()
             .and_then(|line| line.parse::<u32>().ok())
-            .context("parsing original line number")?;
+            .ok_or_else(|| anyhow!("Failed to parse original line number"))?;
         let final_line_number = parts
             .next()
             .and_then(|line| line.parse::<u32>().ok())
-            .context("parsing final line number")?;
+            .ok_or_else(|| anyhow!("Failed to parse final line number"))?;
 
         let line_count = parts
             .next()
             .and_then(|line| line.parse::<u32>().ok())
-            .context("parsing line count")?;
+            .ok_or_else(|| anyhow!("Failed to parse final line number"))?;
 
         let start_line = final_line_number.saturating_sub(1);
         let end_line = start_line + line_count;

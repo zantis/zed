@@ -543,7 +543,7 @@ impl SummaryIndex {
             .find(|model| &model.id() == &summary_model_id)
         else {
             return cx.background_spawn(async move {
-                anyhow::bail!("Couldn't find the preferred summarization model ({summary_model_id:?}) in the language registry's available models")
+                Err(anyhow!("Couldn't find the preferred summarization model ({:?}) in the language registry's available models", summary_model_id))
             });
         };
         let utf8_path = path.to_string_lossy();

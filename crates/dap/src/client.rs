@@ -2,7 +2,7 @@ use crate::{
     adapters::DebugAdapterBinary,
     transport::{IoKind, LogKind, TransportDelegate},
 };
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use dap_types::{
     messages::{Message, Response},
     requests::Request,
@@ -187,7 +187,10 @@ impl DebugAdapterClient {
                     Ok(serde_json::from_value(Default::default())?)
                 }
             }
-            false => anyhow::bail!("Request failed: {}", response.message.unwrap_or_default()),
+            false => Err(anyhow!(
+                "Request failed: {}",
+                response.message.unwrap_or_default()
+            )),
         }
     }
 

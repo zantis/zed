@@ -4,7 +4,6 @@ mod syntax_map_tests;
 use crate::{
     Grammar, InjectionConfig, Language, LanguageId, LanguageRegistry, QUERY_CURSORS, with_parser,
 };
-use anyhow::Context as _;
 use collections::HashMap;
 use futures::FutureExt;
 use std::{
@@ -1247,7 +1246,7 @@ fn parse_text(
                 old_tree.as_ref(),
                 None,
             )
-            .context("failed to parse")
+            .ok_or_else(|| anyhow::anyhow!("failed to parse"))
     })
 }
 

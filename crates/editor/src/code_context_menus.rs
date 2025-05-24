@@ -26,7 +26,6 @@ use task::ResolvedTask;
 use ui::{Color, IntoElement, ListItem, Pixels, Popover, Styled, prelude::*};
 use util::ResultExt;
 
-use crate::CodeActionSource;
 use crate::editor_settings::SnippetSortOrder;
 use crate::hover_popover::{hover_markdown_style, open_markdown_url};
 use crate::{
@@ -41,6 +40,7 @@ pub const MENU_ASIDE_X_PADDING: Pixels = px(16.);
 pub const MENU_ASIDE_MIN_WIDTH: Pixels = px(260.);
 pub const MENU_ASIDE_MAX_WIDTH: Pixels = px(500.);
 
+#[allow(clippy::large_enum_variant)]
 pub enum CodeContextMenu {
     Completions(CompletionsMenu),
     CodeActions(CodeActionsMenu),
@@ -169,7 +169,6 @@ impl CodeContextMenu {
 pub enum ContextMenuOrigin {
     Cursor,
     GutterIndicator(DisplayRow),
-    QuickActionBar,
 }
 
 #[derive(Clone, Debug)]
@@ -665,13 +664,12 @@ impl CompletionsMenu {
         #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
         enum MatchTier<'a> {
             WordStartMatch {
-                sort_mixed_case_prefix_length: Reverse<usize>,
-                sort_snippet: Reverse<i32>,
-                sort_kind: usize,
+                sort_prefix: Reverse<usize>,
                 sort_fuzzy_bracket: Reverse<usize>,
+                sort_snippet: Reverse<i32>,
                 sort_text: Option<&'a str>,
                 sort_score: Reverse<OrderedFloat<f64>>,
-                sort_label: &'a str,
+                sort_key: (usize, &'a str),
             },
             OtherMatch {
                 sort_score: Reverse<OrderedFloat<f64>>,
@@ -682,12 +680,12 @@ impl CompletionsMenu {
         // balance the raw fuzzy match score with hints from the language server
 
         // In a fuzzy bracket, matches with a score of 1.0 are prioritized.
-        // The remaining matches are partitioned into two groups at 3/5 of the max_score.
+        // The remaining matches are partitioned into two groups at 2/3 of the max_score.
         let max_score = matches
             .iter()
             .map(|mat| mat.string_match.score)
             .fold(0.0, f64::max);
-        let fuzzy_bracket_threshold = max_score * (3.0 / 5.0);
+        let second_bracket_threshold = max_score * (2.0 / 3.0);
 
         let query_start_lower = query
             .and_then(|q| q.chars().next())
@@ -711,7 +709,9 @@ impl CompletionsMenu {
             if query_start_doesnt_match_split_words {
                 MatchTier::OtherMatch { sort_score }
             } else {
-                let sort_fuzzy_bracket = Reverse(if score >= fuzzy_bracket_threshold {
+                let sort_fuzzy_bracket = Reverse(if score == 1.0 {
+                    2
+                } else if score >= second_bracket_threshold {
                     1
                 } else {
                     0
@@ -721,7 +721,7 @@ impl CompletionsMenu {
                     SnippetSortOrder::Bottom => Reverse(if mat.is_snippet { 0 } else { 1 }),
                     SnippetSortOrder::Inline => Reverse(0),
                 };
-                let sort_mixed_case_prefix_length = Reverse(
+                let mixed_case_prefix_length = Reverse(
                     query
                         .map(|q| {
                             q.chars()
@@ -741,13 +741,12 @@ impl CompletionsMenu {
                         .unwrap_or(0),
                 );
                 MatchTier::WordStartMatch {
-                    sort_mixed_case_prefix_length,
-                    sort_snippet,
-                    sort_kind: mat.sort_kind,
+                    sort_prefix: mixed_case_prefix_length,
                     sort_fuzzy_bracket,
+                    sort_snippet,
                     sort_text: mat.sort_text,
                     sort_score,
-                    sort_label: mat.sort_label,
+                    sort_key: mat.sort_key,
                 }
             }
         });
@@ -798,14 +797,13 @@ impl CompletionsMenu {
                             None
                         };
 
-                    let (sort_kind, sort_label) = completion.sort_key();
+                    let sort_key = completion.sort_key();
 
                     SortableMatch {
                         string_match,
                         is_snippet,
                         sort_text,
-                        sort_kind,
-                        sort_label,
+                        sort_key,
                     }
                 })
                 .collect();
@@ -830,8 +828,7 @@ pub struct SortableMatch<'a> {
     pub string_match: StringMatch,
     pub is_snippet: bool,
     pub sort_text: Option<&'a str>,
-    pub sort_kind: usize,
-    pub sort_label: &'a str,
+    pub sort_key: (usize, &'a str),
 }
 
 #[derive(Clone)]
@@ -842,7 +839,7 @@ pub struct AvailableCodeAction {
 }
 
 #[derive(Clone)]
-pub struct CodeActionContents {
+pub(crate) struct CodeActionContents {
     tasks: Option<Rc<ResolvedTasks>>,
     actions: Option<Rc<[AvailableCodeAction]>>,
     debug_scenarios: Vec<DebugScenario>,
@@ -929,6 +926,7 @@ impl CodeActionContents {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone)]
 pub enum CodeActionsItem {
     Task(TaskSourceKind, ResolvedTask),
@@ -970,12 +968,12 @@ impl CodeActionsItem {
     }
 }
 
-pub struct CodeActionsMenu {
+pub(crate) struct CodeActionsMenu {
     pub actions: CodeActionContents,
     pub buffer: Entity<Buffer>,
     pub selected_item: usize,
     pub scroll_handle: UniformListScrollHandle,
-    pub deployed_from: Option<CodeActionSource>,
+    pub deployed_from_indicator: Option<DisplayRow>,
 }
 
 impl CodeActionsMenu {
@@ -1044,10 +1042,10 @@ impl CodeActionsMenu {
     }
 
     fn origin(&self) -> ContextMenuOrigin {
-        match &self.deployed_from {
-            Some(CodeActionSource::Indicator(row)) => ContextMenuOrigin::GutterIndicator(*row),
-            Some(CodeActionSource::QuickActionBar) => ContextMenuOrigin::QuickActionBar,
-            None => ContextMenuOrigin::Cursor,
+        if let Some(row) = self.deployed_from_indicator {
+            ContextMenuOrigin::GutterIndicator(row)
+        } else {
+            ContextMenuOrigin::Cursor
         }
     }
 

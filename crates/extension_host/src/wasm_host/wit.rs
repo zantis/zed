@@ -83,10 +83,11 @@ pub fn authorize_access_to_unreleased_wasm_api_version(
         }
     };
 
-    anyhow::ensure!(
-        allow_unreleased_version,
-        "unreleased versions of the extension API can only be used on development builds of Zed"
-    );
+    if !allow_unreleased_version {
+        Err(anyhow!(
+            "unreleased versions of the extension API can only be used on development builds of Zed"
+        ))?;
+    }
 
     Ok(())
 }
@@ -773,7 +774,7 @@ impl Extension {
                     .await
             }
             Extension::V0_0_1(_) | Extension::V0_0_4(_) | Extension::V0_0_6(_) => {
-                anyhow::bail!("`run_slash_command` not available prior to v0.1.0");
+                Err(anyhow!("`run_slash_command` not available prior to v0.1.0"))
             }
         }
     }
@@ -808,9 +809,9 @@ impl Extension {
             Extension::V0_0_1(_)
             | Extension::V0_0_4(_)
             | Extension::V0_0_6(_)
-            | Extension::V0_1_0(_) => {
-                anyhow::bail!("`context_server_command` not available prior to v0.2.0");
-            }
+            | Extension::V0_1_0(_) => Err(anyhow!(
+                "`context_server_command` not available prior to v0.2.0"
+            )),
         }
     }
 
@@ -835,9 +836,9 @@ impl Extension {
             | Extension::V0_1_0(_)
             | Extension::V0_2_0(_)
             | Extension::V0_3_0(_)
-            | Extension::V0_4_0(_) => {
-                anyhow::bail!("`context_server_configuration` not available prior to v0.5.0");
-            }
+            | Extension::V0_4_0(_) => Err(anyhow!(
+                "`context_server_configuration` not available prior to v0.5.0"
+            )),
         }
     }
 
@@ -853,9 +854,9 @@ impl Extension {
             Extension::V0_3_0(ext) => ext.call_suggest_docs_packages(store, provider).await,
             Extension::V0_2_0(ext) => ext.call_suggest_docs_packages(store, provider).await,
             Extension::V0_1_0(ext) => ext.call_suggest_docs_packages(store, provider).await,
-            Extension::V0_0_1(_) | Extension::V0_0_4(_) | Extension::V0_0_6(_) => {
-                anyhow::bail!("`suggest_docs_packages` not available prior to v0.1.0");
-            }
+            Extension::V0_0_1(_) | Extension::V0_0_4(_) | Extension::V0_0_6(_) => Err(anyhow!(
+                "`suggest_docs_packages` not available prior to v0.1.0"
+            )),
         }
     }
 
@@ -892,7 +893,7 @@ impl Extension {
                     .await
             }
             Extension::V0_0_1(_) | Extension::V0_0_4(_) | Extension::V0_0_6(_) => {
-                anyhow::bail!("`index_docs` not available prior to v0.1.0");
+                Err(anyhow!("`index_docs` not available prior to v0.1.0"))
             }
         }
     }
@@ -919,21 +920,7 @@ impl Extension {
 
                 Ok(Ok(dap_binary))
             }
-            _ => anyhow::bail!("`get_dap_binary` not available prior to v0.6.0"),
-        }
-    }
-
-    pub async fn call_dap_schema(&self, store: &mut Store<WasmState>) -> Result<String, String> {
-        match self {
-            Extension::V0_6_0(ext) => {
-                let schema = ext
-                    .call_dap_schema(store)
-                    .await
-                    .map_err(|err| err.to_string())?;
-
-                schema
-            }
-            _ => Err("`get_dap_binary` not available prior to v0.6.0".to_string()),
+            _ => Err(anyhow!("`get_dap_binary` not available prior to v0.6.0")),
         }
     }
 }

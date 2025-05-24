@@ -649,7 +649,7 @@ pub fn show_link_definition(
                 }
             })?;
 
-            anyhow::Ok(())
+            Ok::<_, anyhow::Error>(())
         }
         .log_err()
         .await

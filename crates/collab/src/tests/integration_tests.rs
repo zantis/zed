@@ -6445,7 +6445,7 @@ async fn test_join_after_restart(cx1: &mut TestAppContext, cx2: &mut TestAppCont
 async fn test_preview_tabs(cx: &mut TestAppContext) {
     let (_server, client) = TestServer::start1(cx).await;
     let (workspace, cx) = client.build_test_workspace(cx).await;
-    let project = workspace.read_with(cx, |workspace, _| workspace.project().clone());
+    let project = workspace.update(cx, |workspace, _| workspace.project().clone());
 
     let worktree_id = project.update(cx, |project, cx| {
         project.worktrees(cx).next().unwrap().read(cx).id()
@@ -6464,7 +6464,7 @@ async fn test_preview_tabs(cx: &mut TestAppContext) {
         path: Path::new("3.rs").into(),
     };
 
-    let pane = workspace.read_with(cx, |workspace, _| workspace.active_pane().clone());
+    let pane = workspace.update(cx, |workspace, _| workspace.active_pane().clone());
 
     let get_path = |pane: &Pane, idx: usize, cx: &App| {
         pane.item_for_index(idx).unwrap().project_path(cx).unwrap()
@@ -6617,7 +6617,7 @@ async fn test_preview_tabs(cx: &mut TestAppContext) {
         pane.split(workspace::SplitDirection::Right, cx);
     });
 
-    let right_pane = workspace.read_with(cx, |workspace, _| workspace.active_pane().clone());
+    let right_pane = workspace.update(cx, |workspace, _| workspace.active_pane().clone());
 
     pane.update(cx, |pane, cx| {
         assert_eq!(pane.items_len(), 1);

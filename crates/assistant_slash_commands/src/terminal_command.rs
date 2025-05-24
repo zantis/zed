@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use crate::{TerminalView, terminal_panel::TerminalPanel};
 use anyhow::Result;
 use assistant_slash_command::{
     ArgumentCompletion, SlashCommand, SlashCommandOutput, SlashCommandOutputSection,
@@ -9,10 +8,11 @@ use assistant_slash_command::{
 };
 use gpui::{App, Entity, Task, WeakEntity};
 use language::{BufferSnapshot, CodeLabel, LspAdapterDelegate};
+use terminal_view::{TerminalView, terminal_panel::TerminalPanel};
 use ui::prelude::*;
 use workspace::{Workspace, dock::Panel};
 
-use assistant_slash_command::create_label_for_command;
+use super::create_label_for_command;
 
 pub struct TerminalSlashCommand;
 

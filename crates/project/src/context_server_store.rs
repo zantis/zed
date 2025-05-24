@@ -233,10 +233,9 @@ impl ContextServerStore {
     }
 
     pub fn stop_server(&mut self, id: &ContextServerId, cx: &mut Context<Self>) -> Result<()> {
-        let state = self
-            .servers
-            .remove(id)
-            .context("Context server not found")?;
+        let Some(state) = self.servers.remove(id) else {
+            return Err(anyhow::anyhow!("Context server not found"));
+        };
 
         let server = state.server();
         let configuration = state.configuration();
@@ -337,10 +336,9 @@ impl ContextServerStore {
     }
 
     fn remove_server(&mut self, id: &ContextServerId, cx: &mut Context<Self>) -> Result<()> {
-        let state = self
-            .servers
-            .remove(id)
-            .context("Context server not found")?;
+        let Some(state) = self.servers.remove(id) else {
+            return Err(anyhow::anyhow!("Context server not found"));
+        };
         drop(state);
         cx.emit(Event::ServerStatusChanged {
             server_id: id.clone(),
@@ -1099,7 +1097,7 @@ mod tests {
 
                         self.tx
                             .unbounded_send(response.to_string())
-                            .context("sending a message")?;
+                            .map_err(|e| anyhow::anyhow!("Failed to send message: {}", e))?;
                     }
                 }
             }

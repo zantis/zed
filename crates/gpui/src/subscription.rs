@@ -1,14 +1,10 @@
 use collections::{BTreeMap, BTreeSet};
-use std::{
-    cell::{Cell, RefCell},
-    fmt::Debug,
-    mem,
-    rc::Rc,
-};
+use parking_lot::Mutex;
+use std::{cell::Cell, fmt::Debug, mem, rc::Rc, sync::Arc};
 use util::post_inc;
 
 pub(crate) struct SubscriberSet<EmitterKey, Callback>(
-    Rc<RefCell<SubscriberSetState<EmitterKey, Callback>>>,
+    Arc<Mutex<SubscriberSetState<EmitterKey, Callback>>>,
 );
 
 impl<EmitterKey, Callback> Clone for SubscriberSet<EmitterKey, Callback> {
@@ -34,7 +30,7 @@ where
     Callback: 'static,
 {
     pub fn new() -> Self {
-        Self(Rc::new(RefCell::new(SubscriberSetState {
+        Self(Arc::new(Mutex::new(SubscriberSetState {
             subscribers: Default::default(),
             dropped_subscribers: Default::default(),
             next_subscriber_id: 0,
@@ -51,7 +47,7 @@ where
         callback: Callback,
     ) -> (Subscription, impl FnOnce() + use<EmitterKey, Callback>) {
         let active = Rc::new(Cell::new(false));
-        let mut lock = self.0.borrow_mut();
+        let mut lock = self.0.lock();
         let subscriber_id = post_inc(&mut lock.next_subscriber_id);
         lock.subscribers
             .entry(emitter_key.clone())
@@ -68,7 +64,7 @@ where
 
         let subscription = Subscription {
             unsubscribe: Some(Box::new(move || {
-                let mut lock = this.borrow_mut();
+                let mut lock = this.lock();
                 let Some(subscribers) = lock.subscribers.get_mut(&emitter_key) else {
                     // remove was called with this emitter_key
                     return;
@@ -96,7 +92,7 @@ where
         &self,
         emitter: &EmitterKey,
     ) -> impl IntoIterator<Item = Callback> + use<EmitterKey, Callback> {
-        let subscribers = self.0.borrow_mut().subscribers.remove(emitter);
+        let subscribers = self.0.lock().subscribers.remove(emitter);
         subscribers
             .unwrap_or_default()
             .map(|s| s.into_values())
@@ -119,7 +115,7 @@ where
     {
         let Some(mut subscribers) = self
             .0
-            .borrow_mut()
+            .lock()
             .subscribers
             .get_mut(emitter)
             .and_then(|s| s.take())
@@ -134,7 +130,7 @@ where
                 true
             }
         });
-        let mut lock = self.0.borrow_mut();
+        let mut lock = self.0.lock();
 
         // Add any new subscribers that were added while invoking the callback.
         if let Some(Some(new_subscribers)) = lock.subscribers.remove(emitter) {

@@ -1,10 +1,14 @@
+use std::path::PathBuf;
+
+use anyhow::anyhow;
 use collections::HashMap;
 use gpui::SharedString;
 use serde::Deserialize;
 use util::ResultExt as _;
 
 use crate::{
-    DebugScenario, DebugTaskFile, EnvVariableReplacer, TcpArgumentsTemplate, VariableName,
+    AttachRequest, DebugRequest, DebugScenario, DebugTaskFile, EnvVariableReplacer, LaunchRequest,
+    TcpArgumentsTemplate, VariableName,
 };
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -36,7 +40,7 @@ struct VsCodeDebugTaskDefinition {
     #[serde(default)]
     stop_on_entry: Option<bool>,
     #[serde(flatten)]
-    other_attributes: serde_json::Value,
+    other_attributes: HashMap<String, serde_json_lenient::Value>,
 }
 
 impl VsCodeDebugTaskDefinition {
@@ -46,6 +50,33 @@ impl VsCodeDebugTaskDefinition {
         let definition = DebugScenario {
             label,
             build: None,
+            request: match self.request {
+                Request::Launch => {
+                    let cwd = self.cwd.map(|cwd| PathBuf::from(replacer.replace(&cwd)));
+                    let program = self.program.ok_or_else(|| {
+                        anyhow!("vscode debug launch configuration does not define a program")
+                    })?;
+                    let program = replacer.replace(&program);
+                    let args = self
+                        .args
+                        .into_iter()
+                        .map(|arg| replacer.replace(&arg))
+                        .collect();
+                    let env = self
+                        .env
+                        .into_iter()
+                        .filter_map(|(k, v)| v.map(|v| (k, v)))
+                        .collect();
+                    DebugRequest::Launch(LaunchRequest {
+                        program,
+                        cwd,
+                        args,
+                        env,
+                    })
+                    .into()
+                }
+                Request::Attach => DebugRequest::Attach(AttachRequest { process_id: None }).into(),
+            },
             adapter: task_type_to_adapter_name(&self.r#type),
             // TODO host?
             tcp_connection: self.port.map(|port| TcpArgumentsTemplate {
@@ -53,7 +84,9 @@ impl VsCodeDebugTaskDefinition {
                 host: None,
                 timeout: None,
             }),
-            config: self.other_attributes,
+            stop_on_entry: self.stop_on_entry,
+            // TODO
+            initialize_args: None,
         };
         Ok(definition)
     }
@@ -102,9 +135,10 @@ fn task_type_to_adapter_name(task_type: &str) -> SharedString {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
 
-    use crate::{DebugScenario, DebugTaskFile, TcpArgumentsTemplate};
+    use collections::FxHashMap;
+
+    use crate::{DebugRequest, DebugScenario, DebugTaskFile, LaunchRequest, TcpArgumentsTemplate};
 
     use super::VsCodeDebugTaskFile;
 
@@ -139,14 +173,19 @@ mod tests {
             DebugTaskFile(vec![DebugScenario {
                 label: "Debug my JS app".into(),
                 adapter: "JavaScript".into(),
-                config: json!({
-                    "showDevDebugOutput": false,
-                }),
+                stop_on_entry: Some(true),
+                initialize_args: None,
                 tcp_connection: Some(TcpArgumentsTemplate {
                     port: Some(17),
                     host: None,
                     timeout: None,
                 }),
+                request: Some(DebugRequest::Launch(LaunchRequest {
+                    program: "${ZED_WORKTREE_ROOT}/xyz.js".into(),
+                    args: vec!["--foo".into(), "${ZED_WORKTREE_ROOT}/thing".into()],
+                    cwd: Some("${ZED_WORKTREE_ROOT}/${FOO}/sub".into()),
+                    env: FxHashMap::from_iter([("X".into(), "Y".into())])
+                })),
                 build: None
             }])
         );

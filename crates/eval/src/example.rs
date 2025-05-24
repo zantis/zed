@@ -177,10 +177,12 @@ impl ExampleContext {
 
     fn log_assertion<T>(&mut self, result: Result<T>, message: String) -> Result<T> {
         if let Some(max) = self.meta.max_assertions {
-            anyhow::ensure!(
-                self.assertions.run_count() <= max,
-                "More assertions were run than the stated max_assertions of {max}"
-            );
+            if self.assertions.run_count() > max {
+                return Err(anyhow!(
+                    "More assertions were run than the stated max_assertions of {}",
+                    max
+                ));
+            }
         }
 
         self.assertions.ran.push(RanAssertion {
@@ -321,7 +323,7 @@ impl ExampleContext {
                     }
                 }
                 _ = self.app.background_executor().timer(THREAD_EVENT_TIMEOUT).fuse() => {
-                    anyhow::bail!("Agentic loop stalled - waited {THREAD_EVENT_TIMEOUT:?} without any events");
+                    return Err(anyhow!("Agentic loop stalled - waited {:?} without any events", THREAD_EVENT_TIMEOUT));
                 }
             }
         }

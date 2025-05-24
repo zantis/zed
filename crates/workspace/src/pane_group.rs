@@ -3,7 +3,7 @@ use crate::{
     pane_group::element::pane_axis,
     workspace_settings::{PaneSplitDirectionHorizontal, PaneSplitDirectionVertical},
 };
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use call::{ActiveCall, ParticipantLocation};
 use collections::HashMap;
 use gpui::{
@@ -58,7 +58,7 @@ impl PaneGroup {
                     self.root = Member::new_axis(old_pane.clone(), new_pane.clone(), direction);
                     Ok(())
                 } else {
-                    anyhow::bail!("Pane not found");
+                    Err(anyhow!("Pane not found"))
                 }
             }
             Member::Axis(axis) => axis.split(old_pane, new_pane, direction),
@@ -538,7 +538,7 @@ impl PaneAxis {
                 }
             }
         }
-        anyhow::bail!("Pane not found");
+        Err(anyhow!("Pane not found"))
     }
 
     fn remove(&mut self, pane_to_remove: &Entity<Pane>) -> Result<Option<Member>> {
@@ -579,7 +579,7 @@ impl PaneAxis {
                 Ok(None)
             }
         } else {
-            anyhow::bail!("Pane not found");
+            Err(anyhow!("Pane not found"))
         }
     }
 
@@ -1113,14 +1113,9 @@ mod element {
             Some(self.basis.into())
         }
 
-        fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
-            None
-        }
-
         fn request_layout(
             &mut self,
             _global_id: Option<&GlobalElementId>,
-            _inspector_id: Option<&gpui::InspectorElementId>,
             window: &mut Window,
             cx: &mut App,
         ) -> (gpui::LayoutId, Self::RequestLayoutState) {
@@ -1137,7 +1132,6 @@ mod element {
         fn prepaint(
             &mut self,
             global_id: Option<&GlobalElementId>,
-            _inspector_id: Option<&gpui::InspectorElementId>,
             bounds: Bounds<Pixels>,
             _state: &mut Self::RequestLayoutState,
             window: &mut Window,
@@ -1230,7 +1224,6 @@ mod element {
         fn paint(
             &mut self,
             _id: Option<&GlobalElementId>,
-            _inspector_id: Option<&gpui::InspectorElementId>,
             bounds: gpui::Bounds<ui::prelude::Pixels>,
             _: &mut Self::RequestLayoutState,
             layout: &mut Self::PrepaintState,

@@ -46,11 +46,12 @@ impl ModelContextProtocol {
             .request(types::RequestType::Initialize.as_str(), params)
             .await?;
 
-        anyhow::ensure!(
-            Self::supported_protocols().contains(&response.protocol_version),
-            "Unsupported protocol version: {:?}",
-            response.protocol_version
-        );
+        if !Self::supported_protocols().contains(&response.protocol_version) {
+            return Err(anyhow::anyhow!(
+                "Unsupported protocol version: {:?}",
+                response.protocol_version
+            ));
+        }
 
         log::trace!("mcp server info {:?}", response.server_info);
 
@@ -95,11 +96,14 @@ impl InitializedContextServerProtocol {
     }
 
     fn check_capability(&self, capability: ServerCapability) -> Result<()> {
-        anyhow::ensure!(
-            self.capable(capability),
-            "Server does not support {capability:?} capability"
-        );
-        Ok(())
+        if self.capable(capability) {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(
+                "Server does not support {:?} capability",
+                capability
+            ))
+        }
     }
 
     /// List the MCP prompts.

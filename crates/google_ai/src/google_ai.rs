@@ -39,7 +39,8 @@ pub async fn stream_generate_content(
                             match serde_json::from_str(line) {
                                 Ok(response) => Some(Ok(response)),
                                 Err(error) => Some(Err(anyhow!(format!(
-                                    "Error parsing JSON: {error:?}\n{line:?}"
+                                    "Error parsing JSON: {:?}\n{:?}",
+                                    error, line
                                 )))),
                             }
                         } else {
@@ -84,13 +85,15 @@ pub async fn count_tokens(
     let mut response = client.send(http_request).await?;
     let mut text = String::new();
     response.body_mut().read_to_string(&mut text).await?;
-    anyhow::ensure!(
-        response.status().is_success(),
-        "error during countTokens, status code: {:?}, body: {}",
-        response.status(),
-        text
-    );
-    Ok(serde_json::from_str::<CountTokensResponse>(&text)?)
+    if response.status().is_success() {
+        Ok(serde_json::from_str::<CountTokensResponse>(&text)?)
+    } else {
+        Err(anyhow!(
+            "error during countTokens, status code: {:?}, body: {}",
+            response.status(),
+            text
+        ))
+    }
 }
 
 pub fn validate_generate_content_request(request: &GenerateContentRequest) -> Result<()> {

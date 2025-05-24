@@ -788,12 +788,11 @@ and then another
                     .get(MINIMUM_REQUIRED_VERSION_HEADER_NAME)
                     .and_then(|version| SemanticVersion::from_str(version.to_str().ok()?).ok())
                 {
-                    anyhow::ensure!(
-                        app_version >= minimum_required_version,
-                        ZedUpdateRequiredError {
+                    if app_version < minimum_required_version {
+                        return Err(anyhow!(ZedUpdateRequiredError {
                             minimum_version: minimum_required_version
-                        }
-                    );
+                        }));
+                    }
                 }
 
                 if response.status().is_success() {
@@ -813,11 +812,11 @@ and then another
                 } else {
                     let mut body = String::new();
                     response.body_mut().read_to_string(&mut body).await?;
-                    anyhow::bail!(
+                    return Err(anyhow!(
                         "error predicting edits.\nStatus: {:?}\nBody: {}",
                         response.status(),
                         body
-                    );
+                    ));
                 }
             }
         }
@@ -1571,17 +1570,6 @@ impl inline_completion::EditPredictionProvider for ZetaInlineCompletionProvider 
         }
 
         if self.zeta.read(cx).update_required {
-            return;
-        }
-
-        if self
-            .zeta
-            .read(cx)
-            .user_store
-            .read_with(cx, |user_store, _| {
-                user_store.account_too_young() || user_store.has_overdue_invoices()
-            })
-        {
             return;
         }
 

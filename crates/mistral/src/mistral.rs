@@ -26,7 +26,7 @@ impl TryFrom<String> for Role {
             "assistant" => Ok(Self::Assistant),
             "system" => Ok(Self::System),
             "tool" => Ok(Self::Tool),
-            _ => anyhow::bail!("invalid role '{value}'"),
+            _ => Err(anyhow!("invalid role '{value}'")),
         }
     }
 }
@@ -58,8 +58,6 @@ pub enum Model {
     OpenMistralNemo,
     #[serde(rename = "open-codestral-mamba", alias = "open-codestral-mamba")]
     OpenCodestralMamba,
-    #[serde(rename = "devstral-small-latest", alias = "devstral-small-latest")]
-    DevstralSmallLatest,
 
     #[serde(rename = "custom")]
     Custom {
@@ -69,7 +67,6 @@ pub enum Model {
         max_tokens: usize,
         max_output_tokens: Option<u32>,
         max_completion_tokens: Option<u32>,
-        supports_tools: Option<bool>,
     },
 }
 
@@ -86,7 +83,7 @@ impl Model {
             "mistral-small-latest" => Ok(Self::MistralSmallLatest),
             "open-mistral-nemo" => Ok(Self::OpenMistralNemo),
             "open-codestral-mamba" => Ok(Self::OpenCodestralMamba),
-            invalid_id => anyhow::bail!("invalid model id '{invalid_id}'"),
+            _ => Err(anyhow!("invalid model id")),
         }
     }
 
@@ -98,7 +95,6 @@ impl Model {
             Self::MistralSmallLatest => "mistral-small-latest",
             Self::OpenMistralNemo => "open-mistral-nemo",
             Self::OpenCodestralMamba => "open-codestral-mamba",
-            Self::DevstralSmallLatest => "devstral-small-latest",
             Self::Custom { name, .. } => name,
         }
     }
@@ -111,7 +107,6 @@ impl Model {
             Self::MistralSmallLatest => "mistral-small-latest",
             Self::OpenMistralNemo => "open-mistral-nemo",
             Self::OpenCodestralMamba => "open-codestral-mamba",
-            Self::DevstralSmallLatest => "devstral-small-latest",
             Self::Custom {
                 name, display_name, ..
             } => display_name.as_ref().unwrap_or(name),
@@ -126,7 +121,6 @@ impl Model {
             Self::MistralSmallLatest => 32000,
             Self::OpenMistralNemo => 131000,
             Self::OpenCodestralMamba => 256000,
-            Self::DevstralSmallLatest => 262144,
             Self::Custom { max_tokens, .. } => *max_tokens,
         }
     }
@@ -137,19 +131,6 @@ impl Model {
                 max_output_tokens, ..
             } => *max_output_tokens,
             _ => None,
-        }
-    }
-
-    pub fn supports_tools(&self) -> bool {
-        match self {
-            Self::CodestralLatest
-            | Self::MistralLargeLatest
-            | Self::MistralMediumLatest
-            | Self::MistralSmallLatest
-            | Self::OpenMistralNemo
-            | Self::OpenCodestralMamba
-            | Self::DevstralSmallLatest => true,
-            Self::Custom { supports_tools, .. } => supports_tools.unwrap_or(false),
         }
     }
 }
@@ -165,10 +146,6 @@ pub struct Request {
     pub temperature: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response_format: Option<ResponseFormat>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tool_choice: Option<ToolChoice>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub parallel_tool_calls: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<ToolDefinition>,
 }
@@ -213,13 +190,12 @@ pub enum Prediction {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(untagged)]
 pub enum ToolChoice {
     Auto,
     Required,
     None,
-    Any,
-    Function(ToolDefinition),
+    Other(ToolDefinition),
 }
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
@@ -369,10 +345,10 @@ pub async fn stream_completion(
     } else {
         let mut body = String::new();
         response.body_mut().read_to_string(&mut body).await?;
-        anyhow::bail!(
+        Err(anyhow!(
             "Failed to connect to Mistral API: {} {}",
             response.status(),
             body,
-        );
+        ))
     }
 }

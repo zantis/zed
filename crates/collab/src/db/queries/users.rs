@@ -1,4 +1,3 @@
-use anyhow::Context as _;
 use chrono::NaiveDateTime;
 
 use super::*;
@@ -248,7 +247,7 @@ impl Database {
                 .into_values::<_, QueryAs>()
                 .one(&*tx)
                 .await?
-                .context("could not find user")?;
+                .ok_or_else(|| anyhow!("could not find user"))?;
             Ok(metrics_id.to_string())
         })
         .await

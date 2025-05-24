@@ -1,29 +1,31 @@
-use std::sync::Arc;
-
 use gpui::{App, IntoElement, Rems, RenderOnce, Size, Styled, Window, svg};
 use serde::{Deserialize, Serialize};
 use strum::{EnumIter, EnumString, IntoStaticStr};
+use ui_macros::{DerivePathStr, path_str};
 
 use crate::Color;
 use crate::prelude::*;
 
 #[derive(
-    Debug, PartialEq, Eq, Copy, Clone, EnumIter, EnumString, IntoStaticStr, Serialize, Deserialize,
+    Debug,
+    PartialEq,
+    Eq,
+    Copy,
+    Clone,
+    EnumIter,
+    EnumString,
+    IntoStaticStr,
+    Serialize,
+    Deserialize,
+    DerivePathStr,
 )]
 #[strum(serialize_all = "snake_case")]
+#[path_str(prefix = "images", suffix = ".svg")]
 pub enum VectorName {
     ZedLogo,
     ZedXCopilot,
     Grid,
     AiGrid,
-}
-
-impl VectorName {
-    /// Returns the path to this vector image.
-    pub fn path(&self) -> Arc<str> {
-        let file_stem: &'static str = self.into();
-        format!("images/{file_stem}.svg").into()
-    }
 }
 
 /// A vector image, such as an SVG.
@@ -33,7 +35,7 @@ impl VectorName {
 /// than conforming to the standard size of an icon.
 #[derive(IntoElement, RegisterComponent)]
 pub struct Vector {
-    path: Arc<str>,
+    path: &'static str,
     color: Color,
     size: Size<Rems>,
 }
@@ -158,6 +160,6 @@ mod tests {
 
     #[test]
     fn vector_path() {
-        assert_eq!(VectorName::ZedLogo.path().as_ref(), "images/zed_logo.svg");
+        assert_eq!(VectorName::ZedLogo.path(), "images/zed_logo.svg");
     }
 }

@@ -1,4 +1,7 @@
-use anyhow::{Context as _, Result, anyhow, bail};
+mod archive;
+
+use anyhow::{Context, Result, anyhow, bail};
+pub use archive::extract_zip;
 use async_compression::futures::bufread::GzipDecoder;
 use async_tar::Archive;
 use futures::{AsyncReadExt, FutureExt as _, channel::oneshot, future::Shared};
@@ -16,7 +19,6 @@ use std::{
     sync::Arc,
 };
 use util::ResultExt;
-use util::archive::extract_zip;
 
 const NODE_CA_CERTS_ENV_VAR: &str = "NODE_EXTRA_CA_CERTS";
 
@@ -155,7 +157,7 @@ impl NodeRuntime {
         info.dist_tags
             .latest
             .or_else(|| info.versions.pop())
-            .with_context(|| format!("no version found for npm package {name}"))
+            .ok_or_else(|| anyhow!("no version found for npm package {}", name))
     }
 
     pub async fn npm_install_packages(
@@ -351,7 +353,7 @@ impl ManagedNodeRuntime {
                     let archive = Archive::new(decompressed_bytes);
                     archive.unpack(&node_containing_dir).await?;
                 }
-                ArchiveType::Zip => extract_zip(&node_containing_dir, body).await?,
+                ArchiveType::Zip => archive::extract_zip(&node_containing_dir, body).await?,
             }
         }
 
@@ -409,14 +411,13 @@ impl NodeRuntimeTrait for ManagedNodeRuntime {
             let npm_file = self.installation_path.join(Self::NPM_PATH);
             let env_path = path_with_node_binary_prepended(&node_binary).unwrap_or_default();
 
-            anyhow::ensure!(
-                smol::fs::metadata(&node_binary).await.is_ok(),
-                "missing node binary file"
-            );
-            anyhow::ensure!(
-                smol::fs::metadata(&npm_file).await.is_ok(),
-                "missing npm file"
-            );
+            if smol::fs::metadata(&node_binary).await.is_err() {
+                return Err(anyhow!("missing node binary file"));
+            }
+
+            if smol::fs::metadata(&npm_file).await.is_err() {
+                return Err(anyhow!("missing npm file"));
+            }
 
             let node_ca_certs = env::var(NODE_CA_CERTS_ENV_VAR).unwrap_or_else(|_| String::new());
 
@@ -442,20 +443,22 @@ impl NodeRuntimeTrait for ManagedNodeRuntime {
         let mut output = attempt().await;
         if output.is_err() {
             output = attempt().await;
-            anyhow::ensure!(
-                output.is_ok(),
-                "failed to launch npm subcommand {subcommand} subcommand\nerr: {:?}",
-                output.err()
-            );
+            if output.is_err() {
+                return Err(anyhow!(
+                    "failed to launch npm subcommand {subcommand} subcommand\nerr: {:?}",
+                    output.err()
+                ));
+            }
         }
 
         if let Ok(output) = &output {
-            anyhow::ensure!(
-                output.status.success(),
-                "failed to execute npm {subcommand} subcommand:\nstdout: {:?}\nstderr: {:?}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            );
+            if !output.status.success() {
+                return Err(anyhow!(
+                    "failed to execute npm {subcommand} subcommand:\nstdout: {:?}\nstderr: {:?}",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                ));
+            }
         }
 
         output.map_err(|e| anyhow!("{e}"))
@@ -556,12 +559,14 @@ impl NodeRuntimeTrait for SystemNodeRuntime {
             .args(args);
         configure_npm_command(&mut command, directory, proxy);
         let output = command.output().await?;
-        anyhow::ensure!(
-            output.status.success(),
-            "failed to execute npm {subcommand} subcommand:\nstdout: {:?}\nstderr: {:?}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
+        if !output.status.success() {
+            return Err(anyhow!(
+                "failed to execute npm {subcommand} subcommand:\nstdout: {:?}\nstderr: {:?}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+
         Ok(output)
     }
 

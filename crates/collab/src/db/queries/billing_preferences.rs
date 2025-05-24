@@ -1,5 +1,3 @@
-use anyhow::Context as _;
-
 use super::*;
 
 #[derive(Debug)]
@@ -84,7 +82,7 @@ impl Database {
             Ok(preferences
                 .into_iter()
                 .next()
-                .context("billing preferences not found")?)
+                .ok_or_else(|| anyhow!("billing preferences not found"))?)
         })
         .await
     }

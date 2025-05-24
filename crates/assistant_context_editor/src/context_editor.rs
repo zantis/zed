@@ -1,6 +1,3 @@
-use crate::language_model_selector::{
-    LanguageModelSelector, LanguageModelSelectorPopoverMenu, ToggleModelSelector,
-};
 use anyhow::Result;
 use assistant_settings::AssistantSettings;
 use assistant_slash_command::{SlashCommand, SlashCommandOutputSection, SlashCommandWorkingSet};
@@ -38,6 +35,9 @@ use language::{
 use language_model::{
     LanguageModelImage, LanguageModelProvider, LanguageModelProviderTosView, LanguageModelRegistry,
     Role,
+};
+use language_model_selector::{
+    LanguageModelSelector, LanguageModelSelectorPopoverMenu, ToggleModelSelector,
 };
 use multi_buffer::MultiBufferRow;
 use picker::Picker;
@@ -3044,7 +3044,7 @@ fn invoked_slash_command_fold_placeholder(
                 .gap_2()
                 .bg(cx.theme().colors().surface_background)
                 .rounded_sm()
-                .child(Label::new(format!("/{}", command.name)))
+                .child(Label::new(format!("/{}", command.name.clone())))
                 .map(|parent| match &command.status {
                     InvokedSlashCommandStatus::Running(_) => {
                         parent.child(Icon::new(IconName::ArrowCircle).with_animation(

@@ -382,11 +382,13 @@ fn working_dir(
 
         match worktrees.next() {
             Some(worktree) => {
-                anyhow::ensure!(
-                    worktrees.next().is_none(),
-                    "'.' is ambiguous in multi-root workspaces. Please specify a root directory explicitly.",
-                );
-                Ok(Some(worktree.read(cx).abs_path().to_path_buf()))
+                if worktrees.next().is_none() {
+                    Ok(Some(worktree.read(cx).abs_path().to_path_buf()))
+                } else {
+                    Err(anyhow!(
+                        "'.' is ambiguous in multi-root workspaces. Please specify a root directory explicitly.",
+                    ))
+                }
             }
             None => Ok(None),
         }
@@ -407,7 +409,9 @@ fn working_dir(
             }
         }
 
-        anyhow::bail!("`cd` directory {cd:?} was not in any of the project's worktrees.");
+        Err(anyhow!(
+            "`cd` directory {cd:?} was not in any of the project's worktrees."
+        ))
     }
 }
 

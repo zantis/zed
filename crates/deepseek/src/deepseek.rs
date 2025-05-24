@@ -29,7 +29,7 @@ impl TryFrom<String> for Role {
             "assistant" => Ok(Self::Assistant),
             "system" => Ok(Self::System),
             "tool" => Ok(Self::Tool),
-            _ => anyhow::bail!("invalid role '{value}'"),
+            _ => Err(anyhow!("invalid role '{value}'")),
         }
     }
 }
@@ -72,7 +72,7 @@ impl Model {
         match id {
             "deepseek-chat" => Ok(Self::Chat),
             "deepseek-reasoner" => Ok(Self::Reasoner),
-            _ => anyhow::bail!("invalid model id {id}"),
+            _ => Err(anyhow!("invalid model id")),
         }
     }
 
@@ -296,10 +296,10 @@ pub async fn stream_completion(
     } else {
         let mut body = String::new();
         response.body_mut().read_to_string(&mut body).await?;
-        anyhow::bail!(
+        Err(anyhow!(
             "Failed to connect to DeepSeek API: {} {}",
             response.status(),
             body,
-        );
+        ))
     }
 }

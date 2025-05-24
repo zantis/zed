@@ -41,7 +41,6 @@ pub enum IconName {
     Binary,
     Blocks,
     Bolt,
-    BoltFilled,
     Book,
     BookCopy,
     BookPlus,

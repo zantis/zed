@@ -1,8 +1,8 @@
-use std::sync::OnceLock;
-
 use collections::HashMap;
 use component::ComponentId;
 use gpui::{App, Entity, WeakEntity};
+use linkme::distributed_slice;
+use std::sync::OnceLock;
 use ui::{AnyElement, Component, ComponentScope, Window};
 use workspace::Workspace;
 
@@ -12,15 +12,9 @@ use crate::ActiveThread;
 pub type PreviewFn =
     fn(WeakEntity<Workspace>, Entity<ActiveThread>, &mut Window, &mut App) -> Option<AnyElement>;
 
-pub struct AgentPreviewFn(fn() -> (ComponentId, PreviewFn));
-
-impl AgentPreviewFn {
-    pub const fn new(f: fn() -> (ComponentId, PreviewFn)) -> Self {
-        Self(f)
-    }
-}
-
-inventory::collect!(AgentPreviewFn);
+/// Distributed slice for preview registration functions
+#[distributed_slice]
+pub static __ALL_AGENT_PREVIEWS: [fn() -> (ComponentId, PreviewFn)] = [..];
 
 /// Trait that must be implemented by components that provide agent previews.
 pub trait AgentPreview: Component + Sized {
@@ -42,14 +36,16 @@ pub trait AgentPreview: Component + Sized {
 #[macro_export]
 macro_rules! register_agent_preview {
     ($type:ty) => {
-        inventory::submit! {
-            $crate::ui::preview::AgentPreviewFn::new(|| {
-                (
-                    <$type as component::Component>::id(),
-                    <$type as $crate::ui::preview::AgentPreview>::agent_preview,
-                )
-            })
-        }
+        #[linkme::distributed_slice($crate::ui::preview::__ALL_AGENT_PREVIEWS)]
+        static __REGISTER_AGENT_PREVIEW: fn() -> (
+            component::ComponentId,
+            $crate::ui::preview::PreviewFn,
+        ) = || {
+            (
+                <$type as component::Component>::id(),
+                <$type as $crate::ui::preview::AgentPreview>::agent_preview,
+            )
+        };
     };
 }
 
@@ -60,8 +56,8 @@ static AGENT_PREVIEW_REGISTRY: OnceLock<HashMap<ComponentId, PreviewFn>> = OnceL
 fn get_or_init_registry() -> &'static HashMap<ComponentId, PreviewFn> {
     AGENT_PREVIEW_REGISTRY.get_or_init(|| {
         let mut map = HashMap::default();
-        for register_fn in inventory::iter::<AgentPreviewFn>() {
-            let (id, preview_fn) = (register_fn.0)();
+        for register_fn in __ALL_AGENT_PREVIEWS.iter() {
+            let (id, preview_fn) = register_fn();
             map.insert(id, preview_fn);
         }
         map

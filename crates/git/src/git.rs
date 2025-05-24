@@ -7,7 +7,7 @@ pub mod status;
 
 pub use crate::hosting_provider::*;
 pub use crate::remote::*;
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, anyhow};
 pub use git2 as libgit;
 use gpui::action_with_deprecated_aliases;
 use gpui::actions;
@@ -99,7 +99,7 @@ impl FromStr for Oid {
 
     fn from_str(s: &str) -> std::prelude::v1::Result<Self, Self::Err> {
         libgit::Oid::from_str(s)
-            .context("parsing git oid")
+            .map_err(|error| anyhow!("failed to parse git oid: {}", error))
             .map(Self)
     }
 }

@@ -1,11 +1,11 @@
 use crate::{
     AbsoluteLength, AnyElement, AnyImageCache, App, Asset, AssetLogger, Bounds, DefiniteLength,
-    Element, ElementId, Entity, GlobalElementId, Hitbox, Image, ImageCache, InspectorElementId,
-    InteractiveElement, Interactivity, IntoElement, LayoutId, Length, ObjectFit, Pixels,
-    RenderImage, Resource, SMOOTH_SVG_SCALE_FACTOR, SharedString, SharedUri, StyleRefinement,
-    Styled, SvgSize, Task, Window, px, swap_rgba_pa_to_bgra,
+    Element, ElementId, Entity, GlobalElementId, Hitbox, Image, ImageCache, InteractiveElement,
+    Interactivity, IntoElement, LayoutId, Length, ObjectFit, Pixels, RenderImage, Resource,
+    SMOOTH_SVG_SCALE_FACTOR, SharedString, SharedUri, StyleRefinement, Styled, SvgSize, Task,
+    Window, px, swap_rgba_pa_to_bgra,
 };
-use anyhow::{Context as _, Result};
+use anyhow::{Result, anyhow};
 
 use futures::{AsyncReadExt, Future};
 use image::{
@@ -194,10 +194,9 @@ pub struct Img {
 }
 
 /// Create a new image element.
-#[track_caller]
 pub fn img(source: impl Into<ImageSource>) -> Img {
     Img {
-        interactivity: Interactivity::new(),
+        interactivity: Interactivity::default(),
         source: source.into(),
         style: ImageStyle::default(),
         image_cache: None,
@@ -267,14 +266,9 @@ impl Element for Img {
         self.interactivity.element_id.clone()
     }
 
-    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
-        self.interactivity.source_location()
-    }
-
     fn request_layout(
         &mut self,
         global_id: Option<&GlobalElementId>,
-        inspector_id: Option<&InspectorElementId>,
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
@@ -296,7 +290,6 @@ impl Element for Img {
 
             let layout_id = self.interactivity.request_layout(
                 global_id,
-                inspector_id,
                 window,
                 cx,
                 |mut style, window, cx| {
@@ -415,7 +408,6 @@ impl Element for Img {
     fn prepaint(
         &mut self,
         global_id: Option<&GlobalElementId>,
-        inspector_id: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
         request_layout: &mut Self::RequestLayoutState,
         window: &mut Window,
@@ -423,7 +415,6 @@ impl Element for Img {
     ) -> Self::PrepaintState {
         self.interactivity.prepaint(
             global_id,
-            inspector_id,
             bounds,
             bounds.size,
             window,
@@ -441,7 +432,6 @@ impl Element for Img {
     fn paint(
         &mut self,
         global_id: Option<&GlobalElementId>,
-        inspector_id: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
         layout_state: &mut Self::RequestLayoutState,
         hitbox: &mut Self::PrepaintState,
@@ -451,7 +441,6 @@ impl Element for Img {
         let source = self.source.clone();
         self.interactivity.paint(
             global_id,
-            inspector_id,
             bounds,
             hitbox.as_ref(),
             window,
@@ -606,7 +595,7 @@ impl Asset for ImageAssetLoader {
                     let mut response = client
                         .get(uri.as_ref(), ().into(), true)
                         .await
-                        .with_context(|| format!("loading image asset from {uri:?}"))?;
+                        .map_err(|e| anyhow!(e))?;
                     let mut body = Vec::new();
                     response.body_mut().read_to_end(&mut body).await?;
                     if !response.status().is_success() {

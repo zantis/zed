@@ -3,7 +3,6 @@ mod contact_finder;
 
 use self::channel_modal::ChannelModal;
 use crate::{CollaborationPanelSettings, channel_view::ChannelView, chat_panel::ChatPanel};
-use anyhow::Context as _;
 use call::ActiveCall;
 use channel::{Channel, ChannelEvent, ChannelStore};
 use client::{ChannelId, Client, Contact, User, UserStore};
@@ -389,7 +388,9 @@ impl CollabPanel {
             Some(serialization_key) => cx
                 .background_spawn(async move { KEY_VALUE_STORE.read_kvp(&serialization_key) })
                 .await
-                .context("reading collaboration panel from key value store")
+                .map_err(|_| {
+                    anyhow::anyhow!("Failed to read collaboration panel from key value store")
+                })
                 .log_err()
                 .flatten()
                 .map(|panel| serde_json::from_str::<SerializedCollabPanel>(&panel))

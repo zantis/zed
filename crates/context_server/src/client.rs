@@ -1,4 +1,4 @@
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use collections::HashMap;
 use futures::{FutureExt, StreamExt, channel::oneshot, select};
 use gpui::{AppContext as _, AsyncApp, BackgroundExecutor, Task};
@@ -308,7 +308,7 @@ impl Client {
             .response_handlers
             .lock()
             .as_mut()
-            .context("server shut down")
+            .ok_or_else(|| anyhow!("server shut down"))
             .map(|handlers| {
                 handlers.insert(
                     RequestId::Int(id),
@@ -341,7 +341,7 @@ impl Client {
                         } else if let Some(result) = parsed.result {
                             Ok(serde_json::from_str(result.get())?)
                         } else {
-                            anyhow::bail!("Invalid response: no result or error");
+                            Err(anyhow!("Invalid response: no result or error"))
                         }
                     }
                     Err(_) => anyhow::bail!("cancelled")

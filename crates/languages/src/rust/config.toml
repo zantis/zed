@@ -16,4 +16,3 @@ brackets = [
 ]
 collapsed_placeholder = " /* ... */ "
 debuggers = ["CodeLLDB", "GDB"]
-documentation = { start = "/*", end = "*/", prefix = "* ", tab_size = 1 }

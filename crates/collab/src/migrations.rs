@@ -30,11 +30,12 @@ pub async fn run_database_migrations(
     for migration in migrations {
         match applied_migrations.get(&migration.version) {
             Some(applied_migration) => {
-                anyhow::ensure!(
-                    migration.checksum == applied_migration.checksum,
-                    "checksum mismatch for applied migration {}",
-                    migration.description
-                );
+                if migration.checksum != applied_migration.checksum {
+                    Err(anyhow!(
+                        "checksum mismatch for applied migration {}",
+                        migration.description
+                    ))?;
+                }
             }
             None => {
                 let elapsed = connection.apply(&migration).await?;

@@ -1,4 +1,4 @@
-use anyhow::{Context as _, anyhow};
+use anyhow::anyhow;
 use axum::headers::HeaderMapExt;
 use axum::{
     Extension, Router,
@@ -36,7 +36,6 @@ use util::{ResultExt as _, maybe};
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const REVISION: Option<&'static str> = option_env!("GITHUB_SHA");
 
-#[expect(clippy::result_large_err)]
 #[tokio::main]
 async fn main() -> Result<()> {
     if let Err(error) = env::load_dotenv() {
@@ -138,11 +137,11 @@ async fn main() -> Result<()> {
                             .config
                             .llm_database_url
                             .as_ref()
-                            .context("missing LLM_DATABASE_URL")?;
+                            .ok_or_else(|| anyhow!("missing LLM_DATABASE_URL"))?;
                         let max_connections = state
                             .config
                             .llm_database_max_connections
-                            .context("missing LLM_DATABASE_MAX_CONNECTIONS")?;
+                            .ok_or_else(|| anyhow!("missing LLM_DATABASE_MAX_CONNECTIONS"))?;
 
                         let mut db_options = db::ConnectOptions::new(database_url);
                         db_options.max_connections(max_connections);
@@ -287,7 +286,7 @@ async fn setup_llm_database(config: &Config) -> Result<()> {
     let database_url = config
         .llm_database_url
         .as_ref()
-        .context("missing LLM_DATABASE_URL")?;
+        .ok_or_else(|| anyhow!("missing LLM_DATABASE_URL"))?;
 
     let db_options = db::ConnectOptions::new(database_url.clone());
     let db = LlmDatabase::new(db_options, Executor::Production).await?;

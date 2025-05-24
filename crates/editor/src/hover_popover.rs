@@ -5,7 +5,6 @@ use crate::{
     hover_links::{InlayHighlight, RangeInEditor},
     scroll::{Autoscroll, ScrollAmount},
 };
-use anyhow::Context as _;
 use gpui::{
     AnyElement, AsyncWindowContext, Context, Entity, Focusable as _, FontWeight, Hsla,
     InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, ScrollHandle, Size,
@@ -342,7 +341,7 @@ fn show_hover(
                         .and_then(|renderer| {
                             renderer.render_hover(group, point_range, buffer_id, cx)
                         })
-                        .context("no rendered diagnostic")
+                        .ok_or_else(|| anyhow::anyhow!("no rendered diagnostic"))
                 })??;
 
                 let (background_color, border_color) = cx.update(|_, cx| {
@@ -885,7 +884,6 @@ impl InfoPopover {
                 *keyboard_grace = false;
                 cx.stop_propagation();
             })
-            .p_2()
             .when_some(self.parsed_content.clone(), |this, markdown| {
                 this.child(
                     div()
@@ -893,6 +891,7 @@ impl InfoPopover {
                         .overflow_y_scroll()
                         .max_w(max_size.width)
                         .max_h(max_size.height)
+                        .p_2()
                         .track_scroll(&self.scroll_handle)
                         .child(
                             MarkdownElement::new(markdown, hover_markdown_style(window, cx))

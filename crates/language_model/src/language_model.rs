@@ -8,7 +8,7 @@ mod telemetry;
 #[cfg(any(test, feature = "test-support"))]
 pub mod fake_provider;
 
-use anyhow::{Context as _, Result};
+use anyhow::{Result, anyhow};
 use client::Client;
 use futures::FutureExt;
 use futures::{StreamExt, future::BoxFuture, stream::BoxStream};
@@ -113,16 +113,12 @@ impl RequestUsage {
     pub fn from_headers(headers: &HeaderMap<HeaderValue>) -> Result<Self> {
         let limit = headers
             .get(MODEL_REQUESTS_USAGE_LIMIT_HEADER_NAME)
-            .with_context(|| {
-                format!("missing {MODEL_REQUESTS_USAGE_LIMIT_HEADER_NAME:?} header")
-            })?;
+            .ok_or_else(|| anyhow!("missing {MODEL_REQUESTS_USAGE_LIMIT_HEADER_NAME:?} header"))?;
         let limit = UsageLimit::from_str(limit.to_str()?)?;
 
         let amount = headers
             .get(MODEL_REQUESTS_USAGE_AMOUNT_HEADER_NAME)
-            .with_context(|| {
-                format!("missing {MODEL_REQUESTS_USAGE_AMOUNT_HEADER_NAME:?} header")
-            })?;
+            .ok_or_else(|| anyhow!("missing {MODEL_REQUESTS_USAGE_AMOUNT_HEADER_NAME:?} header"))?;
         let amount = amount.to_str()?.parse::<i32>()?;
 
         Ok(Self { limit, amount })
@@ -244,6 +240,25 @@ pub trait LanguageModel: Send + Sync {
 
     /// Returns whether this model supports "max mode";
     fn supports_max_mode(&self) -> bool {
+        if self.provider_id().0 != ZED_CLOUD_PROVIDER_ID {
+            return false;
+        }
+
+        const MAX_MODE_CAPABLE_MODELS: &[CloudModel] = &[
+            CloudModel::Anthropic(anthropic::Model::ClaudeOpus4),
+            CloudModel::Anthropic(anthropic::Model::ClaudeOpus4Thinking),
+            CloudModel::Anthropic(anthropic::Model::ClaudeSonnet4),
+            CloudModel::Anthropic(anthropic::Model::ClaudeSonnet4Thinking),
+            CloudModel::Anthropic(anthropic::Model::Claude3_7Sonnet),
+            CloudModel::Anthropic(anthropic::Model::Claude3_7SonnetThinking),
+        ];
+
+        for model in MAX_MODE_CAPABLE_MODELS {
+            if self.id().0 == model.id() {
+                return true;
+            }
+        }
+
         false
     }
 

@@ -1,5 +1,5 @@
 use ::proto::{FromProto, ToProto};
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{Result, anyhow};
 
 use extension::ExtensionHostProxy;
 use extension_host::headless_host::HeadlessExtensionStore;
@@ -368,7 +368,7 @@ impl HeadlessProject {
                 let mut parent = path
                     .parent()
                     .ok_or(e)
-                    .with_context(|| format!("{path:?} does not exist"))?;
+                    .map_err(|_| anyhow!("{:?} does not exist", path))?;
                 if parent == Path::new("") {
                     parent = util::paths::home_dir();
                 }
@@ -536,7 +536,7 @@ impl HeadlessProject {
                 });
             }
 
-            let buffer_id = buffer.read(cx).remote_id();
+            let buffer_id = buffer.read_with(cx, |b, _| b.remote_id());
 
             buffer_store.update(cx, |buffer_store, cx| {
                 buffer_store
@@ -558,7 +558,11 @@ impl HeadlessProject {
         mut cx: AsyncApp,
     ) -> Result<proto::FindSearchCandidatesResponse> {
         let message = envelope.payload;
-        let query = SearchQuery::from_proto(message.query.context("missing query field")?)?;
+        let query = SearchQuery::from_proto(
+            message
+                .query
+                .ok_or_else(|| anyhow!("missing query field"))?,
+        )?;
         let results = this.update(&mut cx, |this, cx| {
             this.buffer_store.update(cx, |buffer_store, cx| {
                 buffer_store.find_search_candidates(&query, message.limit as _, this.fs.clone(), cx)

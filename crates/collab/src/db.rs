@@ -5,7 +5,7 @@ mod tables;
 pub mod tests;
 
 use crate::{Error, Result, executor::Executor};
-use anyhow::{Context as _, anyhow};
+use anyhow::anyhow;
 use collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use dashmap::DashMap;
 use futures::StreamExt;
@@ -326,9 +326,11 @@ impl Database {
 
         let mut tx = Arc::new(Some(tx));
         let result = f(TransactionHandle(tx.clone())).await;
-        let tx = Arc::get_mut(&mut tx)
-            .and_then(|tx| tx.take())
-            .context("couldn't complete transaction because it's still in use")?;
+        let Some(tx) = Arc::get_mut(&mut tx).and_then(|tx| tx.take()) else {
+            return Err(anyhow!(
+                "couldn't complete transaction because it's still in use"
+            ))?;
+        };
 
         Ok((tx, result))
     }
@@ -348,9 +350,11 @@ impl Database {
 
         let mut tx = Arc::new(Some(tx));
         let result = f(TransactionHandle(tx.clone())).await;
-        let tx = Arc::get_mut(&mut tx)
-            .and_then(|tx| tx.take())
-            .context("couldn't complete transaction because it's still in use")?;
+        let Some(tx) = Arc::get_mut(&mut tx).and_then(|tx| tx.take()) else {
+            return Err(anyhow!(
+                "couldn't complete transaction because it's still in use"
+            ))?;
+        };
 
         Ok((tx, result))
     }
@@ -550,7 +554,7 @@ pub struct MembershipUpdated {
 
 /// The result of setting a member's role.
 #[derive(Debug)]
-
+#[allow(clippy::large_enum_variant)]
 pub enum SetMemberRoleResult {
     InviteUpdated(Channel),
     MembershipUpdated(MembershipUpdated),
@@ -860,7 +864,9 @@ fn db_status_to_proto(
                 )
             }
             _ => {
-                anyhow::bail!("Unexpected combination of status fields: {entry:?}");
+                return Err(anyhow!(
+                    "Unexpected combination of status fields: {entry:?}"
+                ));
             }
         };
     Ok(proto::StatusEntry {

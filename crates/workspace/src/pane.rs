@@ -156,8 +156,6 @@ pub struct DeploySearch {
     pub replace_enabled: bool,
     #[serde(default)]
     pub included_files: Option<String>,
-    #[serde(default)]
-    pub excluded_files: Option<String>,
 }
 
 impl_actions!(
@@ -205,7 +203,6 @@ impl DeploySearch {
         Self {
             replace_enabled: false,
             included_files: None,
-            excluded_files: None,
         }
     }
 }
@@ -715,7 +712,7 @@ impl Pane {
         !self.nav_history.0.lock().forward_stack.is_empty()
     }
 
-    pub fn navigate_backward(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn navigate_backward(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(workspace) = self.workspace.upgrade() {
             let pane = cx.entity().downgrade();
             window.defer(cx, move |window, cx| {
@@ -794,7 +791,6 @@ impl Pane {
     pub(crate) fn open_item(
         &mut self,
         project_entry_id: Option<ProjectEntryId>,
-        project_path: ProjectPath,
         focus_item: bool,
         allow_preview: bool,
         activate: bool,
@@ -809,14 +805,6 @@ impl Pane {
                 if item.is_singleton(cx)
                     && item.project_entry_ids(cx).as_slice() == [project_entry_id]
                 {
-                    let item = item.boxed_clone();
-                    existing_item = Some((index, item));
-                    break;
-                }
-            }
-        } else {
-            for (index, item) in self.items.iter().enumerate() {
-                if item.is_singleton(cx) && item.project_path(cx).as_ref() == Some(&project_path) {
                     let item = item.boxed_clone();
                     existing_item = Some((index, item));
                     break;
@@ -2671,7 +2659,11 @@ impl Pane {
                 }
             })
             .children(pinned_tabs.len().ne(&0).then(|| {
-                let content_width = self.tab_bar_scroll_handle.content_size().width;
+                let content_width = self
+                    .tab_bar_scroll_handle
+                    .content_size()
+                    .map(|content_size| content_size.size.width)
+                    .unwrap_or(px(0.));
                 let viewport_width = self.tab_bar_scroll_handle.viewport().size.width;
                 // We need to check both because offset returns delta values even when the scroll handle is not scrollable
                 let is_scrollable = content_width > viewport_width;
@@ -2919,12 +2911,12 @@ impl Pane {
         self.workspace
             .update(cx, |_, cx| {
                 cx.defer_in(window, move |workspace, window, cx| {
-                    if let Some(project_path) = workspace
+                    if let Some(path) = workspace
                         .project()
                         .read(cx)
                         .path_for_entry(project_entry_id, cx)
                     {
-                        let load_path_task = workspace.load_path(project_path.clone(), window, cx);
+                        let load_path_task = workspace.load_path(path, window, cx);
                         cx.spawn_in(window, async move |workspace, cx| {
                             if let Some((project_entry_id, build_item)) =
                                 load_path_task.await.notify_async_err(cx)
@@ -2942,7 +2934,6 @@ impl Pane {
                                         let new_item_handle = to_pane.update(cx, |pane, cx| {
                                             pane.open_item(
                                                 project_entry_id,
-                                                project_path,
                                                 true,
                                                 false,
                                                 true,
@@ -3117,7 +3108,6 @@ fn default_render_tab_bar_buttons(
                                 DeploySearch {
                                     replace_enabled: false,
                                     included_files: None,
-                                    excluded_files: None,
                                 }
                                 .boxed_clone(),
                             )

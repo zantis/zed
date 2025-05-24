@@ -14,7 +14,7 @@ use language::{Buffer, CodeLabel, ToOffset};
 use menu::Confirm;
 use project::{
     Completion,
-    debugger::session::{CompletionsQuery, OutputToken, Session, SessionEvent},
+    debugger::session::{CompletionsQuery, OutputToken, Session},
 };
 use settings::Settings;
 use std::{cell::RefCell, rc::Rc, usize};
@@ -79,12 +79,7 @@ impl Console {
 
         let _subscriptions = vec![
             cx.subscribe(&stack_frame_list, Self::handle_stack_frame_list_events),
-            cx.subscribe_in(&session, window, |this, _, event, window, cx| {
-                if let SessionEvent::ConsoleOutput = event {
-                    this.update_output(window, cx)
-                }
-            }),
-            cx.on_focus(&focus_handle, window, |console, window, cx| {
+            cx.on_focus_in(&focus_handle, window, |console, window, cx| {
                 if console.is_running(cx) {
                     console.query_bar.focus_handle(cx).focus(window);
                 }
@@ -205,11 +200,12 @@ impl Console {
     fn render_query_bar(&self, cx: &Context<Self>) -> impl IntoElement {
         EditorElement::new(&self.query_bar, self.editor_style(cx))
     }
+}
 
-    fn update_output(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+impl Render for Console {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let session = self.session.clone();
         let token = self.last_token;
-
         self.update_output_task = cx.spawn_in(window, async move |this, cx| {
             _ = session.update_in(cx, move |session, window, cx| {
                 let (output, last_processed_token) = session.output(token);
@@ -224,11 +220,7 @@ impl Console {
                 });
             });
         });
-    }
-}
 
-impl Render for Console {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .track_focus(&self.focus_handle)
             .key_context("DebugConsole")
@@ -286,7 +278,7 @@ impl CompletionProvider for ConsoleQueryBarCompletionProvider {
         _completion_indices: Vec<usize>,
         _completions: Rc<RefCell<Box<[Completion]>>>,
         _cx: &mut Context<Editor>,
-    ) -> gpui::Task<anyhow::Result<bool>> {
+    ) -> gpui::Task<gpui::Result<bool>> {
         Task::ready(Ok(false))
     }
 
@@ -297,7 +289,7 @@ impl CompletionProvider for ConsoleQueryBarCompletionProvider {
         _completion_index: usize,
         _push_to_history: bool,
         _cx: &mut Context<Editor>,
-    ) -> gpui::Task<anyhow::Result<Option<language::Transaction>>> {
+    ) -> gpui::Task<gpui::Result<Option<language::Transaction>>> {
         Task::ready(Ok(None))
     }
 
@@ -373,7 +365,7 @@ impl ConsoleQueryBarCompletionProvider {
                             new_text: string_match.string.clone(),
                             label: CodeLabel {
                                 filter_range: 0..string_match.string.len(),
-                                text: format!("{} {}", string_match.string, variable_value),
+                                text: format!("{} {}", string_match.string.clone(), variable_value),
                                 runs: Vec::new(),
                             },
                             icon_path: None,

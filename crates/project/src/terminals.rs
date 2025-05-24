@@ -24,7 +24,7 @@ pub struct Terminals {
 }
 
 /// Terminals are opened either for the users shell, or to run a task.
-
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum TerminalKind {
     /// Run a shell at the given path (or $HOME if None)
@@ -108,14 +108,14 @@ impl Project {
                 });
             }
         }
-        let venv = TerminalSettings::get(settings_location, cx)
-            .detect_venv
-            .clone();
+        let settings = TerminalSettings::get(settings_location, cx).clone();
 
         cx.spawn(async move |project, cx| {
-            let python_venv_directory = if let Some(path) = path {
+            let python_venv_directory = if let Some(path) = path.clone() {
                 project
-                    .update(cx, |this, cx| this.python_venv_directory(path, venv, cx))?
+                    .update(cx, |this, cx| {
+                        this.python_venv_directory(path, settings.detect_venv.clone(), cx)
+                    })?
                     .await
             } else {
                 None
@@ -264,7 +264,7 @@ impl Project {
                             },
                         )
                     }
-                    None => (None, settings.shell),
+                    None => (None, settings.shell.clone()),
                 }
             }
             TerminalKind::Task(spawn_task) => {

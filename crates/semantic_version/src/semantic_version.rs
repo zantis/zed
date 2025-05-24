@@ -7,7 +7,7 @@ use std::{
     str::FromStr,
 };
 
-use anyhow::{Context as _, Result};
+use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize, de::Error};
 
 /// A [semantic version](https://semver.org/) number.
@@ -54,15 +54,15 @@ impl FromStr for SemanticVersion {
         let mut components = s.trim().split('.');
         let major = components
             .next()
-            .context("missing major version number")?
+            .ok_or_else(|| anyhow!("missing major version number"))?
             .parse()?;
         let minor = components
             .next()
-            .context("missing minor version number")?
+            .ok_or_else(|| anyhow!("missing minor version number"))?
             .parse()?;
         let patch = components
             .next()
-            .context("missing patch version number")?
+            .ok_or_else(|| anyhow!("missing patch version number"))?
             .parse()?;
         Ok(Self {
             major,

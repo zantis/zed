@@ -77,7 +77,7 @@ impl QuickActionBar {
 
         let menu_state = session_state(session.clone(), cx);
 
-        let id = "repl-menu";
+        let id = "repl-menu".to_string();
 
         let element_id = |suffix| ElementId::Name(format!("{}-{}", id, suffix).into());
 
@@ -99,7 +99,8 @@ impl QuickActionBar {
                                     .child(
                                         Label::new(format!(
                                             "kernel: {} ({})",
-                                            menu_state.kernel_name, menu_state.kernel_language
+                                            menu_state.kernel_name.clone(),
+                                            menu_state.kernel_language.clone()
                                         ))
                                         .size(LabelSize::Small)
                                         .color(Color::Muted),
@@ -120,7 +121,7 @@ impl QuickActionBar {
                             menu.custom_row(move |_window, _cx| {
                                 h_flex()
                                     .child(
-                                        Label::new(format!("{}...", status.to_string()))
+                                        Label::new(format!("{}...", status.clone().to_string()))
                                             .size(LabelSize::Small)
                                             .color(Color::Muted),
                                     )

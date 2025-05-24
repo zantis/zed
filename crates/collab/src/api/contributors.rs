@@ -1,5 +1,6 @@
 use std::sync::{Arc, OnceLock};
 
+use anyhow::anyhow;
 use axum::{
     Extension, Json, Router,
     extract::{self, Query},
@@ -38,7 +39,7 @@ impl CheckIsContributorParams {
             return Ok(ContributorSelector::GitHubLogin { github_login });
         }
 
-        Err(anyhow::anyhow!(
+        Err(anyhow!(
             "must be one of `github_user_id` or `github_login`."
         ))?
     }

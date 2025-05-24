@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use collections::HashMap;
 use futures::{SinkExt, channel::mpsc};
 use gpui::{App, AsyncApp, ScreenCaptureSource, ScreenCaptureStream, Task};
@@ -160,7 +160,7 @@ impl LocalParticipant {
         })?
         .await?
         .map(LocalTrackPublication)
-        .context("publishing a track")
+        .map_err(|error| anyhow::anyhow!("failed to publish track: {error}"))
     }
 
     pub async fn unpublish_track(
@@ -172,7 +172,7 @@ impl LocalParticipant {
         Tokio::spawn(cx, async move { participant.unpublish_track(&sid).await })?
             .await?
             .map(LocalTrackPublication)
-            .context("unpublishing a track")
+            .map_err(|error| anyhow::anyhow!("failed to unpublish track: {error}"))
     }
 }
 

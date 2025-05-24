@@ -1,4 +1,4 @@
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, anyhow};
 use async_trait::async_trait;
 use collections::HashMap;
 use futures::StreamExt;
@@ -107,7 +107,7 @@ impl super::LspAdapter for GoLspAdapter {
                         delegate.show_notification(NOTIFICATION_MESSAGE, cx);
                     })?
                 }
-                anyhow::bail!("cannot install gopls");
+                return Err(anyhow!("cannot install gopls"));
             }
             Ok(())
         }))
@@ -167,9 +167,10 @@ impl super::LspAdapter for GoLspAdapter {
                 String::from_utf8_lossy(&install_output.stdout),
                 String::from_utf8_lossy(&install_output.stderr)
             );
-            anyhow::bail!(
+
+            return Err(anyhow!(
                 "failed to install gopls with `go install`. Is `go` installed and in the PATH? Check logs for more information."
-            );
+            ));
         }
 
         let installed_binary_path = gobin_dir.join(BINARY);
@@ -404,12 +405,15 @@ async fn get_cached_server_binary(container_dir: PathBuf) -> Option<LanguageServ
             }
         }
 
-        let path = last_binary_path.context("no cached binary")?;
-        anyhow::Ok(LanguageServerBinary {
-            path,
-            arguments: server_binary_arguments(),
-            env: None,
-        })
+        if let Some(path) = last_binary_path {
+            Ok(LanguageServerBinary {
+                path,
+                arguments: server_binary_arguments(),
+                env: None,
+            })
+        } else {
+            Err(anyhow!("no cached binary"))
+        }
     })
     .await
     .log_err()

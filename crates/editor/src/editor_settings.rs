@@ -109,7 +109,6 @@ pub struct Toolbar {
     pub quick_actions: bool,
     pub selections_menu: bool,
     pub agent_review: bool,
-    pub code_actions: bool,
 }
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -504,10 +503,6 @@ pub struct ToolbarContent {
     ///
     /// Default: true
     pub agent_review: Option<bool>,
-    /// Whether to display code action buttons in the editor toolbar.
-    ///
-    /// Default: true
-    pub code_actions: Option<bool>,
 }
 
 /// Scrollbar related settings

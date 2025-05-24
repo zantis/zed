@@ -4,9 +4,7 @@ use collections::FxHashMap;
 use gpui::{App, Global, SharedString};
 use language::LanguageName;
 use parking_lot::RwLock;
-use task::{
-    AdapterSchema, AdapterSchemas, DebugRequest, DebugScenario, SpawnInTerminal, TaskTemplate,
-};
+use task::{DebugRequest, DebugScenario, SpawnInTerminal, TaskTemplate};
 
 use crate::{
     adapters::{DebugAdapter, DebugAdapterName},
@@ -43,7 +41,14 @@ impl Global for DapRegistry {}
 
 impl DapRegistry {
     pub fn global(cx: &mut App) -> &mut Self {
-        cx.default_global::<Self>()
+        let ret = cx.default_global::<Self>();
+
+        #[cfg(any(test, feature = "test-support"))]
+        if ret.adapter(crate::FakeAdapter::ADAPTER_NAME).is_none() {
+            ret.add_adapter(Arc::new(crate::FakeAdapter::new()));
+        }
+
+        ret
     }
 
     pub fn add_adapter(&self, adapter: Arc<dyn DebugAdapter>) {
@@ -62,22 +67,6 @@ impl DapRegistry {
             _previous_value.is_none(),
             "Attempted to insert a new debug locator when one is already registered"
         );
-    }
-
-    pub async fn adapters_schema(&self) -> task::AdapterSchemas {
-        let mut schemas = AdapterSchemas(vec![]);
-
-        // Clone to avoid holding lock over await points
-        let adapters = self.0.read().adapters.clone();
-
-        for (name, adapter) in adapters.into_iter() {
-            schemas.0.push(AdapterSchema {
-                adapter: name.into(),
-                schema: adapter.dap_schema().await,
-            });
-        }
-
-        schemas
     }
 
     pub fn add_inline_value_provider(

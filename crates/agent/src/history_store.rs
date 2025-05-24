@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, path::Path, sync::Arc};
 
-use anyhow::Context as _;
+use anyhow::{Context as _, anyhow};
 use assistant_context_editor::{AssistantContext, SavedContextMetadata};
 use chrono::{DateTime, Utc};
 use futures::future::{TryFutureExt as _, join_all};
@@ -130,10 +130,7 @@ impl HistoryStore {
                                         .boxed()
                                 })
                                 .unwrap_or_else(|_| {
-                                    async {
-                                        anyhow::bail!("no thread store");
-                                    }
-                                    .boxed()
+                                    async { Err(anyhow!("no thread store")) }.boxed()
                                 }),
                             SerializedRecentEntry::Context(id) => context_store
                                 .update(cx, |context_store, cx| {
@@ -143,10 +140,7 @@ impl HistoryStore {
                                         .boxed()
                                 })
                                 .unwrap_or_else(|_| {
-                                    async {
-                                        anyhow::bail!("no context store");
-                                    }
-                                    .boxed()
+                                    async { Err(anyhow!("no context store")) }.boxed()
                                 }),
                         });
                     let entries = join_all(entries)

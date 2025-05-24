@@ -445,7 +445,7 @@ async fn update_editor_from_message(
             }
 
             multibuffer.remove_excerpts(removed_excerpt_ids, cx);
-            anyhow::Ok(())
+            Result::<(), anyhow::Error>::Ok(())
         })
     })??;
 
@@ -1135,7 +1135,7 @@ impl SerializableItem for Editor {
                 mtime,
                 ..
             } => {
-                let opened_buffer = project.update(cx, |project, cx| {
+                let project_item = project.update(cx, |project, cx| {
                     let (worktree, path) = project.find_worktree(&abs_path, cx)?;
                     let project_path = ProjectPath {
                         worktree_id: worktree.read(cx).id(),
@@ -1144,10 +1144,13 @@ impl SerializableItem for Editor {
                     Some(project.open_path(project_path, cx))
                 });
 
-                match opened_buffer {
-                    Some(opened_buffer) => {
+                match project_item {
+                    Some(project_item) => {
                         window.spawn(cx, async move |cx| {
-                            let (_, buffer) = opened_buffer.await?;
+                            let (_, project_item) = project_item.await?;
+                            let buffer = project_item.downcast::<Buffer>().map_err(|_| {
+                                anyhow!("Project item at stored path was not a buffer")
+                            })?;
 
                             // This is a bit wasteful: we're loading the whole buffer from
                             // disk and then overwrite the content.

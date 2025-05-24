@@ -8,9 +8,8 @@ use anyhow::{Result, bail};
 use collections::IndexMap;
 use deepseek::Model as DeepseekModel;
 use gpui::{App, Pixels, SharedString};
-use language_model::LanguageModel;
+use language_model::{CloudModel, LanguageModel};
 use lmstudio::Model as LmStudioModel;
-use mistral::Model as MistralModel;
 use ollama::Model as OllamaModel;
 use schemars::{JsonSchema, schema::Schema};
 use serde::{Deserialize, Serialize};
@@ -45,7 +44,7 @@ pub enum NotifyWhenAgentWaiting {
 #[schemars(deny_unknown_fields)]
 pub enum AssistantProviderContentV1 {
     #[serde(rename = "zed.dev")]
-    ZedDotDev { default_model: Option<String> },
+    ZedDotDev { default_model: Option<CloudModel> },
     #[serde(rename = "openai")]
     OpenAi {
         default_model: Option<OpenAiModel>,
@@ -72,11 +71,6 @@ pub enum AssistantProviderContentV1 {
         default_model: Option<DeepseekModel>,
         api_url: Option<String>,
     },
-    #[serde(rename = "mistral")]
-    Mistral {
-        default_model: Option<MistralModel>,
-        api_url: Option<String>,
-    },
 }
 
 #[derive(Default, Clone, Debug)]
@@ -100,7 +94,6 @@ pub struct AssistantSettings {
     pub single_file_review: bool,
     pub model_parameters: Vec<LanguageModelParameters>,
     pub preferred_completion_mode: CompletionMode,
-    pub enable_feedback: bool,
 }
 
 impl AssistantSettings {
@@ -222,7 +215,7 @@ impl AssistantSettingsContent {
                             AssistantProviderContentV1::ZedDotDev { default_model } => {
                                 default_model.map(|model| LanguageModelSelection {
                                     provider: "zed.dev".into(),
-                                    model,
+                                    model: model.id().to_string(),
                                 })
                             }
                             AssistantProviderContentV1::OpenAi { default_model, .. } => {
@@ -255,12 +248,6 @@ impl AssistantSettingsContent {
                                     model: model.id().to_string(),
                                 })
                             }
-                            AssistantProviderContentV1::Mistral { default_model, .. } => {
-                                default_model.map(|model| LanguageModelSelection {
-                                    provider: "mistral".into(),
-                                    model: model.id().to_string(),
-                                })
-                            }
                         }),
                     inline_assistant_model: None,
                     commit_message_model: None,
@@ -274,7 +261,6 @@ impl AssistantSettingsContent {
                     single_file_review: None,
                     model_parameters: Vec::new(),
                     preferred_completion_mode: None,
-                    enable_feedback: None,
                 },
                 VersionedAssistantSettingsContent::V2(ref settings) => settings.clone(),
             },
@@ -305,7 +291,6 @@ impl AssistantSettingsContent {
                 single_file_review: None,
                 model_parameters: Vec::new(),
                 preferred_completion_mode: None,
-                enable_feedback: None,
             },
             None => AssistantSettingsContentV2::default(),
         }
@@ -588,7 +573,6 @@ impl Default for VersionedAssistantSettingsContent {
             single_file_review: None,
             model_parameters: Vec::new(),
             preferred_completion_mode: None,
-            enable_feedback: None,
         })
     }
 }
@@ -663,10 +647,6 @@ pub struct AssistantSettingsContentV2 {
     ///
     /// Default: normal
     preferred_completion_mode: Option<CompletionMode>,
-    /// Whether to show thumb buttons for feedback in the agent panel.
-    ///
-    /// Default: true
-    enable_feedback: Option<bool>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
@@ -704,7 +684,7 @@ impl JsonSchema for LanguageModelProviderSetting {
         schemars::schema::SchemaObject {
             enum_values: Some(vec![
                 "anthropic".into(),
-                "amazon-bedrock".into(),
+                "bedrock".into(),
                 "google".into(),
                 "lmstudio".into(),
                 "ollama".into(),
@@ -712,7 +692,6 @@ impl JsonSchema for LanguageModelProviderSetting {
                 "zed.dev".into(),
                 "copilot_chat".into(),
                 "deepseek".into(),
-                "mistral".into(),
             ]),
             ..Default::default()
         }
@@ -874,7 +853,6 @@ impl Settings for AssistantSettings {
                 &mut settings.preferred_completion_mode,
                 value.preferred_completion_mode,
             );
-            merge(&mut settings.enable_feedback, value.enable_feedback);
 
             settings
                 .model_parameters
@@ -1011,7 +989,6 @@ mod tests {
                                 notify_when_agent_waiting: None,
                                 stream_edits: None,
                                 single_file_review: None,
-                                enable_feedback: None,
                                 model_parameters: Vec::new(),
                                 preferred_completion_mode: None,
                             },

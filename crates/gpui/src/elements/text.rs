@@ -1,11 +1,10 @@
 use crate::{
     ActiveTooltip, AnyView, App, Bounds, DispatchPhase, Element, ElementId, GlobalElementId,
-    HighlightStyle, Hitbox, InspectorElementId, IntoElement, LayoutId, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, Pixels, Point, SharedString, Size, TextOverflow, TextRun,
-    TextStyle, TooltipId, WhiteSpace, Window, WrappedLine, WrappedLineLayout,
-    register_tooltip_mouse_handlers, set_tooltip_on_window,
+    HighlightStyle, Hitbox, IntoElement, LayoutId, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
+    Pixels, Point, SharedString, Size, TextOverflow, TextRun, TextStyle, TooltipId, WhiteSpace,
+    Window, WrappedLine, WrappedLineLayout, register_tooltip_mouse_handlers, set_tooltip_on_window,
 };
-use anyhow::Context as _;
+use anyhow::anyhow;
 use smallvec::SmallVec;
 use std::{
     cell::{Cell, RefCell},
@@ -24,14 +23,9 @@ impl Element for &'static str {
         None
     }
 
-    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
-        None
-    }
-
     fn request_layout(
         &mut self,
         _id: Option<&GlobalElementId>,
-        _inspector_id: Option<&InspectorElementId>,
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
@@ -43,7 +37,6 @@ impl Element for &'static str {
     fn prepaint(
         &mut self,
         _id: Option<&GlobalElementId>,
-        _inspector_id: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
         text_layout: &mut Self::RequestLayoutState,
         _window: &mut Window,
@@ -55,7 +48,6 @@ impl Element for &'static str {
     fn paint(
         &mut self,
         _id: Option<&GlobalElementId>,
-        _inspector_id: Option<&InspectorElementId>,
         _bounds: Bounds<Pixels>,
         text_layout: &mut TextLayout,
         _: &mut (),
@@ -90,14 +82,11 @@ impl Element for SharedString {
         None
     }
 
-    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
-        None
-    }
-
     fn request_layout(
         &mut self,
+
         _id: Option<&GlobalElementId>,
-        _inspector_id: Option<&InspectorElementId>,
+
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
@@ -109,7 +98,6 @@ impl Element for SharedString {
     fn prepaint(
         &mut self,
         _id: Option<&GlobalElementId>,
-        _inspector_id: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
         text_layout: &mut Self::RequestLayoutState,
         _window: &mut Window,
@@ -121,7 +109,6 @@ impl Element for SharedString {
     fn paint(
         &mut self,
         _id: Option<&GlobalElementId>,
-        _inspector_id: Option<&InspectorElementId>,
         _bounds: Bounds<Pixels>,
         text_layout: &mut Self::RequestLayoutState,
         _: &mut Self::PrepaintState,
@@ -238,14 +225,9 @@ impl Element for StyledText {
         None
     }
 
-    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
-        None
-    }
-
     fn request_layout(
         &mut self,
         _id: Option<&GlobalElementId>,
-        _inspector_id: Option<&InspectorElementId>,
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
@@ -262,7 +244,6 @@ impl Element for StyledText {
     fn prepaint(
         &mut self,
         _id: Option<&GlobalElementId>,
-        _inspector_id: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
         _: &mut Self::RequestLayoutState,
         _window: &mut Window,
@@ -274,7 +255,6 @@ impl Element for StyledText {
     fn paint(
         &mut self,
         _id: Option<&GlobalElementId>,
-        _inspector_id: Option<&InspectorElementId>,
         _bounds: Bounds<Pixels>,
         _: &mut Self::RequestLayoutState,
         _: &mut Self::PrepaintState,
@@ -339,8 +319,8 @@ impl TextLayout {
                     None
                 };
 
-                let (truncate_width, truncation_suffix) =
-                    if let Some(text_overflow) = text_style.text_overflow.clone() {
+                let (truncate_width, ellipsis) =
+                    if let Some(text_overflow) = text_style.text_overflow {
                         let width = known_dimensions.width.or(match available_space.width {
                             crate::AvailableSpace::Definite(x) => match text_style.line_clamp {
                                 Some(max_lines) => Some(x * max_lines),
@@ -350,10 +330,10 @@ impl TextLayout {
                         });
 
                         match text_overflow {
-                            TextOverflow::Truncate(s) => (width, s),
+                            TextOverflow::Ellipsis(s) => (width, Some(s)),
                         }
                     } else {
-                        (None, "".into())
+                        (None, None)
                     };
 
                 if let Some(text_layout) = element_state.0.borrow().as_ref() {
@@ -366,12 +346,7 @@ impl TextLayout {
 
                 let mut line_wrapper = cx.text_system().line_wrapper(text_style.font(), font_size);
                 let text = if let Some(truncate_width) = truncate_width {
-                    line_wrapper.truncate_line(
-                        text.clone(),
-                        truncate_width,
-                        &truncation_suffix,
-                        &mut runs,
-                    )
+                    line_wrapper.truncate_line(text.clone(), truncate_width, ellipsis, &mut runs)
                 } else {
                     text.clone()
                 };
@@ -426,7 +401,7 @@ impl TextLayout {
         let mut element_state = self.0.borrow_mut();
         let element_state = element_state
             .as_mut()
-            .with_context(|| format!("measurement has not been performed on {text}"))
+            .ok_or_else(|| anyhow!("measurement has not been performed on {}", text))
             .unwrap();
         element_state.bounds = Some(bounds);
     }
@@ -435,11 +410,11 @@ impl TextLayout {
         let element_state = self.0.borrow();
         let element_state = element_state
             .as_ref()
-            .with_context(|| format!("measurement has not been performed on {text}"))
+            .ok_or_else(|| anyhow!("measurement has not been performed on {}", text))
             .unwrap();
         let bounds = element_state
             .bounds
-            .with_context(|| format!("prepaint has not been performed on {text}"))
+            .ok_or_else(|| anyhow!("prepaint has not been performed on {:?}", text))
             .unwrap();
 
         let line_height = element_state.line_height;
@@ -698,24 +673,18 @@ impl Element for InteractiveText {
         Some(self.element_id.clone())
     }
 
-    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
-        None
-    }
-
     fn request_layout(
         &mut self,
         _id: Option<&GlobalElementId>,
-        inspector_id: Option<&InspectorElementId>,
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
-        self.text.request_layout(None, inspector_id, window, cx)
+        self.text.request_layout(None, window, cx)
     }
 
     fn prepaint(
         &mut self,
         global_id: Option<&GlobalElementId>,
-        inspector_id: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
         state: &mut Self::RequestLayoutState,
         window: &mut Window,
@@ -737,8 +706,7 @@ impl Element for InteractiveText {
                     }
                 }
 
-                self.text
-                    .prepaint(None, inspector_id, bounds, state, window, cx);
+                self.text.prepaint(None, bounds, state, window, cx);
                 let hitbox = window.insert_hitbox(bounds, false);
                 (hitbox, interactive_state)
             },
@@ -748,7 +716,6 @@ impl Element for InteractiveText {
     fn paint(
         &mut self,
         global_id: Option<&GlobalElementId>,
-        inspector_id: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
         _: &mut Self::RequestLayoutState,
         hitbox: &mut Hitbox,
@@ -886,8 +853,7 @@ impl Element for InteractiveText {
                     );
                 }
 
-                self.text
-                    .paint(None, inspector_id, bounds, &mut (), &mut (), window, cx);
+                self.text.paint(None, bounds, &mut (), &mut (), window, cx);
 
                 ((), interactive_state)
             },

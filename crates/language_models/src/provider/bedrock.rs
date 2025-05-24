@@ -37,7 +37,7 @@ use language_model::{
     LanguageModelProvider, LanguageModelProviderId, LanguageModelProviderName,
     LanguageModelProviderState, LanguageModelRequest, LanguageModelToolChoice,
     LanguageModelToolResultContent, LanguageModelToolUse, MessageContent, RateLimiter, Role,
-    TokenUsage, WrappedTextContent,
+    TokenUsage,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -365,10 +365,10 @@ struct BedrockModel {
 }
 
 impl BedrockModel {
-    fn get_or_init_client(&self, cx: &AsyncApp) -> anyhow::Result<&BedrockClient> {
+    fn get_or_init_client(&self, cx: &AsyncApp) -> Result<&BedrockClient, anyhow::Error> {
         self.client
             .get_or_try_init_blocking(|| {
-                let (auth_method, credentials, endpoint, region, settings) =
+                let Ok((auth_method, credentials, endpoint, region, settings)) =
                     cx.read_entity(&self.state, |state, _cx| {
                         let auth_method = state
                             .settings
@@ -390,7 +390,10 @@ impl BedrockModel {
                             region,
                             state.settings.clone(),
                         )
-                    })?;
+                    })
+                else {
+                    return Err(anyhow!("App state dropped"));
+                };
 
                 let mut config_builder = aws_config::defaults(BehaviorVersion::latest())
                     .stalled_stream_protection(StalledStreamProtectionConfig::disabled())
@@ -435,11 +438,13 @@ impl BedrockModel {
                 }
 
                 let config = self.handler.block_on(config_builder.load());
-                anyhow::Ok(BedrockClient::new(&config))
+                Ok(BedrockClient::new(&config))
             })
-            .context("initializing Bedrock client")?;
+            .map_err(|err| anyhow!("Failed to initialize Bedrock client: {err}"))?;
 
-        self.client.get().context("Bedrock client not initialized")
+        self.client
+            .get()
+            .ok_or_else(|| anyhow!("Bedrock client not initialized"))
     }
 
     fn stream_completion(
@@ -539,10 +544,7 @@ impl LanguageModel for BedrockModel {
 
             region
         }) else {
-            return async move {
-                anyhow::bail!("App State Dropped");
-            }
-            .boxed();
+            return async move { Err(anyhow!("App State Dropped")) }.boxed();
         };
 
         let model_id = match self.model.cross_region_inference_id(&region) {
@@ -639,8 +641,7 @@ pub fn into_bedrock(
                             BedrockToolResultBlock::builder()
                                 .tool_use_id(tool_result.tool_use_id.to_string())
                                 .content(match tool_result.content {
-                                    LanguageModelToolResultContent::Text(text)
-                                    | LanguageModelToolResultContent::WrappedText(WrappedTextContent { text, .. }) => {
+                                    LanguageModelToolResultContent::Text(text) => {
                                         BedrockToolResultContentBlock::Text(text.to_string())
                                     }
                                     LanguageModelToolResultContent::Image(_) => {
@@ -718,7 +719,7 @@ pub fn into_bedrock(
             BedrockToolChoice::Any(BedrockAnyToolChoice::builder().build())
         }
         Some(LanguageModelToolChoice::None) => {
-            anyhow::bail!("LanguageModelToolChoice::None is not supported");
+            return Err(anyhow!("LanguageModelToolChoice::None is not supported"));
         }
     };
     let tool_config: BedrockToolConfig = BedrockToolConfig::builder()
@@ -775,11 +776,7 @@ pub fn get_bedrock_tokens(
                             // TODO: Estimate token usage from tool uses.
                         }
                         MessageContent::ToolResult(tool_result) => match tool_result.content {
-                            LanguageModelToolResultContent::Text(text)
-                            | LanguageModelToolResultContent::WrappedText(WrappedTextContent {
-                                text,
-                                ..
-                            }) => {
+                            LanguageModelToolResultContent::Text(text) => {
                                 string_contents.push_str(&text);
                             }
                             LanguageModelToolResultContent::Image(image) => {

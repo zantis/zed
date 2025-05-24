@@ -2,8 +2,6 @@ use gpui::{ClickEvent, Corner, CursorStyle, Entity, Hsla, MouseButton};
 
 use crate::{ContextMenu, PopoverMenu, prelude::*};
 
-use super::PopoverMenuHandle;
-
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DropdownStyle {
     #[default]
@@ -24,7 +22,6 @@ pub struct DropdownMenu {
     menu: Entity<ContextMenu>,
     full_width: bool,
     disabled: bool,
-    handle: Option<PopoverMenuHandle<ContextMenu>>,
 }
 
 impl DropdownMenu {
@@ -40,7 +37,6 @@ impl DropdownMenu {
             menu,
             full_width: false,
             disabled: false,
-            handle: None,
         }
     }
 
@@ -56,7 +52,6 @@ impl DropdownMenu {
             menu,
             full_width: false,
             disabled: false,
-            handle: None,
         }
     }
 
@@ -67,11 +62,6 @@ impl DropdownMenu {
 
     pub fn full_width(mut self, full_width: bool) -> Self {
         self.full_width = full_width;
-        self
-    }
-
-    pub fn handle(mut self, handle: PopoverMenuHandle<ContextMenu>) -> Self {
-        self.handle = Some(handle);
         self
     }
 }
@@ -95,7 +85,6 @@ impl RenderOnce for DropdownMenu {
                     .style(self.style),
             )
             .attach(Corner::BottomLeft)
-            .when_some(self.handle.clone(), |el, handle| el.with_handle(handle))
     }
 }
 
@@ -170,11 +159,17 @@ pub struct DropdownTriggerStyle {
 impl DropdownTriggerStyle {
     pub fn for_style(style: DropdownStyle, cx: &App) -> Self {
         let colors = cx.theme().colors();
-        let bg = match style {
-            DropdownStyle::Solid => colors.editor_background,
-            DropdownStyle::Ghost => colors.ghost_element_background,
-        };
-        Self { bg }
+
+        if style == DropdownStyle::Solid {
+            Self {
+                // why is this editor_background?
+                bg: colors.editor_background,
+            }
+        } else {
+            Self {
+                bg: colors.ghost_element_background,
+            }
+        }
     }
 }
 

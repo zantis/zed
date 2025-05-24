@@ -1,12 +1,9 @@
-use crate::file_finder_settings::FileFinderSettings;
-use file_icons::FileIcons;
 use futures::channel::oneshot;
 use fuzzy::{StringMatch, StringMatchCandidate};
 use picker::{Picker, PickerDelegate};
 use project::{DirectoryItem, DirectoryLister};
-use settings::Settings;
 use std::{
-    path::{self, MAIN_SEPARATOR_STR, Path, PathBuf},
+    path::{MAIN_SEPARATOR_STR, Path, PathBuf},
     sync::{
         Arc,
         atomic::{self, AtomicBool},
@@ -352,9 +349,8 @@ impl PickerDelegate for OpenPathDelegate {
         ix: usize,
         selected: bool,
         _window: &mut Window,
-        cx: &mut Context<Picker<Self>>,
+        _: &mut Context<Picker<Self>>,
     ) -> Option<Self::ListItem> {
-        let settings = FileFinderSettings::get_global(cx);
         let m = self.matches.get(ix)?;
         let directory_state = self.directory_state.as_ref()?;
         let candidate = directory_state.match_candidates.get(*m)?;
@@ -365,23 +361,9 @@ impl PickerDelegate for OpenPathDelegate {
             .map(|string_match| string_match.positions.clone())
             .unwrap_or_default();
 
-        let file_icon = maybe!({
-            if !settings.file_icons {
-                return None;
-            }
-            let icon = if candidate.is_dir {
-                FileIcons::get_folder_icon(false, cx)?
-            } else {
-                let path = path::Path::new(&candidate.path.string);
-                FileIcons::get_icon(&path, cx)?
-            };
-            Some(Icon::from_path(icon).color(Color::Muted))
-        });
-
         Some(
             ListItem::new(ix)
                 .spacing(ListItemSpacing::Sparse)
-                .start_slot::<Icon>(file_icon)
                 .inset(true)
                 .toggle_state(selected)
                 .child(HighlightedLabel::new(

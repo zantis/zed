@@ -28,8 +28,8 @@ use crate::{LanguageServerId, ProjectPath, project_settings::LspSettings};
 use super::{ManifestTree, ManifestTreeEvent};
 
 #[derive(Debug, Default)]
-pub(crate) struct ServersForWorktree {
-    pub(crate) roots: BTreeMap<
+struct ServersForWorktree {
+    roots: BTreeMap<
         Arc<Path>,
         BTreeMap<LanguageServerName, (Arc<InnerTreeNode>, BTreeSet<LanguageName>)>,
     >,
@@ -37,7 +37,7 @@ pub(crate) struct ServersForWorktree {
 
 pub struct LanguageServerTree {
     manifest_tree: Entity<ManifestTree>,
-    pub(crate) instances: BTreeMap<WorktreeId, ServersForWorktree>,
+    instances: BTreeMap<WorktreeId, ServersForWorktree>,
     attach_kind_cache: HashMap<LanguageServerName, Attach>,
     languages: Arc<LanguageRegistry>,
     _subscriptions: Subscription,
@@ -47,7 +47,7 @@ pub struct LanguageServerTree {
 /// - A language server that has already been initialized/updated for a given project
 /// - A soon-to-be-initialized language server.
 #[derive(Clone)]
-pub struct LanguageServerTreeNode(Weak<InnerTreeNode>);
+pub(crate) struct LanguageServerTreeNode(Weak<InnerTreeNode>);
 
 /// Describes a request to launch a language server.
 #[derive(Debug)]
@@ -96,7 +96,7 @@ impl From<Weak<InnerTreeNode>> for LanguageServerTreeNode {
 }
 
 #[derive(Debug)]
-pub struct InnerTreeNode {
+struct InnerTreeNode {
     id: OnceLock<LanguageServerId>,
     name: LanguageServerName,
     attach: Attach,
@@ -336,28 +336,6 @@ impl LanguageServerTree {
             }
         }
     }
-
-    pub(crate) fn register_reused(
-        &mut self,
-        worktree_id: WorktreeId,
-        language_name: LanguageName,
-        reused: LanguageServerTreeNode,
-    ) {
-        let Some(node) = reused.0.upgrade() else {
-            return;
-        };
-
-        self.instances
-            .entry(worktree_id)
-            .or_default()
-            .roots
-            .entry(Arc::from(Path::new("")))
-            .or_default()
-            .entry(node.name.clone())
-            .or_insert_with(|| (node, BTreeSet::new()))
-            .1
-            .insert(language_name);
-    }
 }
 
 pub(crate) struct ServerTreeRebase<'a> {
@@ -462,9 +440,5 @@ impl<'tree> ServerTreeRebase<'tree> {
             .into_iter()
             .filter(|(id, _)| !self.rebased_server_ids.contains(id))
             .collect()
-    }
-
-    pub(crate) fn server_tree(&mut self) -> &mut LanguageServerTree {
-        &mut self.new_tree
     }
 }

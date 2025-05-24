@@ -11,7 +11,7 @@ mod tests;
 mod undo_map;
 
 pub use anchor::*;
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, anyhow};
 use clock::LOCAL_BRANCH_REPLICA_ID;
 pub use clock::ReplicaId;
 use collections::{HashMap, HashSet};
@@ -1586,7 +1586,7 @@ impl Buffer {
         async move {
             for mut future in futures {
                 if future.recv().await.is_none() {
-                    anyhow::bail!("gave up waiting for edits");
+                    Err(anyhow!("gave up waiting for edits"))?;
                 }
             }
             Ok(())
@@ -1615,7 +1615,7 @@ impl Buffer {
         async move {
             for mut future in futures {
                 if future.recv().await.is_none() {
-                    anyhow::bail!("gave up waiting for anchors");
+                    Err(anyhow!("gave up waiting for anchors"))?;
                 }
             }
             Ok(())
@@ -1635,7 +1635,7 @@ impl Buffer {
         async move {
             if let Some(mut rx) = rx {
                 if rx.recv().await.is_none() {
-                    anyhow::bail!("gave up waiting for version");
+                    Err(anyhow!("gave up waiting for version"))?;
                 }
             }
             Ok(())
