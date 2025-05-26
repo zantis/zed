@@ -26,9 +26,9 @@ body:
     id: environment
     attributes:
       label: Zed Version and System Specs
-      description: 'Open Zed, and in the command palette select "zed: copy system specs into clipboard"'
+      description: 'Open Zed, and in the command palette select "zed: Copy System Specs Into Clipboard"'
       placeholder: |
-        Output of "zed: copy system specs into clipboard"
+        Output of "zed: Copy System Specs Into Clipboard"
     validations:
       required: true
   - type: textarea

@@ -1,6 +1,6 @@
 use super::{RandomizedTest, TestClient, TestError, TestServer, UserTestPlan};
 use crate::{db::UserId, tests::run_randomized_test};
-use anyhow::{Context as _, Result};
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use call::ActiveCall;
 use collections::{BTreeMap, HashMap};
@@ -782,7 +782,8 @@ impl RandomizedTest for ProjectCollaborationTest {
                 let save =
                     project.update(cx, |project, cx| project.save_buffer(buffer.clone(), cx));
                 let save = cx.spawn(|cx| async move {
-                    save.await.context("save request failed")?;
+                    save.await
+                        .map_err(|err| anyhow!("save request failed: {:?}", err))?;
                     assert!(
                         buffer
                             .read_with(&cx, |buffer, _| { buffer.saved_version().to_owned() })

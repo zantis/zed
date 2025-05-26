@@ -12,4 +12,3 @@ brackets = [
     { start = "/*", end = " */", close = true, newline = false, not_in = ["string", "comment"] },
 ]
 debuggers = ["CodeLLDB", "GDB"]
-documentation = { start = "/*", end = "*/", prefix = "* ", tab_size = 1 }

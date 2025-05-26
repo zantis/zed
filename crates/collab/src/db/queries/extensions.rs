@@ -1,6 +1,5 @@
 use std::str::FromStr;
 
-use anyhow::Context;
 use chrono::Utc;
 use sea_orm::sea_query::IntoCondition;
 use util::ResultExt;
@@ -167,7 +166,7 @@ impl Database {
                 .filter(extension::Column::ExternalId.eq(extension_id))
                 .one(&*tx)
                 .await?
-                .with_context(|| format!("no such extension: {extension_id}"))?;
+                .ok_or_else(|| anyhow!("no such extension: {extension_id}"))?;
 
             let extensions = [extension];
             let mut versions = self
@@ -275,7 +274,7 @@ impl Database {
                         .filter(extension::Column::ExternalId.eq(*external_id))
                         .one(&*tx)
                         .await?
-                        .context("failed to insert extension")?
+                        .ok_or_else(|| anyhow!("failed to insert extension"))?
                 };
 
                 extension_version::Entity::insert_many(versions.iter().map(|version| {

@@ -873,13 +873,15 @@ impl LanguageRegistry {
                                 }
                             }
                             Err(e) => {
-                                log::error!("failed to load language {name}:\n{e:?}");
+                                log::error!("failed to load language {name}:\n{:?}", e);
                                 let mut state = this.state.write();
                                 state.mark_language_loaded(id);
                                 if let Some(mut txs) = state.loading_languages.remove(&id) {
                                     for tx in txs.drain(..) {
                                         let _ = tx.send(Err(anyhow!(
-                                            "failed to load language {name}: {e}",
+                                            "failed to load language {}: {}",
+                                            name,
+                                            e
                                         )));
                                     }
                                 }
@@ -942,7 +944,7 @@ impl LanguageRegistry {
                                 let grammar_name = wasm_path
                                     .file_stem()
                                     .and_then(OsStr::to_str)
-                                    .context("invalid grammar filename")?;
+                                    .ok_or_else(|| anyhow!("invalid grammar filename"))?;
                                 anyhow::Ok(with_parser(|parser| {
                                     let mut store = parser.take_wasm_store().unwrap();
                                     let grammar = store.load_language(grammar_name, &wasm_bytes);
@@ -968,7 +970,7 @@ impl LanguageRegistry {
                 }
             }
         } else {
-            tx.send(Err(Arc::new(anyhow!("no such grammar {name}"))))
+            tx.send(Err(Arc::new(anyhow!("no such grammar {}", name))))
                 .ok();
         }
 

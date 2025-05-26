@@ -24,6 +24,7 @@ fuzzy.workspace = true
 gpui.workspace = true
 install_cli.workspace = true
 language.workspace = true
+linkme.workspace = true
 picker.workspace = true
 project.workspace = true
 schemars.workspace = true

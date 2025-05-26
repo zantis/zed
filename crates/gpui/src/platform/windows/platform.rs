@@ -576,7 +576,7 @@ impl Platform for WindowsPlatform {
 
     // todo(windows)
     fn path_for_auxiliary_executable(&self, _name: &str) -> Result<PathBuf> {
-        anyhow::bail!("not yet implemented");
+        Err(anyhow!("not yet implemented"))
     }
 
     fn set_cursor_style(&self, style: CursorStyle) {

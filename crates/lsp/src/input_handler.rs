@@ -1,7 +1,7 @@
 use std::str;
 use std::sync::Arc;
 
-use anyhow::{Context as _, Result};
+use anyhow::{Result, anyhow};
 use collections::HashMap;
 use futures::{
     AsyncBufReadExt, AsyncRead, AsyncReadExt as _,
@@ -35,7 +35,7 @@ where
         }
 
         if reader.read_until(b'\n', buffer).await? == 0 {
-            anyhow::bail!("cannot read LSP message headers");
+            return Err(anyhow!("cannot read LSP message headers"));
         }
     }
 }
@@ -82,7 +82,7 @@ impl LspStdoutHandler {
                 .split('\n')
                 .find(|line| line.starts_with(CONTENT_LEN_HEADER))
                 .and_then(|line| line.strip_prefix(CONTENT_LEN_HEADER))
-                .with_context(|| format!("invalid LSP message header {headers:?}"))?
+                .ok_or_else(|| anyhow!("invalid LSP message header {headers:?}"))?
                 .trim_end()
                 .parse()?;
 

@@ -377,7 +377,7 @@ impl LineBreakpoint {
                                         })
                                         .ok();
                                 }
-                                anyhow::Ok(())
+                                Result::<_, anyhow::Error>::Ok(())
                             })
                             .detach();
 

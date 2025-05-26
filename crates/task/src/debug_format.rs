@@ -1,4 +1,4 @@
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use collections::FxHashMap;
 use gpui::SharedString;
 use schemars::{JsonSchema, r#gen::SchemaSettings};
@@ -147,7 +147,9 @@ impl DebugRequest {
     }
 
     pub fn from_proto(val: proto::DebugRequest) -> Result<DebugRequest> {
-        let request = val.request.context("Missing debug request")?;
+        let request = val
+            .request
+            .ok_or_else(|| anyhow::anyhow!("Missing debug request"))?;
         match request {
             proto::debug_request::Request::DebugLaunchRequest(proto::DebugLaunchRequest {
                 program,
@@ -184,6 +186,7 @@ impl From<AttachRequest> for DebugRequest {
 
 #[derive(Deserialize, Serialize, PartialEq, Eq, JsonSchema, Clone, Debug)]
 #[serde(untagged)]
+#[allow(clippy::large_enum_variant)]
 pub enum BuildTaskDefinition {
     ByName(SharedString),
     Template {

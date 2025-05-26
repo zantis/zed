@@ -91,12 +91,6 @@ impl FeatureFlag for ThreadAutoCaptureFeatureFlag {
     }
 }
 
-pub struct JjUiFeatureFlag {}
-
-impl FeatureFlag for JjUiFeatureFlag {
-    const NAME: &'static str = "jj-ui";
-}
-
 pub trait FeatureFlagViewExt<V: 'static> {
     fn observe_flag<T: FeatureFlag, F>(&mut self, window: &Window, callback: F) -> Subscription
     where

@@ -169,7 +169,7 @@ fn main() -> Result<()> {
             "To retrieve the system specs on the command line, run the following command:",
             &format!("{} --system-specs", path.display()),
         ];
-        anyhow::bail!(msg.join("\n"));
+        return Err(anyhow::anyhow!(msg.join("\n")));
     }
 
     #[cfg(all(
@@ -255,10 +255,11 @@ fn main() -> Result<()> {
         }
     }
 
-    anyhow::ensure!(
-        args.dev_server_token.is_none(),
-        "Dev servers were removed in v0.157.x please upgrade to SSH remoting: https://zed.dev/docs/remote-development"
-    );
+    if let Some(_) = args.dev_server_token {
+        return Err(anyhow::anyhow!(
+            "Dev servers were removed in v0.157.x please upgrade to SSH remoting: https://zed.dev/docs/remote-development"
+        ))?;
+    }
 
     let sender: JoinHandle<anyhow::Result<()>> = thread::spawn({
         let exit_status = exit_status.clone();
@@ -399,7 +400,7 @@ mod linux {
         time::Duration,
     };
 
-    use anyhow::{Context as _, anyhow};
+    use anyhow::anyhow;
     use cli::FORCE_CLI_MODE_ENV_VAR_NAME;
     use fork::Fork;
 
@@ -416,7 +417,9 @@ mod linux {
                 path.to_path_buf().canonicalize()?
             } else {
                 let cli = env::current_exe()?;
-                let dir = cli.parent().context("no parent path for cli")?;
+                let dir = cli
+                    .parent()
+                    .ok_or_else(|| anyhow!("no parent path for cli"))?;
 
                 // libexec is the standard, lib/zed is for Arch (and other non-libexec distros),
                 // ./zed is for the target directory in development builds.
@@ -425,8 +428,8 @@ mod linux {
                 possible_locations
                     .iter()
                     .find_map(|p| dir.join(p).canonicalize().ok().filter(|path| path != &cli))
-                    .with_context(|| {
-                        format!("could not find any of: {}", possible_locations.join(", "))
+                    .ok_or_else(|| {
+                        anyhow!("could not find any of: {}", possible_locations.join(", "))
                     })?
             };
 
@@ -756,7 +759,7 @@ mod windows {
 
 #[cfg(target_os = "macos")]
 mod mac_os {
-    use anyhow::{Context as _, Result};
+    use anyhow::{Context as _, Result, anyhow};
     use core_foundation::{
         array::{CFArray, CFIndex},
         base::TCFType as _,
@@ -797,10 +800,9 @@ mod mac_os {
         let cli_path = std::env::current_exe()?.canonicalize()?;
         let mut app_path = cli_path.clone();
         while app_path.extension() != Some(OsStr::new("app")) {
-            anyhow::ensure!(
-                app_path.pop(),
-                "cannot find app bundle containing {cli_path:?}"
-            );
+            if !app_path.pop() {
+                return Err(anyhow!("cannot find app bundle containing {:?}", cli_path));
+            }
         }
         Ok(app_path)
     }

@@ -1,4 +1,4 @@
-use anyhow::{Context as _, bail};
+use anyhow::{Context, bail};
 use collections::{HashMap, HashSet};
 use schemars::{JsonSchema, r#gen::SchemaSettings};
 use serde::{Deserialize, Serialize};

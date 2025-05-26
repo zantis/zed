@@ -1,4 +1,4 @@
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, anyhow};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait as _};
 use futures::channel::mpsc::UnboundedSender;
@@ -365,14 +365,14 @@ fn default_device(input: bool) -> Result<(cpal::Device, cpal::SupportedStreamCon
     if input {
         device = cpal::default_host()
             .default_input_device()
-            .context("no audio input device available")?;
+            .ok_or_else(|| anyhow!("no audio input device available"))?;
         config = device
             .default_input_config()
             .context("failed to get default input config")?;
     } else {
         device = cpal::default_host()
             .default_output_device()
-            .context("no audio output device available")?;
+            .ok_or_else(|| anyhow!("no audio output device available"))?;
         config = device
             .default_output_config()
             .context("failed to get default output config")?;
@@ -493,7 +493,10 @@ fn create_buffer_pool(
     ]);
 
     pixel_buffer_pool::CVPixelBufferPool::new(None, Some(&buffer_attributes)).map_err(|cv_return| {
-        anyhow::anyhow!("failed to create pixel buffer pool: CVReturn({cv_return})",)
+        anyhow!(
+            "failed to create pixel buffer pool: CVReturn({})",
+            cv_return
+        )
     })
 }
 
@@ -704,7 +707,7 @@ mod macos {
     }
 
     impl super::DeviceChangeListenerApi for CoreAudioDefaultDeviceChangeListener {
-        fn new(input: bool) -> anyhow::Result<Self> {
+        fn new(input: bool) -> gpui::Result<Self> {
             let (tx, rx) = futures::channel::mpsc::unbounded();
 
             let callback = Box::new(PropertyListenerCallbackWrapper(Box::new(move || {

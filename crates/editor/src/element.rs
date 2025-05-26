@@ -1343,7 +1343,7 @@ impl EditorElement {
                                     None
                                 }
                             })
-                            .map(|text| {
+                            .and_then(|text| {
                                 let len = text.len();
 
                                 let font = cursor_row_layout
@@ -1369,18 +1369,21 @@ impl EditorElement {
                                     cx.theme().colors().editor_background
                                 };
 
-                                window.text_system().shape_line(
-                                    text,
-                                    cursor_row_layout.font_size,
-                                    &[TextRun {
-                                        len,
-                                        font,
-                                        color,
-                                        background_color: None,
-                                        strikethrough: None,
-                                        underline: None,
-                                    }],
-                                )
+                                window
+                                    .text_system()
+                                    .shape_line(
+                                        text,
+                                        cursor_row_layout.font_size,
+                                        &[TextRun {
+                                            len,
+                                            font,
+                                            color,
+                                            background_color: None,
+                                            strikethrough: None,
+                                            underline: None,
+                                        }],
+                                    )
+                                    .log_err()
                             })
                     } else {
                         None
@@ -2687,8 +2690,9 @@ impl EditorElement {
                         }
                     })
                     .unwrap_or_else(|| cx.theme().colors().editor_line_number);
-                let shaped_line =
-                    self.shape_line_number(SharedString::from(&line_number), color, window);
+                let shaped_line = self
+                    .shape_line_number(SharedString::from(&line_number), color, window)
+                    .log_err()?;
                 let scroll_top = scroll_position.y * line_height;
                 let line_origin = gutter_hitbox.map(|hitbox| {
                     hitbox.origin
@@ -2804,7 +2808,7 @@ impl EditorElement {
                 .chain(iter::repeat(""))
                 .take(rows.len());
             placeholder_lines
-                .map(move |line| {
+                .filter_map(move |line| {
                     let run = TextRun {
                         len: line.len(),
                         font: style.text.font(),
@@ -2813,17 +2817,17 @@ impl EditorElement {
                         underline: None,
                         strikethrough: None,
                     };
-                    let line =
-                        window
-                            .text_system()
-                            .shape_line(line.to_string().into(), font_size, &[run]);
-                    LineWithInvisibles {
-                        width: line.width,
-                        len: line.len,
-                        fragments: smallvec![LineFragment::Text(line)],
-                        invisibles: Vec::new(),
-                        font_size,
-                    }
+                    window
+                        .text_system()
+                        .shape_line(line.to_string().into(), font_size, &[run])
+                        .log_err()
+                })
+                .map(|line| LineWithInvisibles {
+                    width: line.width,
+                    len: line.len,
+                    fragments: smallvec![LineFragment::Text(line)],
+                    invisibles: Vec::new(),
+                    font_size,
                 })
                 .collect()
         } else {
@@ -4760,7 +4764,13 @@ impl EditorElement {
             let Some(()) = (if !is_singleton && hitbox.is_hovered(window) {
                 let color = cx.theme().colors().editor_hover_line_number;
 
-                let line = self.shape_line_number(shaped_line.text.clone(), color, window);
+                let Some(line) = self
+                    .shape_line_number(shaped_line.text.clone(), color, window)
+                    .log_err()
+                else {
+                    continue;
+                };
+
                 line.paint(hitbox.origin, line_height, window, cx).log_err()
             } else {
                 shaped_line
@@ -6127,18 +6137,21 @@ impl EditorElement {
     fn column_pixels(&self, column: usize, window: &mut Window, _: &mut App) -> Pixels {
         let style = &self.style;
         let font_size = style.text.font_size.to_pixels(window.rem_size());
-        let layout = window.text_system().shape_line(
-            SharedString::from(" ".repeat(column)),
-            font_size,
-            &[TextRun {
-                len: column,
-                font: style.text.font(),
-                color: Hsla::default(),
-                background_color: None,
-                underline: None,
-                strikethrough: None,
-            }],
-        );
+        let layout = window
+            .text_system()
+            .shape_line(
+                SharedString::from(" ".repeat(column)),
+                font_size,
+                &[TextRun {
+                    len: column,
+                    font: style.text.font(),
+                    color: Hsla::default(),
+                    background_color: None,
+                    underline: None,
+                    strikethrough: None,
+                }],
+            )
+            .unwrap();
 
         layout.width
     }
@@ -6158,7 +6171,7 @@ impl EditorElement {
         text: SharedString,
         color: Hsla,
         window: &mut Window,
-    ) -> ShapedLine {
+    ) -> anyhow::Result<ShapedLine> {
         let run = TextRun {
             len: text.len(),
             font: self.style.text.font(),
@@ -6380,6 +6393,7 @@ pub(crate) struct LineWithInvisibles {
     font_size: Pixels,
 }
 
+#[allow(clippy::large_enum_variant)]
 enum LineFragment {
     Text(ShapedLine),
     Element {
@@ -6438,10 +6452,10 @@ impl LineWithInvisibles {
         }]) {
             if let Some(replacement) = highlighted_chunk.replacement {
                 if !line.is_empty() {
-                    let shaped_line =
-                        window
-                            .text_system()
-                            .shape_line(line.clone().into(), font_size, &styles);
+                    let shaped_line = window
+                        .text_system()
+                        .shape_line(line.clone().into(), font_size, &styles)
+                        .unwrap();
                     width += shaped_line.width;
                     len += shaped_line.len;
                     fragments.push(LineFragment::Text(shaped_line));
@@ -6457,11 +6471,14 @@ impl LineWithInvisibles {
                             } else {
                                 SharedString::from(Arc::from(highlighted_chunk.text))
                             };
-                            let shaped_line = window.text_system().shape_line(
-                                chunk,
-                                font_size,
-                                &[text_style.to_run(highlighted_chunk.text.len())],
-                            );
+                            let shaped_line = window
+                                .text_system()
+                                .shape_line(
+                                    chunk,
+                                    font_size,
+                                    &[text_style.to_run(highlighted_chunk.text.len())],
+                                )
+                                .unwrap();
                             AvailableSpace::Definite(shaped_line.width)
                         } else {
                             AvailableSpace::MinContent
@@ -6506,6 +6523,7 @@ impl LineWithInvisibles {
                         let line_layout = window
                             .text_system()
                             .shape_line(x, font_size, &[run])
+                            .unwrap()
                             .with_len(highlighted_chunk.text.len());
 
                         width += line_layout.width;
@@ -6516,11 +6534,10 @@ impl LineWithInvisibles {
             } else {
                 for (ix, mut line_chunk) in highlighted_chunk.text.split('\n').enumerate() {
                     if ix > 0 {
-                        let shaped_line = window.text_system().shape_line(
-                            line.clone().into(),
-                            font_size,
-                            &styles,
-                        );
+                        let shaped_line = window
+                            .text_system()
+                            .shape_line(line.clone().into(), font_size, &styles)
+                            .unwrap();
                         width += shaped_line.width;
                         len += shaped_line.len;
                         fragments.push(LineFragment::Text(shaped_line));
@@ -8024,30 +8041,36 @@ impl Element for EditorElement {
                     });
 
                     let invisible_symbol_font_size = font_size / 2.;
-                    let tab_invisible = window.text_system().shape_line(
-                        "→".into(),
-                        invisible_symbol_font_size,
-                        &[TextRun {
-                            len: "→".len(),
-                            font: self.style.text.font(),
-                            color: cx.theme().colors().editor_invisible,
-                            background_color: None,
-                            underline: None,
-                            strikethrough: None,
-                        }],
-                    );
-                    let space_invisible = window.text_system().shape_line(
-                        "•".into(),
-                        invisible_symbol_font_size,
-                        &[TextRun {
-                            len: "•".len(),
-                            font: self.style.text.font(),
-                            color: cx.theme().colors().editor_invisible,
-                            background_color: None,
-                            underline: None,
-                            strikethrough: None,
-                        }],
-                    );
+                    let tab_invisible = window
+                        .text_system()
+                        .shape_line(
+                            "→".into(),
+                            invisible_symbol_font_size,
+                            &[TextRun {
+                                len: "→".len(),
+                                font: self.style.text.font(),
+                                color: cx.theme().colors().editor_invisible,
+                                background_color: None,
+                                underline: None,
+                                strikethrough: None,
+                            }],
+                        )
+                        .unwrap();
+                    let space_invisible = window
+                        .text_system()
+                        .shape_line(
+                            "•".into(),
+                            invisible_symbol_font_size,
+                            &[TextRun {
+                                len: "•".len(),
+                                font: self.style.text.font(),
+                                color: cx.theme().colors().editor_invisible,
+                                background_color: None,
+                                underline: None,
+                                strikethrough: None,
+                            }],
+                        )
+                        .unwrap();
 
                     let mode = snapshot.mode.clone();
 

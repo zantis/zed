@@ -1,5 +1,3 @@
-use anyhow::Context as _;
-
 use crate::db::billing_subscription::{
     StripeCancellationReason, StripeSubscriptionStatus, SubscriptionKind,
 };
@@ -34,9 +32,9 @@ impl Database {
     pub async fn create_billing_subscription(
         &self,
         params: &CreateBillingSubscriptionParams,
-    ) -> Result<billing_subscription::Model> {
+    ) -> Result<()> {
         self.transaction(|tx| async move {
-            let id = billing_subscription::Entity::insert(billing_subscription::ActiveModel {
+            billing_subscription::Entity::insert(billing_subscription::ActiveModel {
                 billing_customer_id: ActiveValue::set(params.billing_customer_id),
                 kind: ActiveValue::set(params.kind),
                 stripe_subscription_id: ActiveValue::set(params.stripe_subscription_id.clone()),
@@ -46,14 +44,10 @@ impl Database {
                 stripe_current_period_end: ActiveValue::set(params.stripe_current_period_end),
                 ..Default::default()
             })
-            .exec(&*tx)
-            .await?
-            .last_insert_id;
+            .exec_without_returning(&*tx)
+            .await?;
 
-            Ok(billing_subscription::Entity::find_by_id(id)
-                .one(&*tx)
-                .await?
-                .context("failed to retrieve inserted billing subscription")?)
+            Ok(())
         })
         .await
     }
@@ -242,9 +236,7 @@ impl Database {
                 .filter(
                     billing_customer::Column::UserId.eq(user_id).and(
                         billing_subscription::Column::StripeSubscriptionStatus
-                            .eq(StripeSubscriptionStatus::Active)
-                            .or(billing_subscription::Column::StripeSubscriptionStatus
-                                .eq(StripeSubscriptionStatus::Trialing)),
+                            .eq(StripeSubscriptionStatus::Active),
                     ),
                 )
                 .count(&*tx)

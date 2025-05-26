@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::PathBuf, sync::OnceLock};
 
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use async_trait::async_trait;
 use dap::adapters::{DebugTaskDefinition, latest_github_release};
 use futures::StreamExt;
@@ -69,16 +69,22 @@ impl CodeLldbDebugAdapter {
         let arch = match std::env::consts::ARCH {
             "aarch64" => "arm64",
             "x86_64" => "x64",
-            unsupported => {
-                anyhow::bail!("unsupported architecture {unsupported}");
+            _ => {
+                return Err(anyhow!(
+                    "unsupported architecture {}",
+                    std::env::consts::ARCH
+                ));
             }
         };
         let platform = match std::env::consts::OS {
             "macos" => "darwin",
             "linux" => "linux",
             "windows" => "win32",
-            unsupported => {
-                anyhow::bail!("unsupported operating system {unsupported}");
+            _ => {
+                return Err(anyhow!(
+                    "unsupported operating system {}",
+                    std::env::consts::OS
+                ));
             }
         };
         let asset_name = format!("codelldb-{platform}-{arch}.vsix");
@@ -88,7 +94,7 @@ impl CodeLldbDebugAdapter {
                 .assets
                 .iter()
                 .find(|asset| asset.name == asset_name)
-                .with_context(|| format!("no asset found matching {asset_name:?}"))?
+                .ok_or_else(|| anyhow!("no asset found matching {:?}", asset_name))?
                 .browser_download_url
                 .clone(),
         };
@@ -132,7 +138,10 @@ impl DebugAdapter for CodeLldbDebugAdapter {
                     version_path
                 } else {
                     let mut paths = delegate.fs().read_dir(&adapter_path).await?;
-                    paths.next().await.context("No adapter found")??
+                    paths
+                        .next()
+                        .await
+                        .ok_or_else(|| anyhow!("No adapter found"))??
                 };
             let adapter_dir = version_path.join("extension").join("adapter");
             let path = adapter_dir.join("codelldb").to_string_lossy().to_string();

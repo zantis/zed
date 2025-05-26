@@ -4,8 +4,12 @@ use futures::{SinkExt as _, StreamExt as _};
 pub struct Connection {
     pub(crate) tx:
         Box<dyn 'static + Send + Unpin + futures::Sink<WebSocketMessage, Error = anyhow::Error>>,
-    pub(crate) rx:
-        Box<dyn 'static + Send + Unpin + futures::Stream<Item = anyhow::Result<WebSocketMessage>>>,
+    pub(crate) rx: Box<
+        dyn 'static
+            + Send
+            + Unpin
+            + futures::Stream<Item = Result<WebSocketMessage, anyhow::Error>>,
+    >,
 }
 
 impl Connection {
@@ -15,7 +19,7 @@ impl Connection {
             + Send
             + Unpin
             + futures::Sink<WebSocketMessage, Error = anyhow::Error>
-            + futures::Stream<Item = anyhow::Result<WebSocketMessage>>,
+            + futures::Stream<Item = Result<WebSocketMessage, anyhow::Error>>,
     {
         let (tx, rx) = stream.split();
         Self {
@@ -24,7 +28,7 @@ impl Connection {
         }
     }
 
-    pub async fn send(&mut self, message: WebSocketMessage) -> anyhow::Result<()> {
+    pub async fn send(&mut self, message: WebSocketMessage) -> Result<(), anyhow::Error> {
         self.tx.send(message).await
     }
 
@@ -52,7 +56,7 @@ impl Connection {
             executor: gpui::BackgroundExecutor,
         ) -> (
             Box<dyn Send + Unpin + futures::Sink<WebSocketMessage, Error = anyhow::Error>>,
-            Box<dyn Send + Unpin + futures::Stream<Item = anyhow::Result<WebSocketMessage>>>,
+            Box<dyn Send + Unpin + futures::Stream<Item = Result<WebSocketMessage, anyhow::Error>>>,
         ) {
             use anyhow::anyhow;
             use futures::channel::mpsc;

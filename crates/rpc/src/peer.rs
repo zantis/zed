@@ -197,7 +197,7 @@ impl Peer {
                                     }
                                     _ = create_timer(WRITE_TIMEOUT).fuse() => {
                                         tracing::trace!(%connection_id, "outgoing rpc message: writing timed out");
-                                        anyhow::bail!("timed out writing message");
+                                        Err(anyhow!("timed out writing message"))?;
                                     }
                                 }
                             }
@@ -217,7 +217,7 @@ impl Peer {
                                 }
                                 _ = create_timer(WRITE_TIMEOUT).fuse() => {
                                     tracing::trace!(%connection_id, "keepalive interval: pinging timed out");
-                                    anyhow::bail!("timed out sending keepalive");
+                                    Err(anyhow!("timed out sending keepalive"))?;
                                 }
                             }
                         }
@@ -240,7 +240,7 @@ impl Peer {
                                     },
                                     _ = create_timer(WRITE_TIMEOUT).fuse() => {
                                         tracing::trace!(%connection_id, "incoming rpc message: processing timed out");
-                                        anyhow::bail!("timed out processing incoming message");
+                                        Err(anyhow!("timed out processing incoming message"))?
                                     }
                                 }
                             }
@@ -248,7 +248,7 @@ impl Peer {
                         },
                         _ = receive_timeout => {
                             tracing::trace!(%connection_id, "receive timeout: delay between messages too long");
-                            anyhow::bail!("delay between messages too long");
+                            Err(anyhow!("delay between messages too long"))?
                         }
                     }
                 }
@@ -441,7 +441,7 @@ impl Peer {
                 sender_id: receiver_id.into(),
                 original_sender_id: response.original_sender_id,
                 payload: T::Response::from_envelope(response)
-                    .context("received response of the wrong type")?,
+                    .ok_or_else(|| anyhow!("received response of the wrong type"))?,
                 received_at,
             })
         }
@@ -465,17 +465,18 @@ impl Peer {
                 .response_channels
                 .lock()
                 .as_mut()
-                .context("connection was closed")?
+                .ok_or_else(|| anyhow!("connection was closed"))?
                 .insert(envelope.id, tx);
             connection
                 .outgoing_tx
                 .unbounded_send(Message::Envelope(envelope))
-                .context("connection was closed")?;
+                .map_err(|_| anyhow!("connection was closed"))?;
             Ok(())
         });
         async move {
             send?;
-            let (response, received_at, _barrier) = rx.await.context("connection was closed")?;
+            let (response, received_at, _barrier) =
+                rx.await.map_err(|_| anyhow!("connection was closed"))?;
             if let Some(proto::envelope::Payload::Error(error)) = &response.payload {
                 return Err(RpcError::from_proto(error, type_name));
             }
@@ -495,14 +496,14 @@ impl Peer {
             stream_response_channels
                 .lock()
                 .as_mut()
-                .context("connection was closed")?
+                .ok_or_else(|| anyhow!("connection was closed"))?
                 .insert(message_id, tx);
             connection
                 .outgoing_tx
                 .unbounded_send(Message::Envelope(
                     request.into_envelope(message_id, None, None),
                 ))
-                .context("connection was closed")?;
+                .map_err(|_| anyhow!("connection was closed"))?;
             Ok((message_id, stream_response_channels))
         });
 
@@ -529,7 +530,7 @@ impl Peer {
                         } else {
                             Some(
                                 T::Response::from_envelope(response)
-                                    .context("received response of the wrong type"),
+                                    .ok_or_else(|| anyhow!("received response of the wrong type")),
                             )
                         }
                     }
@@ -661,7 +662,7 @@ impl Peer {
         let connections = self.connections.read();
         let connection = connections
             .get(&connection_id)
-            .with_context(|| format!("no such connection: {connection_id}"))?;
+            .ok_or_else(|| anyhow!("no such connection: {}", connection_id))?;
         Ok(connection.clone())
     }
 }

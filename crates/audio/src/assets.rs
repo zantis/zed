@@ -1,6 +1,6 @@
 use std::{io::Cursor, sync::Arc};
 
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use collections::HashMap;
 use gpui::{App, AssetSource, Global};
 use rodio::{
@@ -44,8 +44,8 @@ impl SoundRegistry {
         let bytes = self
             .assets
             .load(&path)?
-            .map(anyhow::Ok)
-            .with_context(|| format!("No asset available for path {path}"))??
+            .map(Ok)
+            .unwrap_or_else(|| Err(anyhow::anyhow!("No such asset available")))?
             .into_owned();
         let cursor = Cursor::new(bytes);
         let source = Decoder::new(cursor)?.convert_samples::<f32>().buffered();

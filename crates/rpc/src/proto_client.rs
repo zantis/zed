@@ -1,4 +1,4 @@
-use anyhow::Context;
+use anyhow::anyhow;
 use collections::HashMap;
 use futures::{
     Future, FutureExt as _,
@@ -190,7 +190,7 @@ impl AnyProtoClient {
         let response = self.0.request(envelope, T::NAME);
         async move {
             T::Response::from_envelope(response.await?)
-                .context("received response of the wrong type")
+                .ok_or_else(|| anyhow!("received response of the wrong type"))
         }
     }
 

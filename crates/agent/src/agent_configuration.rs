@@ -18,8 +18,8 @@ use language_model::{LanguageModelProvider, LanguageModelProviderId, LanguageMod
 use project::context_server_store::{ContextServerStatus, ContextServerStore};
 use settings::{Settings, update_settings_file};
 use ui::{
-    Disclosure, ElevationIndex, Indicator, Scrollbar, ScrollbarState, Switch, SwitchColor, Tooltip,
-    prelude::*,
+    Disclosure, Divider, DividerColor, ElevationIndex, Indicator, Scrollbar, ScrollbarState,
+    Switch, SwitchColor, Tooltip, prelude::*,
 };
 use util::ResultExt as _;
 use zed_actions::ExtensionCategoryFilter;
@@ -142,7 +142,7 @@ impl AgentConfiguration {
             .expanded_provider_configurations
             .get(&provider.id())
             .copied()
-            .unwrap_or(false);
+            .unwrap_or(true);
 
         v_flex()
             .pt_3()
@@ -201,12 +201,12 @@ impl AgentConfiguration {
                                 .on_click(cx.listener({
                                     let provider_id = provider.id().clone();
                                     move |this, _event, _window, _cx| {
-                                        let is_expanded = this
+                                        let is_open = this
                                             .expanded_provider_configurations
                                             .entry(provider_id.clone())
-                                            .or_insert(false);
+                                            .or_insert(true);
 
-                                        *is_expanded = !*is_expanded;
+                                        *is_open = !*is_open;
                                     }
                                 })),
                             ),
@@ -214,9 +214,9 @@ impl AgentConfiguration {
             )
             .when(is_expanded, |parent| match configuration_view {
                 Some(configuration_view) => parent.child(configuration_view),
-                None => parent.child(Label::new(format!(
+                None => parent.child(div().child(Label::new(format!(
                     "No configuration view for {provider_name}",
-                ))),
+                )))),
             })
     }
 
@@ -230,8 +230,7 @@ impl AgentConfiguration {
             .p(DynamicSpacing::Base16.rems(cx))
             .pr(DynamicSpacing::Base20.rems(cx))
             .gap_4()
-            .border_b_1()
-            .border_color(cx.theme().colors().border)
+            .flex_1()
             .child(
                 v_flex()
                     .gap_0p5()
@@ -332,8 +331,7 @@ impl AgentConfiguration {
             .p(DynamicSpacing::Base16.rems(cx))
             .pr(DynamicSpacing::Base20.rems(cx))
             .gap_2p5()
-            .border_b_1()
-            .border_color(cx.theme().colors().border)
+            .flex_1()
             .child(Headline::new("General Settings"))
             .child(self.render_command_permission(cx))
             .child(self.render_single_file_review(cx))
@@ -346,17 +344,18 @@ impl AgentConfiguration {
     ) -> impl IntoElement {
         let context_server_ids = self.context_server_store.read(cx).all_server_ids().clone();
 
+        const SUBHEADING: &str = "Connect to context servers via the Model Context Protocol either via Zed extensions or directly.";
+
         v_flex()
             .p(DynamicSpacing::Base16.rems(cx))
             .pr(DynamicSpacing::Base20.rems(cx))
             .gap_2()
-            .border_b_1()
-            .border_color(cx.theme().colors().border)
+            .flex_1()
             .child(
                 v_flex()
                     .gap_0p5()
                     .child(Headline::new("Model Context Protocol (MCP) Servers"))
-                    .child(Label::new("Connect to context servers via the Model Context Protocol either via Zed extensions or directly.").color(Color::Muted)),
+                    .child(Label::new(SUBHEADING).color(Color::Muted)),
             )
             .children(
                 context_server_ids.into_iter().map(|context_server_id| {
@@ -631,7 +630,9 @@ impl Render for AgentConfiguration {
                     .size_full()
                     .overflow_y_scroll()
                     .child(self.render_general_settings_section(cx))
+                    .child(Divider::horizontal().color(DividerColor::Border))
                     .child(self.render_context_servers_section(window, cx))
+                    .child(Divider::horizontal().color(DividerColor::Border))
                     .child(self.render_provider_configuration_section(cx)),
             )
             .child(

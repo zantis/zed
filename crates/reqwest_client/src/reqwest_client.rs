@@ -220,7 +220,7 @@ impl http_client::HttpClient for ReqwestClient {
         req: http::Request<http_client::AsyncBody>,
     ) -> futures::future::BoxFuture<
         'static,
-        anyhow::Result<http_client::Response<http_client::AsyncBody>>,
+        Result<http_client::Response<http_client::AsyncBody>, anyhow::Error>,
     > {
         let (parts, body) = req.into_parts();
 

@@ -1,4 +1,4 @@
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, anyhow};
 use async_compression::futures::bufread::GzipDecoder;
 use async_tar::Archive;
 use async_trait::async_trait;
@@ -315,7 +315,10 @@ async fn get_cached_ts_server_binary(
                 arguments: typescript_server_binary_arguments(&old_server_path),
             })
         } else {
-            anyhow::bail!("missing executable in directory {container_dir:?}")
+            Err(anyhow!(
+                "missing executable in directory {:?}",
+                container_dir
+            ))
         }
     })
     .await
@@ -488,7 +491,7 @@ impl LspAdapter for EsLintLspAdapter {
                 .http_client()
                 .get(&version.url, Default::default(), true)
                 .await
-                .context("downloading release")?;
+                .map_err(|err| anyhow!("error downloading release: {}", err))?;
             match Self::GITHUB_ASSET_KIND {
                 AssetKind::TarGz => {
                     let decompressed_bytes = GzipDecoder::new(BufReader::new(response.body_mut()));
@@ -526,7 +529,7 @@ impl LspAdapter for EsLintLspAdapter {
             }
 
             let mut dir = fs::read_dir(&destination_path).await?;
-            let first = dir.next().await.context("missing first file")??;
+            let first = dir.next().await.ok_or(anyhow!("missing first file"))??;
             let repo_root = destination_path.join("vscode-eslint");
             fs::rename(first.path(), &repo_root).await?;
 
@@ -577,10 +580,9 @@ impl LspAdapter for EsLintLspAdapter {
 
 #[cfg(target_os = "windows")]
 async fn handle_symlink(src_dir: PathBuf, dest_dir: PathBuf) -> Result<()> {
-    anyhow::ensure!(
-        fs::metadata(&src_dir).await.is_ok(),
-        "Directory {src_dir:?} is not present"
-    );
+    if fs::metadata(&src_dir).await.is_err() {
+        return Err(anyhow!("Directory {} not present.", src_dir.display()));
+    }
     if fs::metadata(&dest_dir).await.is_ok() {
         fs::remove_file(&dest_dir).await?;
     }

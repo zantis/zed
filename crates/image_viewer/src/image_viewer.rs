@@ -11,7 +11,6 @@ use gpui::{
     InteractiveElement, IntoElement, ObjectFit, ParentElement, Render, Styled, Task, WeakEntity,
     Window, canvas, div, fill, img, opaque_grey, point, size,
 };
-use language::File as _;
 use persistence::IMAGE_VIEWER;
 use project::{ImageItem, Project, ProjectPath, image_store::ImageItemEvent};
 use settings::Settings;
@@ -105,7 +104,7 @@ impl Item for ImageView {
     }
 
     fn tab_tooltip_text(&self, cx: &App) -> Option<SharedString> {
-        let abs_path = self.image_item.read(cx).abs_path(cx)?;
+        let abs_path = self.image_item.read(cx).file.as_local()?.abs_path(cx);
         let file_path = abs_path.compact().to_string_lossy().to_string();
         Some(file_path.into())
     }
@@ -150,10 +149,10 @@ impl Item for ImageView {
     }
 
     fn tab_icon(&self, _: &Window, cx: &App) -> Option<Icon> {
-        let path = self.image_item.read(cx).abs_path(cx)?;
+        let path = self.image_item.read(cx).path();
         ItemSettings::get_global(cx)
             .file_icons
-            .then(|| FileIcons::get_icon(&path, cx))
+            .then(|| FileIcons::get_icon(path, cx))
             .flatten()
             .map(Icon::from_path)
     }
@@ -222,11 +221,11 @@ impl SerializableItem for ImageView {
         item_id: ItemId,
         window: &mut Window,
         cx: &mut App,
-    ) -> Task<anyhow::Result<Entity<Self>>> {
+    ) -> Task<gpui::Result<Entity<Self>>> {
         window.spawn(cx, async move |cx| {
             let image_path = IMAGE_VIEWER
                 .get_image_path(item_id, workspace_id)?
-                .context("No image path found")?;
+                .ok_or_else(|| anyhow::anyhow!("No image path found"))?;
 
             let (worktree, relative_path) = project
                 .update(cx, |project, cx| {
@@ -256,7 +255,7 @@ impl SerializableItem for ImageView {
         alive_items: Vec<ItemId>,
         _window: &mut Window,
         cx: &mut App,
-    ) -> Task<anyhow::Result<()>> {
+    ) -> Task<gpui::Result<()>> {
         delete_unloaded_items(
             alive_items,
             workspace_id,
@@ -273,9 +272,9 @@ impl SerializableItem for ImageView {
         _closing: bool,
         _window: &mut Window,
         cx: &mut Context<Self>,
-    ) -> Option<Task<anyhow::Result<()>>> {
+    ) -> Option<Task<gpui::Result<()>>> {
         let workspace_id = workspace.database_id()?;
-        let image_path = self.image_item.read(cx).abs_path(cx)?;
+        let image_path = self.image_item.read(cx).file.as_local()?.abs_path(cx);
 
         Some(cx.background_spawn({
             async move {

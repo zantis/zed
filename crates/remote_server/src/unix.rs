@@ -333,7 +333,7 @@ fn start_server(
                             break;
                         };
                         if let Err(error) = incoming_tx.unbounded_send(message) {
-                            log::error!("failed to send message to application: {error:?}. exiting.");
+                            log::error!("failed to send message to application: {:?}. exiting.", error);
                             return Err(anyhow!(error));
                         }
                     }
@@ -390,7 +390,8 @@ fn init_paths() -> anyhow::Result<()> {
     ]
     .iter()
     {
-        std::fs::create_dir_all(path).with_context(|| format!("creating directory {path:?}"))?;
+        std::fs::create_dir_all(path)
+            .map_err(|e| anyhow!("Could not create directory {:?}: {}", path, e))?;
     }
     Ok(())
 }
@@ -541,7 +542,7 @@ pub fn execute_proxy(identifier: String, is_reconnecting: bool) -> Result<()> {
     if is_reconnecting {
         if !server_running {
             log::error!("attempted to reconnect, but no server running");
-            anyhow::bail!(ProxyLaunchError::ServerNotRunning);
+            return Err(anyhow!(ProxyLaunchError::ServerNotRunning));
         }
     } else {
         if let Some(pid) = server_pid {
@@ -572,19 +573,18 @@ pub fn execute_proxy(identifier: String, is_reconnecting: bool) -> Result<()> {
         let mut stream = smol::net::unix::UnixStream::connect(&server_paths.stderr_socket).await?;
         let mut stderr_buffer = vec![0; 2048];
         loop {
-            match stream
-                .read(&mut stderr_buffer)
-                .await
-                .context("reading stderr")?
-            {
-                0 => {
+            match stream.read(&mut stderr_buffer).await {
+                Ok(0) => {
                     let error =
                         std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "stderr closed");
                     Err(anyhow!(error))?;
                 }
-                n => {
+                Ok(n) => {
                     stderr.write_all(&mut stderr_buffer[..n]).await?;
                     stderr.flush().await?;
+                }
+                Err(error) => {
+                    Err(anyhow!("error reading stderr: {error:?}"))?;
                 }
             }
         }
@@ -868,7 +868,7 @@ fn read_proxy_settings(cx: &mut Context<HeadlessProject>) -> Option<Url> {
 }
 
 fn daemonize() -> Result<ControlFlow<()>> {
-    match fork::fork().map_err(|e| anyhow!("failed to call fork with error code {e}"))? {
+    match fork::fork().map_err(|e| anyhow::anyhow!("failed to call fork with error code {}", e))? {
         fork::Fork::Parent(_) => {
             return Ok(ControlFlow::Break(()));
         }

@@ -1,4 +1,3 @@
-use anyhow::Context as _;
 use collections::HashMap;
 use dap::{Capabilities, adapters::DebugAdapterName};
 use db::kvp::KEY_VALUE_STORE;
@@ -97,14 +96,18 @@ pub(crate) async fn serialize_pane_layout(
     adapter_name: DebugAdapterName,
     pane_group: SerializedLayout,
 ) -> anyhow::Result<()> {
-    let serialized_pane_group = serde_json::to_string(&pane_group)
-        .context("Serializing pane group with serde_json as a string")?;
-    KEY_VALUE_STORE
-        .write_kvp(
-            format!("{DEBUGGER_PANEL_PREFIX}-{adapter_name}"),
-            serialized_pane_group,
-        )
-        .await
+    if let Ok(serialized_pane_group) = serde_json::to_string(&pane_group) {
+        KEY_VALUE_STORE
+            .write_kvp(
+                format!("{DEBUGGER_PANEL_PREFIX}-{adapter_name}"),
+                serialized_pane_group,
+            )
+            .await
+    } else {
+        Err(anyhow::anyhow!(
+            "Failed to serialize pane group with serde_json as a string"
+        ))
+    }
 }
 
 pub(crate) fn build_serialized_layout(

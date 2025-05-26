@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 
 pub struct EnvFilter {
     pub level_global: Option<log::LevelFilter>,
@@ -14,7 +14,9 @@ pub fn parse(filter: &str) -> Result<EnvFilter> {
     for directive in filter.split(',') {
         match directive.split_once('=') {
             Some((name, level)) => {
-                anyhow::ensure!(!level.contains('='), "Invalid directive: {directive}");
+                if level.contains('=') {
+                    return Err(anyhow!("Invalid directive: {}", directive));
+                }
                 let level = parse_level(level.trim())?;
                 directive_names.push(name.trim().trim_end_matches(".rs").to_string());
                 directive_levels.push(level);
@@ -25,7 +27,9 @@ pub fn parse(filter: &str) -> Result<EnvFilter> {
                     directive_levels.push(log::LevelFilter::max() /* Enable all levels */);
                     continue;
                 };
-                anyhow::ensure!(max_level.is_none(), "Cannot set multiple max levels");
+                if max_level.is_some() {
+                    return Err(anyhow!("Cannot set multiple max levels"));
+                }
                 max_level.replace(level);
             }
         };
@@ -57,7 +61,7 @@ fn parse_level(level: &str) -> Result<log::LevelFilter> {
     if level.eq_ignore_ascii_case("OFF") || level.eq_ignore_ascii_case("NONE") {
         return Ok(log::LevelFilter::Off);
     }
-    anyhow::bail!("Invalid level: {level}")
+    Err(anyhow!("Invalid level: {}", level))
 }
 
 #[cfg(test)]

@@ -278,7 +278,7 @@ impl CompletionProvider for ConsoleQueryBarCompletionProvider {
         _completion_indices: Vec<usize>,
         _completions: Rc<RefCell<Box<[Completion]>>>,
         _cx: &mut Context<Editor>,
-    ) -> gpui::Task<anyhow::Result<bool>> {
+    ) -> gpui::Task<gpui::Result<bool>> {
         Task::ready(Ok(false))
     }
 
@@ -289,7 +289,7 @@ impl CompletionProvider for ConsoleQueryBarCompletionProvider {
         _completion_index: usize,
         _push_to_history: bool,
         _cx: &mut Context<Editor>,
-    ) -> gpui::Task<anyhow::Result<Option<language::Transaction>>> {
+    ) -> gpui::Task<gpui::Result<Option<language::Transaction>>> {
         Task::ready(Ok(None))
     }
 
@@ -365,7 +365,7 @@ impl ConsoleQueryBarCompletionProvider {
                             new_text: string_match.string.clone(),
                             label: CodeLabel {
                                 filter_range: 0..string_match.string.len(),
-                                text: format!("{} {}", string_match.string, variable_value),
+                                text: format!("{} {}", string_match.string.clone(), variable_value),
                                 runs: Vec::new(),
                             },
                             icon_path: None,

@@ -1,7 +1,7 @@
 use std::{borrow::Cow, sync::Arc};
 
 use ::util::ResultExt;
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use collections::HashMap;
 use itertools::Itertools;
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
@@ -729,7 +729,7 @@ impl DirectWriteState {
         glyph_bounds: Bounds<DevicePixels>,
     ) -> Result<(Size<DevicePixels>, Vec<u8>)> {
         if glyph_bounds.size.width.0 == 0 || glyph_bounds.size.height.0 == 0 {
-            anyhow::bail!("glyph bounds are empty");
+            return Err(anyhow!("glyph bounds are empty"));
         }
 
         let font_info = &self.fonts[params.font_id.0];
@@ -1301,7 +1301,7 @@ fn get_postscript_name(font_face: &IDWriteFontFace3, locale: &str) -> Result<Str
         )?
     };
     if !exists.as_bool() || info.is_none() {
-        anyhow::bail!("No postscript name found for font face");
+        return Err(anyhow!("No postscript name found for font face"));
     }
 
     get_name(info.unwrap(), locale)
@@ -1393,7 +1393,9 @@ fn get_name(string: IDWriteLocalizedStrings, locale: &str) -> Result<String> {
                 &mut exists as _,
             )?
         };
-        anyhow::ensure!(exists.as_bool(), "No localised string for {locale}");
+        if !exists.as_bool() {
+            return Err(anyhow!("No localised string for {}", locale));
+        }
     }
 
     let name_length = unsafe { string.GetStringLength(locale_name_index) }? as usize;

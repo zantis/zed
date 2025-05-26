@@ -1,5 +1,5 @@
 use crate::{Channel, ChannelStore};
-use anyhow::{Context as _, Result};
+use anyhow::{Result, anyhow};
 use client::{
     ChannelId, Client, Subscription, TypedEnvelope, UserId, proto,
     user::{User, UserStore},
@@ -170,16 +170,15 @@ impl ChannelChat {
         message: MessageParams,
         cx: &mut Context<Self>,
     ) -> Result<Task<Result<u64>>> {
-        anyhow::ensure!(
-            !message.text.trim().is_empty(),
-            "message body can't be empty"
-        );
+        if message.text.trim().is_empty() {
+            Err(anyhow!("message body can't be empty"))?;
+        }
 
         let current_user = self
             .user_store
             .read(cx)
             .current_user()
-            .context("current_user is not present")?;
+            .ok_or_else(|| anyhow!("current_user is not present"))?;
 
         let channel_id = self.channel_id;
         let pending_id = ChannelMessageId::Pending(post_inc(&mut self.next_pending_message_id));
@@ -216,7 +215,7 @@ impl ChannelChat {
             });
             let response = request.await?;
             drop(outgoing_message_guard);
-            let response = response.message.context("invalid message")?;
+            let response = response.message.ok_or_else(|| anyhow!("invalid message"))?;
             let id = response.id;
             let message = ChannelMessage::from_proto(response, &user_store, cx).await?;
             this.update(cx, |this, cx| {
@@ -471,7 +470,7 @@ impl ChannelChat {
                     });
                     let response = request.await?;
                     let message = ChannelMessage::from_proto(
-                        response.message.context("invalid message")?,
+                        response.message.ok_or_else(|| anyhow!("invalid message"))?,
                         &user_store,
                         cx,
                     )
@@ -532,7 +531,10 @@ impl ChannelChat {
         mut cx: AsyncApp,
     ) -> Result<()> {
         let user_store = this.update(&mut cx, |this, _| this.user_store.clone())?;
-        let message = message.payload.message.context("empty message")?;
+        let message = message
+            .payload
+            .message
+            .ok_or_else(|| anyhow!("empty message"))?;
         let message_id = message.id;
 
         let message = ChannelMessage::from_proto(message, &user_store, &mut cx).await?;
@@ -564,7 +566,10 @@ impl ChannelChat {
         mut cx: AsyncApp,
     ) -> Result<()> {
         let user_store = this.update(&mut cx, |this, _| this.user_store.clone())?;
-        let message = message.payload.message.context("empty message")?;
+        let message = message
+            .payload
+            .message
+            .ok_or_else(|| anyhow!("empty message"))?;
 
         let message = ChannelMessage::from_proto(message, &user_store, &mut cx).await?;
 
@@ -748,7 +753,10 @@ impl ChannelMessage {
                 .collect(),
             timestamp: OffsetDateTime::from_unix_timestamp(message.timestamp as i64)?,
             sender,
-            nonce: message.nonce.context("nonce is required")?.into(),
+            nonce: message
+                .nonce
+                .ok_or_else(|| anyhow!("nonce is required"))?
+                .into(),
             reply_to_message_id: message.reply_to_message_id,
             edited_at,
         })

@@ -1,4 +1,4 @@
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, Result, anyhow, bail};
 use collections::{BTreeMap, HashMap};
 use fs::Fs;
 use language::LanguageName;
@@ -164,7 +164,7 @@ pub struct GrammarManifestEntry {
     pub path: Option<String>,
 }
 
-#[derive(Clone, Default, PartialEq, Eq, Debug, Deserialize, Serialize)]
+#[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
 pub struct LanguageServerManifestEntry {
     /// Deprecated in favor of `languages`.
     #[serde(default)]
@@ -213,7 +213,7 @@ impl ExtensionManifest {
         let extension_name = extension_dir
             .file_name()
             .and_then(OsStr::to_str)
-            .context("invalid extension name")?;
+            .ok_or_else(|| anyhow!("invalid extension name"))?;
 
         let mut extension_manifest_path = extension_dir.join("extension.json");
         if fs.is_file(&extension_manifest_path).await {

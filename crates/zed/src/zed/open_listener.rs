@@ -1,6 +1,6 @@
 use crate::handle_open_request;
 use crate::restorable_workspace_locations;
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, anyhow};
 use cli::{CliRequest, CliResponse, ipc::IpcSender};
 use cli::{IpcHandshake, ipc};
 use client::parse_zed_link;
@@ -74,14 +74,13 @@ impl OpenRequest {
         let url = url::Url::parse(file)?;
         let host = url
             .host()
-            .with_context(|| format!("missing host in ssh url: {file}"))?
+            .ok_or_else(|| anyhow!("missing host in ssh url: {}", file))?
             .to_string();
         let username = Some(url.username().to_string()).filter(|s| !s.is_empty());
         let port = url.port();
-        anyhow::ensure!(
-            self.open_paths.is_empty(),
-            "cannot open both local and ssh paths"
-        );
+        if !self.open_paths.is_empty() {
+            return Err(anyhow!("cannot open both local and ssh paths"));
+        }
         let mut connection_options = SshSettings::get_global(cx).connection_options_for(
             host.clone(),
             port,
@@ -91,10 +90,9 @@ impl OpenRequest {
             connection_options.password = Some(password.to_string());
         }
         if let Some(ssh_connection) = &self.ssh_connection {
-            anyhow::ensure!(
-                *ssh_connection == connection_options,
-                "cannot open multiple ssh connections"
-            );
+            if *ssh_connection != connection_options {
+                return Err(anyhow!("cannot open multiple ssh connections"));
+            }
         }
         self.ssh_connection = Some(connection_options);
         self.parse_file_path(url.path());
@@ -125,7 +123,7 @@ impl OpenRequest {
                 }
             }
         }
-        anyhow::bail!("invalid zed url: {request_path}")
+        Err(anyhow!("invalid zed url: {}", request_path))
     }
 }
 
@@ -143,7 +141,7 @@ impl OpenListener {
     pub fn open_urls(&self, urls: Vec<String>) {
         self.0
             .unbounded_send(urls)
-            .context("no listener for open requests")
+            .map_err(|_| anyhow!("no listener for open requests"))
             .log_err();
     }
 }
@@ -193,7 +191,7 @@ fn connect_to_cli(
                 break;
             }
         }
-        anyhow::Ok(())
+        Ok::<_, anyhow::Error>(())
     });
 
     Ok((async_request_rx, response_tx))
@@ -403,7 +401,9 @@ async fn open_workspaces(
             }
         }
 
-        anyhow::ensure!(!errored, "failed to open a workspace");
+        if errored {
+            return Err(anyhow!("failed to open a workspace"));
+        }
     }
 
     Ok(())

@@ -388,7 +388,9 @@ impl UserStore {
                     // Users are fetched in parallel above and cached in call to get_users
                     // No need to parallelize here
                     let mut updated_contacts = Vec::new();
-                    let this = this.upgrade().context("can't upgrade user store handle")?;
+                    let this = this
+                        .upgrade()
+                        .ok_or_else(|| anyhow!("can't upgrade user store handle"))?;
                     for contact in message.contacts {
                         updated_contacts
                             .push(Arc::new(Contact::from_proto(contact, &this, cx).await?));
@@ -572,7 +574,7 @@ impl UserStore {
         let client = self.client.upgrade();
         cx.spawn(async move |_, _| {
             client
-                .context("can't upgrade client reference")?
+                .ok_or_else(|| anyhow!("can't upgrade client reference"))?
                 .request(proto::RespondToContactRequest {
                     requester_id,
                     response: proto::ContactRequestResponse::Dismiss as i32,
@@ -594,7 +596,7 @@ impl UserStore {
 
         cx.spawn(async move |this, cx| {
             let response = client
-                .context("can't upgrade client reference")?
+                .ok_or_else(|| anyhow!("can't upgrade client reference"))?
                 .request(request)
                 .await;
             this.update(cx, |this, cx| {
@@ -661,7 +663,7 @@ impl UserStore {
                         this.users
                             .get(user_id)
                             .cloned()
-                            .with_context(|| format!("user {user_id} not found"))
+                            .ok_or_else(|| anyhow!("user {} not found", user_id))
                     })
                     .collect()
             })?
@@ -701,7 +703,7 @@ impl UserStore {
                 this.users
                     .get(&user_id)
                     .cloned()
-                    .context("server responded with no users")
+                    .ok_or_else(|| anyhow!("server responded with no users"))
             })?
         })
     }
@@ -763,17 +765,20 @@ impl UserStore {
         };
 
         let client = self.client.clone();
-        cx.spawn(async move |this, cx| -> anyhow::Result<()> {
-            let client = client.upgrade().context("client not found")?;
-            let response = client
-                .request(proto::AcceptTermsOfService {})
-                .await
-                .context("error accepting tos")?;
-            this.update(cx, |this, cx| {
-                this.set_current_user_accepted_tos_at(Some(response.accepted_tos_at));
-                cx.emit(Event::PrivateUserInfoUpdated);
-            })?;
-            Ok(())
+        cx.spawn(async move |this, cx| {
+            if let Some(client) = client.upgrade() {
+                let response = client
+                    .request(proto::AcceptTermsOfService {})
+                    .await
+                    .context("error accepting tos")?;
+
+                this.update(cx, |this, cx| {
+                    this.set_current_user_accepted_tos_at(Some(response.accepted_tos_at));
+                    cx.emit(Event::PrivateUserInfoUpdated);
+                })
+            } else {
+                Err(anyhow!("client not found"))
+            }
         })
     }
 
@@ -892,7 +897,7 @@ impl Contact {
 impl Collaborator {
     pub fn from_proto(message: proto::Collaborator) -> Result<Self> {
         Ok(Self {
-            peer_id: message.peer_id.context("invalid peer id")?,
+            peer_id: message.peer_id.ok_or_else(|| anyhow!("invalid peer id"))?,
             replica_id: message.replica_id as ReplicaId,
             user_id: message.user_id as UserId,
             is_host: message.is_host,

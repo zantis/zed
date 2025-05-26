@@ -570,15 +570,6 @@ impl AgentPanel {
                         menu = menu.header("Recently Opened");
 
                         for entry in recently_opened.iter() {
-                            if let RecentEntry::Context(context) = entry {
-                                if context.read(cx).path().is_none() {
-                                    log::error!(
-                                        "bug: text thread in recent history list was never saved"
-                                    );
-                                    continue;
-                                }
-                            }
-
                             let summary = entry.summary(cx);
 
                             menu = menu.entry_with_end_slot_on_hover(
@@ -1212,7 +1203,12 @@ impl AgentPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(workspace) = self.workspace.upgrade() else {
+        let Some(workspace) = self
+            .workspace
+            .upgrade()
+            .ok_or_else(|| anyhow!("workspace dropped"))
+            .log_err()
+        else {
             return;
         };
 
@@ -1297,26 +1293,14 @@ impl AgentPanel {
         let new_is_history = matches!(new_view, ActiveView::History);
 
         match &self.active_view {
-            ActiveView::Thread { thread, .. } => {
+            ActiveView::Thread { thread, .. } => self.history_store.update(cx, |store, cx| {
                 if let Some(thread) = thread.upgrade() {
                     if thread.read(cx).is_empty() {
                         let id = thread.read(cx).id().clone();
-                        self.history_store.update(cx, |store, cx| {
-                            store.remove_recently_opened_thread(id, cx);
-                        });
+                        store.remove_recently_opened_thread(id, cx);
                     }
                 }
-            }
-            ActiveView::PromptEditor { context_editor, .. } => {
-                let context = context_editor.read(cx).context();
-                // When switching away from an unsaved text thread, delete its entry.
-                if context.read(cx).path().is_none() {
-                    let context = context.clone();
-                    self.history_store.update(cx, |store, cx| {
-                        store.remove_recently_opened_entry(&RecentEntry::Context(context), cx);
-                    });
-                }
-            }
+            }),
             _ => {}
         }
 
@@ -2240,7 +2224,6 @@ impl AgentPanel {
 
         v_flex()
             .size_full()
-            .bg(cx.theme().colors().panel_background)
             .when(recent_history.is_empty(), |this| {
                 let configuration_error_ref = &configuration_error;
                 this.child(

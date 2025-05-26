@@ -1,4 +1,4 @@
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use dap_types::{
     ErrorResponse,
     messages::{Message, Response},
@@ -226,9 +226,12 @@ impl TransportDelegate {
 
     pub(crate) async fn send_message(&self, message: Message) -> Result<()> {
         if let Some(server_tx) = self.server_tx.lock().await.as_ref() {
-            server_tx.send(message).await.context("sending message")
+            server_tx
+                .send(message)
+                .await
+                .map_err(|e| anyhow!("Failed to send message: {}", e))
         } else {
-            anyhow::bail!("Server tx already dropped")
+            Err(anyhow!("Server tx already dropped"))
         }
     }
 
@@ -251,7 +254,7 @@ impl TransportDelegate {
             };
 
             if bytes_read == 0 {
-                anyhow::bail!("Debugger log stream closed");
+                break Err(anyhow!("Debugger log stream closed"));
             }
 
             if let Some(log_handlers) = log_handlers.as_ref() {
@@ -376,7 +379,7 @@ impl TransportDelegate {
 
         let result = loop {
             match reader.read_line(&mut buffer).await {
-                Ok(0) => anyhow::bail!("debugger error stream closed"),
+                Ok(0) => break Err(anyhow!("debugger error stream closed")),
                 Ok(_) => {
                     for (kind, log_handler) in log_handlers.lock().iter_mut() {
                         if matches!(kind, LogKind::Adapter) {
@@ -406,13 +409,13 @@ impl TransportDelegate {
                 .and_then(|response| response.error.map(|msg| msg.format))
                 .or_else(|| response.message.clone())
             {
-                anyhow::bail!(error_message);
+                return Err(anyhow!(error_message));
             };
 
-            anyhow::bail!(
+            Err(anyhow!(
                 "Received error response from adapter. Response: {:?}",
-                response
-            );
+                response.clone()
+            ))
         }
     }
 
@@ -434,7 +437,7 @@ impl TransportDelegate {
                 .with_context(|| "reading a message from server")?
                 == 0
             {
-                anyhow::bail!("debugger reader stream closed");
+                return Err(anyhow!("debugger reader stream closed"));
             };
 
             if buffer == "\r\n" {
@@ -537,10 +540,9 @@ impl TcpTransport {
     }
 
     async fn start(binary: &DebugAdapterBinary, cx: AsyncApp) -> Result<(TransportPipe, Self)> {
-        let connection_args = binary
-            .connection
-            .as_ref()
-            .context("No connection arguments provided")?;
+        let Some(connection_args) = binary.connection.as_ref() else {
+            return Err(anyhow!("No connection arguments provided"));
+        };
 
         let host = connection_args.host;
         let port = connection_args.port;
@@ -575,7 +577,7 @@ impl TcpTransport {
 
         let (mut process, (rx, tx)) = select! {
             _ = cx.background_executor().timer(Duration::from_millis(timeout)).fuse() => {
-                anyhow::bail!("Connection to TCP DAP timeout {host}:{port}");
+                return Err(anyhow!(format!("Connection to TCP DAP timeout {}:{}", host, port)))
             },
             result = cx.spawn(async move |cx| {
                 loop {
@@ -589,7 +591,7 @@ impl TcpTransport {
                                 } else {
                                     String::from_utf8_lossy(&output.stderr).to_string()
                                 };
-                                anyhow::bail!("{output}\nerror: process exited before debugger attached.");
+                                return Err(anyhow!("{}\nerror: process exited before debugger attached.", output));
                             }
                             cx.background_executor().timer(Duration::from_millis(100)).await;
                         }
@@ -662,8 +664,14 @@ impl StdioTransport {
             .spawn()
             .with_context(|| "failed to spawn command.")?;
 
-        let stdin = process.stdin.take().context("Failed to open stdin")?;
-        let stdout = process.stdout.take().context("Failed to open stdout")?;
+        let stdin = process
+            .stdin
+            .take()
+            .ok_or_else(|| anyhow!("Failed to open stdin"))?;
+        let stdout = process
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow!("Failed to open stdout"))?;
         let stderr = process
             .stderr
             .take()
@@ -785,7 +793,7 @@ impl FakeTransport {
 
                     match message {
                         Err(error) => {
-                            break anyhow::anyhow!(error);
+                            break anyhow!(error);
                         }
                         Ok(message) => {
                             match message {

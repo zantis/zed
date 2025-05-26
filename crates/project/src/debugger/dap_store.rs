@@ -66,6 +66,7 @@ pub enum DapStoreEvent {
     RemoteHasInitialized,
 }
 
+#[allow(clippy::large_enum_variant)]
 enum DapStoreMode {
     Local(LocalDapStore),
     Ssh(SshDapStore),
@@ -237,7 +238,9 @@ impl DapStore {
                     let binary = DebugAdapterBinary::from_proto(response)?;
                     let mut ssh_command = ssh_client.update(cx, |ssh, _| {
                         anyhow::Ok(SshCommand {
-                            arguments: ssh.ssh_args().context("SSH arguments not found")?,
+                            arguments: ssh
+                                .ssh_args()
+                                .ok_or_else(|| anyhow!("SSH arguments not found"))?,
                         })
                     })??;
 
@@ -314,10 +317,10 @@ impl DapStore {
                             return Ok(result);
                         }
 
-                        anyhow::bail!(
+                        Err(anyhow!(
                             "None of the locators for task `{}` completed successfully",
                             build_command.label
-                        )
+                        ))
                     })
                 } else {
                     Task::ready(Err(anyhow!(
@@ -733,7 +736,7 @@ impl DapStore {
         let task = envelope
             .payload
             .build_command
-            .context("missing definition")?;
+            .ok_or_else(|| anyhow!("missing definition"))?;
         let build_task = SpawnInTerminal::from_proto(task);
         let locator = envelope.payload.locator;
         let request = this
@@ -751,7 +754,10 @@ impl DapStore {
         mut cx: AsyncApp,
     ) -> Result<proto::DebugAdapterBinary> {
         let definition = DebugTaskDefinition::from_proto(
-            envelope.payload.definition.context("missing definition")?,
+            envelope
+                .payload
+                .definition
+                .ok_or_else(|| anyhow!("missing definition"))?,
         )?;
         let (tx, mut rx) = mpsc::unbounded();
         let session_id = envelope.payload.session_id;

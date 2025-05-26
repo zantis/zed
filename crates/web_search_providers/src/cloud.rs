@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, anyhow};
 use client::Client;
 use futures::AsyncReadExt as _;
 use gpui::{App, AppContext, Context, Entity, Subscription, Task};
@@ -96,9 +96,9 @@ async fn perform_web_search(
     } else {
         let mut body = String::new();
         response.body_mut().read_to_string(&mut body).await?;
-        anyhow::bail!(
+        return Err(anyhow!(
             "error performing web search.\nStatus: {:?}\nBody: {body}",
             response.status(),
-        );
+        ));
     }
 }

@@ -191,7 +191,7 @@ impl TerminalInlineAssistant {
         };
 
         self.prompt_history.retain(|prompt| *prompt != user_prompt);
-        self.prompt_history.push_back(user_prompt);
+        self.prompt_history.push_back(user_prompt.clone());
         if self.prompt_history.len() > PROMPT_HISTORY_MAX_LEN {
             self.prompt_history.pop_front();
         }

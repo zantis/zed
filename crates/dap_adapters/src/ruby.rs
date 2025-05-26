@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use dap::{
     DebugRequest, StartDebuggingRequestArguments,
@@ -54,11 +54,12 @@ impl DebugAdapter for RubyDebugAdapter {
                         .arg("debug")
                         .output()
                         .await?;
-                    anyhow::ensure!(
-                        output.status.success(),
-                        "Failed to install rdbg:\n{}",
-                        String::from_utf8_lossy(&output.stderr).to_string()
-                    );
+                    if !output.status.success() {
+                        return Err(anyhow!(
+                            "Failed to install rdbg:\n{}",
+                            String::from_utf8_lossy(&output.stderr).to_string()
+                        ));
+                    }
                 }
             }
         }

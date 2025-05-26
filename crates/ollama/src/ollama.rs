@@ -1,4 +1,4 @@
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, anyhow};
 use futures::{AsyncBufReadExt, AsyncReadExt, StreamExt, io::BufReader, stream::BoxStream};
 use http_client::{AsyncBody, HttpClient, Method, Request as HttpRequest, http};
 use serde::{Deserialize, Serialize};
@@ -242,11 +242,11 @@ pub async fn complete(
         Ok(response_message)
     } else {
         let body_str = std::str::from_utf8(&body)?;
-        anyhow::bail!(
+        Err(anyhow!(
             "Failed to connect to API: {} {}",
             response.status(),
             body_str
-        );
+        ))
     }
 }
 
@@ -276,11 +276,12 @@ pub async fn stream_chat_completion(
     } else {
         let mut body = String::new();
         response.body_mut().read_to_string(&mut body).await?;
-        anyhow::bail!(
+
+        Err(anyhow!(
             "Failed to connect to Ollama API: {} {}",
             response.status(),
             body,
-        );
+        ))
     }
 }
 
@@ -302,15 +303,18 @@ pub async fn get_models(
     let mut body = String::new();
     response.body_mut().read_to_string(&mut body).await?;
 
-    anyhow::ensure!(
-        response.status().is_success(),
-        "Failed to connect to Ollama API: {} {}",
-        response.status(),
-        body,
-    );
-    let response: LocalModelsResponse =
-        serde_json::from_str(&body).context("Unable to parse Ollama tag listing")?;
-    Ok(response.models)
+    if response.status().is_success() {
+        let response: LocalModelsResponse =
+            serde_json::from_str(&body).context("Unable to parse Ollama tag listing")?;
+
+        Ok(response.models)
+    } else {
+        Err(anyhow!(
+            "Failed to connect to Ollama API: {} {}",
+            response.status(),
+            body,
+        ))
+    }
 }
 
 /// Fetch details of a model, used to determine model capabilities
@@ -328,14 +332,16 @@ pub async fn show_model(client: &dyn HttpClient, api_url: &str, model: &str) -> 
     let mut body = String::new();
     response.body_mut().read_to_string(&mut body).await?;
 
-    anyhow::ensure!(
-        response.status().is_success(),
-        "Failed to connect to Ollama API: {} {}",
-        response.status(),
-        body,
-    );
-    let details: ModelShow = serde_json::from_str(body.as_str())?;
-    Ok(details)
+    if response.status().is_success() {
+        let details: ModelShow = serde_json::from_str(body.as_str())?;
+        Ok(details)
+    } else {
+        Err(anyhow!(
+            "Failed to connect to Ollama API: {} {}",
+            response.status(),
+            body,
+        ))
+    }
 }
 
 /// Sends an empty request to Ollama to trigger loading the model
@@ -360,11 +366,12 @@ pub async fn preload_model(client: Arc<dyn HttpClient>, api_url: &str, model: &s
     } else {
         let mut body = String::new();
         response.body_mut().read_to_string(&mut body).await?;
-        anyhow::bail!(
+
+        Err(anyhow!(
             "Failed to connect to Ollama API: {} {}",
             response.status(),
             body,
-        );
+        ))
     }
 }
 

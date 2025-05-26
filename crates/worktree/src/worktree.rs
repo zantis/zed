@@ -107,15 +107,6 @@ pub struct LoadedBinaryFile {
     pub content: Vec<u8>,
 }
 
-impl fmt::Debug for LoadedBinaryFile {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("LoadedBinaryFile")
-            .field("file", &self.file)
-            .field("content_bytes", &self.content.len())
-            .finish()
-    }
-}
-
 pub struct LocalWorktree {
     snapshot: LocalSnapshot,
     scan_requests_tx: channel::Sender<ScanRequest>,
@@ -252,7 +243,13 @@ impl WorkDirectory {
         match self {
             WorkDirectory::InProject { relative_path } => Ok(path
                 .strip_prefix(relative_path)
-                .map_err(|_| anyhow!("could not relativize {path:?} against {relative_path:?}"))?
+                .map_err(|_| {
+                    anyhow!(
+                        "could not relativize {:?} against {:?}",
+                        path,
+                        relative_path
+                    )
+                })?
                 .into()),
             WorkDirectory::AboveProject {
                 location_in_repo, ..
@@ -1087,7 +1084,7 @@ impl Worktree {
                 ),
             )
         })?;
-        task.context("invalid entry")?.await?;
+        task.ok_or_else(|| anyhow!("invalid entry"))?.await?;
         Ok(proto::ProjectEntryResponse {
             entry: None,
             worktree_scan_id: scan_id as u64,
@@ -1102,7 +1099,7 @@ impl Worktree {
         let task = this.update(&mut cx, |this, cx| {
             this.expand_entry(ProjectEntryId::from_proto(request.entry_id), cx)
         })?;
-        task.context("no such entry")?.await?;
+        task.ok_or_else(|| anyhow!("no such entry"))?.await?;
         let scan_id = this.read_with(&cx, |this, _| this.scan_id())?;
         Ok(proto::ExpandProjectEntryResponse {
             worktree_scan_id: scan_id as u64,
@@ -1117,7 +1114,7 @@ impl Worktree {
         let task = this.update(&mut cx, |this, cx| {
             this.expand_all_for_entry(ProjectEntryId::from_proto(request.entry_id), cx)
         })?;
-        task.context("no such entry")?.await?;
+        task.ok_or_else(|| anyhow!("no such entry"))?.await?;
         let scan_id = this.read_with(&cx, |this, _| this.scan_id())?;
         Ok(proto::ExpandAllForProjectEntryResponse {
             worktree_scan_id: scan_id as u64,
@@ -1481,7 +1478,9 @@ impl LocalWorktree {
             let abs_path = abs_path?;
             let content = fs.load_bytes(&abs_path).await?;
 
-            let worktree = worktree.upgrade().context("worktree was dropped")?;
+            let worktree = worktree
+                .upgrade()
+                .ok_or_else(|| anyhow!("worktree was dropped"))?;
             let file = match entry.await? {
                 Some(entry) => File::for_entry(entry, worktree),
                 None => {
@@ -1536,7 +1535,9 @@ impl LocalWorktree {
             }
             let text = fs.load(&abs_path).await?;
 
-            let worktree = this.upgrade().context("worktree was dropped")?;
+            let worktree = this
+                .upgrade()
+                .ok_or_else(|| anyhow!("worktree was dropped"))?;
             let file = match entry.await? {
                 Some(entry) => File::for_entry(entry, worktree),
                 None => {
@@ -1673,7 +1674,7 @@ impl LocalWorktree {
                         .refresh_entry(path.clone(), None, cx)
                 })?
                 .await?;
-            let worktree = this.upgrade().context("worktree dropped")?;
+            let worktree = this.upgrade().ok_or_else(|| anyhow!("worktree dropped"))?;
             if let Some(entry) = entry {
                 Ok(File::for_entry(entry, worktree))
             } else {
@@ -1920,17 +1921,17 @@ impl LocalWorktree {
                     )
                     .await
                     .with_context(|| {
-                        format!("Failed to copy file from {source:?} to {target:?}")
+                        anyhow!("Failed to copy file from {source:?} to {target:?}")
                     })?;
                 }
-                anyhow::Ok(())
+                Ok::<(), anyhow::Error>(())
             })
             .await
             .log_err();
             let mut refresh = cx.read_entity(
                 &this.upgrade().with_context(|| "Dropped worktree")?,
                 |this, _| {
-                    anyhow::Ok::<postage::barrier::Receiver>(
+                    Ok::<postage::barrier::Receiver, anyhow::Error>(
                         this.as_local()
                             .with_context(|| "Worktree is not local")?
                             .refresh_entries_for_paths(paths_to_refresh.clone()),
@@ -1940,7 +1941,7 @@ impl LocalWorktree {
 
             cx.background_spawn(async move {
                 refresh.next().await;
-                anyhow::Ok(())
+                Ok::<(), anyhow::Error>(())
             })
             .await
             .log_err();
@@ -2030,7 +2031,7 @@ impl LocalWorktree {
             let new_entry = this.update(cx, |this, _| {
                 this.entry_for_path(path)
                     .cloned()
-                    .context("reading path after update")
+                    .ok_or_else(|| anyhow!("failed to read path after update"))
             })??;
             Ok(Some(new_entry))
         })
@@ -2291,7 +2292,7 @@ impl RemoteWorktree {
         paths_to_copy: Vec<Arc<Path>>,
         local_fs: Arc<dyn Fs>,
         cx: &Context<Worktree>,
-    ) -> Task<anyhow::Result<Vec<ProjectEntryId>>> {
+    ) -> Task<Result<Vec<ProjectEntryId>, anyhow::Error>> {
         let client = self.client.clone();
         let worktree_id = self.id().to_proto();
         let project_id = self.project_id;
@@ -2414,7 +2415,7 @@ impl Snapshot {
             .components()
             .any(|component| !matches!(component, std::path::Component::Normal(_)))
         {
-            anyhow::bail!("invalid path");
+            return Err(anyhow!("invalid path"));
         }
         if path.file_name().is_some() {
             Ok(self.abs_path.as_path().join(path))
@@ -3292,7 +3293,7 @@ impl fmt::Debug for Snapshot {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct File {
     pub worktree: Entity<Worktree>,
     pub path: Arc<Path>,
@@ -3392,12 +3393,15 @@ impl File {
         worktree: Entity<Worktree>,
         cx: &App,
     ) -> Result<Self> {
-        let worktree_id = worktree.read(cx).as_remote().context("not remote")?.id();
+        let worktree_id = worktree
+            .read(cx)
+            .as_remote()
+            .ok_or_else(|| anyhow!("not remote"))?
+            .id();
 
-        anyhow::ensure!(
-            worktree_id.to_proto() == proto.worktree_id,
-            "worktree id does not match file"
-        );
+        if worktree_id.to_proto() != proto.worktree_id {
+            return Err(anyhow!("worktree id does not match file"));
+        }
 
         let disk_state = if proto.is_deleted {
             DiskState::Deleted
@@ -5546,7 +5550,7 @@ impl CreatedEntry {
 fn parse_gitfile(content: &str) -> anyhow::Result<&Path> {
     let path = content
         .strip_prefix("gitdir:")
-        .with_context(|| format!("parsing gitfile content {content:?}"))?;
+        .ok_or_else(|| anyhow!("failed to parse gitfile content {content:?}"))?;
     Ok(Path::new(path.trim()))
 }
 

@@ -1,6 +1,6 @@
 use std::{path::PathBuf, sync::Arc};
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, anyhow};
 use client::{TypedEnvelope, proto};
 use collections::{HashMap, HashSet};
 use extension::{
@@ -295,7 +295,7 @@ impl HeadlessExtensionStore {
         let extension = envelope
             .payload
             .extension
-            .context("Invalid InstallExtension request")?;
+            .with_context(|| anyhow!("Invalid InstallExtension request"))?;
 
         extensions
             .update(&mut cx, |extensions, cx| {

@@ -445,7 +445,7 @@ async fn update_editor_from_message(
             }
 
             multibuffer.remove_excerpts(removed_excerpt_ids, cx);
-            anyhow::Ok(())
+            Result::<(), anyhow::Error>::Ok(())
         })
     })??;
 

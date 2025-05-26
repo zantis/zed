@@ -354,9 +354,8 @@ impl PickerDelegate for NewPathDelegate {
         let m = self.matches.get(self.selected_index)?;
         if m.is_dir(self.project.read(cx), cx) {
             let path = m.relative_path();
-            let result = format!("{}/", path);
-            self.last_selected_dir = Some(path);
-            Some(result)
+            self.last_selected_dir = Some(path.clone());
+            Some(format!("{}/", path))
         } else {
             None
         }

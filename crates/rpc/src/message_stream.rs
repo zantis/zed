@@ -2,6 +2,7 @@
 
 pub use ::proto::*;
 
+use anyhow::anyhow;
 use async_tungstenite::tungstenite::Message as WebSocketMessage;
 use futures::{SinkExt as _, StreamExt as _};
 use proto::Message as _;
@@ -19,6 +20,7 @@ pub struct MessageStream<S> {
     encoding_buffer: Vec<u8>,
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum Message {
     Envelope(Envelope),
@@ -39,7 +41,7 @@ impl<S> MessageStream<S>
 where
     S: futures::Sink<WebSocketMessage, Error = anyhow::Error> + Unpin,
 {
-    pub async fn write(&mut self, message: Message) -> anyhow::Result<()> {
+    pub async fn write(&mut self, message: Message) -> Result<(), anyhow::Error> {
         #[cfg(any(test, feature = "test-support"))]
         const COMPRESSION_LEVEL: i32 = -7;
 
@@ -80,9 +82,9 @@ where
 
 impl<S> MessageStream<S>
 where
-    S: futures::Stream<Item = anyhow::Result<WebSocketMessage>> + Unpin,
+    S: futures::Stream<Item = Result<WebSocketMessage, anyhow::Error>> + Unpin,
 {
-    pub async fn read(&mut self) -> anyhow::Result<(Message, Instant)> {
+    pub async fn read(&mut self) -> Result<(Message, Instant), anyhow::Error> {
         while let Some(bytes) = self.stream.next().await {
             let received_at = Instant::now();
             match bytes? {
@@ -101,7 +103,7 @@ where
                 _ => {}
             }
         }
-        anyhow::bail!("connection closed");
+        Err(anyhow!("connection closed"))
     }
 }
 
@@ -112,7 +114,7 @@ mod tests {
     #[gpui::test]
     async fn test_buffer_size() {
         let (tx, rx) = futures::channel::mpsc::unbounded();
-        let mut sink = MessageStream::new(tx.sink_map_err(|_| anyhow::anyhow!("")));
+        let mut sink = MessageStream::new(tx.sink_map_err(|_| anyhow!("")));
         sink.write(Message::Envelope(Envelope {
             payload: Some(envelope::Payload::UpdateWorktree(UpdateWorktree {
                 root_name: "abcdefg".repeat(10),

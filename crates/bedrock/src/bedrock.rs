@@ -3,7 +3,7 @@ mod models;
 use std::collections::HashMap;
 use std::pin::Pin;
 
-use anyhow::{Context as _, Error, Result, anyhow};
+use anyhow::{Error, Result, anyhow};
 use aws_sdk_bedrockruntime as bedrock;
 pub use aws_sdk_bedrockruntime as bedrock_client;
 pub use aws_sdk_bedrockruntime::types::{
@@ -97,7 +97,7 @@ pub async fn stream_completion(
             }
         })
         .await
-        .context("spawning a task")?
+        .map_err(|err| anyhow!("failed to spawn task: {err:?}"))?
 }
 
 pub fn aws_document_to_value(document: &Document) -> Value {

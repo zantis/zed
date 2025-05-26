@@ -419,7 +419,7 @@ impl ThreadStore {
             let thread = database
                 .try_find_thread(id.clone())
                 .await?
-                .with_context(|| format!("no thread found with ID: {id:?}"))?;
+                .ok_or_else(|| anyhow!("no thread found with ID: {id:?}"))?;
 
             let thread = this.update_in(cx, |this, window, cx| {
                 cx.new(|cx| {
@@ -699,14 +699,20 @@ impl SerializedThread {
                 SerializedThread::VERSION => Ok(serde_json::from_value::<SerializedThread>(
                     saved_thread_json,
                 )?),
-                _ => anyhow::bail!("unrecognized serialized thread version: {version:?}"),
+                _ => Err(anyhow!(
+                    "unrecognized serialized thread version: {}",
+                    version
+                )),
             },
             None => {
                 let saved_thread =
                     serde_json::from_value::<LegacySerializedThread>(saved_thread_json)?;
                 Ok(saved_thread.upgrade())
             }
-            version => anyhow::bail!("unrecognized serialized thread version: {version:?}"),
+            version => Err(anyhow!(
+                "unrecognized serialized thread version: {:?}",
+                version
+            )),
         }
     }
 }

@@ -1,10 +1,10 @@
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
 use futures::StreamExt;
 use gpui::{App, AsyncApp};
 use http_client::github::{GitHubLspBinaryVersion, latest_github_release};
 pub use language::*;
-use lsp::{DiagnosticTag, InitializeParams, LanguageServerBinary, LanguageServerName};
+use lsp::{InitializeParams, LanguageServerBinary, LanguageServerName};
 use project::lsp_store::clangd_ext;
 use serde_json::json;
 use smol::fs::{self, File};
@@ -54,7 +54,7 @@ impl super::LspAdapter for CLspAdapter {
             .assets
             .iter()
             .find(|asset| asset.name == asset_name)
-            .with_context(|| format!("no asset found matching {asset_name:?}"))?;
+            .ok_or_else(|| anyhow!("no asset found matching {:?}", asset_name))?;
         let version = GitHubLspBinaryVersion {
             name: release.tag_name,
             url: asset.browser_download_url.clone(),
@@ -80,11 +80,12 @@ impl super::LspAdapter for CLspAdapter {
                 .await
                 .context("error downloading release")?;
             let mut file = File::create(&zip_path).await?;
-            anyhow::ensure!(
-                response.status().is_success(),
-                "download failed with status {}",
-                response.status().to_string()
-            );
+            if !response.status().is_success() {
+                Err(anyhow!(
+                    "download failed with status {}",
+                    response.status().to_string()
+                ))?;
+            }
             futures::io::copy(response.body_mut(), &mut file).await?;
 
             let unzip_status = util::command::new_smol_command("unzip")
@@ -93,7 +94,10 @@ impl super::LspAdapter for CLspAdapter {
                 .output()
                 .await?
                 .status;
-            anyhow::ensure!(unzip_status.success(), "failed to unzip clangd archive");
+            if !unzip_status.success() {
+                Err(anyhow!("failed to unzip clangd archive"))?;
+            }
+
             remove_matching(&container_dir, |entry| entry != version_dir).await;
         }
 
@@ -290,38 +294,8 @@ impl super::LspAdapter for CLspAdapter {
         Ok(original)
     }
 
-    fn process_diagnostics(
-        &self,
-        params: &mut lsp::PublishDiagnosticsParams,
-        server_id: LanguageServerId,
-        buffer: Option<&'_ Buffer>,
-    ) {
-        if let Some(buffer) = buffer {
-            let snapshot = buffer.snapshot();
-            let inactive_regions = buffer
-                .get_diagnostics(server_id)
-                .into_iter()
-                .flat_map(|v| v.iter())
-                .filter(|diag| clangd_ext::is_inactive_region(&diag.diagnostic))
-                .map(move |diag| {
-                    let range =
-                        language::range_to_lsp(diag.range.to_point_utf16(&snapshot)).unwrap();
-                    let mut tags = vec![];
-                    if diag.diagnostic.is_unnecessary {
-                        tags.push(DiagnosticTag::UNNECESSARY);
-                    }
-                    lsp::Diagnostic {
-                        range,
-                        severity: Some(diag.diagnostic.severity),
-                        source: diag.diagnostic.source.clone(),
-                        tags: Some(tags),
-                        message: diag.diagnostic.message.clone(),
-                        code: diag.diagnostic.code.clone(),
-                        ..Default::default()
-                    }
-                });
-            params.diagnostics.extend(inactive_regions);
-        }
+    fn retain_old_diagnostic(&self, previous_diagnostic: &Diagnostic, _: &App) -> bool {
+        clangd_ext::is_inactive_region(previous_diagnostic)
     }
 }
 
@@ -335,17 +309,20 @@ async fn get_cached_server_binary(container_dir: PathBuf) -> Option<LanguageServ
                 last_clangd_dir = Some(entry.path());
             }
         }
-        let clangd_dir = last_clangd_dir.context("no cached binary")?;
+        let clangd_dir = last_clangd_dir.ok_or_else(|| anyhow!("no cached binary"))?;
         let clangd_bin = clangd_dir.join("bin/clangd");
-        anyhow::ensure!(
-            clangd_bin.exists(),
-            "missing clangd binary in directory {clangd_dir:?}"
-        );
-        Ok(LanguageServerBinary {
-            path: clangd_bin,
-            env: None,
-            arguments: vec![],
-        })
+        if clangd_bin.exists() {
+            Ok(LanguageServerBinary {
+                path: clangd_bin,
+                env: None,
+                arguments: vec![],
+            })
+        } else {
+            Err(anyhow!(
+                "missing clangd binary in directory {:?}",
+                clangd_dir
+            ))
+        }
     })
     .await
     .log_err()

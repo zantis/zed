@@ -1055,16 +1055,17 @@ impl ProjectSearchView {
 
         let is_dirty = self.is_dirty(cx);
 
-        let skip_save_on_close = self
-            .workspace
-            .read_with(cx, |workspace, cx| {
-                workspace::Pane::skip_save_on_close(&self.results_editor, workspace, cx)
-            })
-            .unwrap_or(false);
-
-        let should_prompt_to_save = !skip_save_on_close && !will_autosave && is_dirty;
-
         cx.spawn_in(window, async move |this, cx| {
+            let skip_save_on_close = this
+                .read_with(cx, |this, cx| {
+                    this.workspace.read_with(cx, |workspace, cx| {
+                        workspace::Pane::skip_save_on_close(&this.results_editor, workspace, cx)
+                    })
+                })?
+                .unwrap_or(false);
+
+            let should_prompt_to_save = !skip_save_on_close && !will_autosave && is_dirty;
+
             let should_search = if should_prompt_to_save {
                 let options = &["Save", "Don't Save", "Cancel"];
                 let result_channel = this.update_in(cx, |_, window, cx| {
@@ -2047,9 +2048,9 @@ impl Render for ProjectSearchBar {
                 if match_quantity > 0 {
                     debug_assert!(match_quantity >= index);
                     if limit_reached {
-                        Some(format!("{index}/{match_quantity}+"))
+                        Some(format!("{index}/{match_quantity}+").to_string())
                     } else {
-                        Some(format!("{index}/{match_quantity}"))
+                        Some(format!("{index}/{match_quantity}").to_string())
                     }
                 } else {
                     None

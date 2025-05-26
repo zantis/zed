@@ -58,7 +58,7 @@ struct RemoteBufferStore {
     project_id: u64,
     loading_remote_buffers_by_id: HashMap<BufferId, Entity<Buffer>>,
     remote_buffer_listeners:
-        HashMap<BufferId, Vec<oneshot::Sender<anyhow::Result<Entity<Buffer>>>>>,
+        HashMap<BufferId, Vec<oneshot::Sender<Result<Entity<Buffer>, anyhow::Error>>>>,
     worktree_store: Entity<WorktreeStore>,
 }
 
@@ -152,7 +152,11 @@ impl RemoteBufferStore {
         capability: Capability,
         cx: &mut Context<BufferStore>,
     ) -> Result<Option<Entity<Buffer>>> {
-        match envelope.payload.variant.context("missing variant")? {
+        match envelope
+            .payload
+            .variant
+            .ok_or_else(|| anyhow!("missing variant"))?
+        {
             proto::create_buffer_for_peer::Variant::State(mut state) => {
                 let buffer_id = BufferId::new(state.id)?;
 
@@ -164,8 +168,8 @@ impl RemoteBufferStore {
                             .worktree_store
                             .read(cx)
                             .worktree_for_id(worktree_id, cx)
-                            .with_context(|| {
-                                format!("no worktree found for id {}", file.worktree_id)
+                            .ok_or_else(|| {
+                                anyhow!("no worktree found for id {}", file.worktree_id)
                             })?;
                         buffer_file = Some(Arc::new(File::from_proto(file, worktree.clone(), cx)?)
                             as Arc<dyn language::File>);
@@ -193,8 +197,8 @@ impl RemoteBufferStore {
                     .loading_remote_buffers_by_id
                     .get(&buffer_id)
                     .cloned()
-                    .with_context(|| {
-                        format!(
+                    .ok_or_else(|| {
+                        anyhow!(
                             "received chunk for buffer {} without initial state",
                             chunk.buffer_id
                         )
@@ -337,7 +341,10 @@ impl RemoteBufferStore {
         });
 
         cx.spawn(async move |this, cx| {
-            let response = request.await?.transaction.context("missing transaction")?;
+            let response = request
+                .await?
+                .transaction
+                .ok_or_else(|| anyhow!("missing transaction"))?;
             this.update(cx, |this, cx| {
                 this.deserialize_project_transaction(response, push_to_history, cx)
             })?
@@ -906,8 +913,8 @@ impl BufferStore {
                     if is_remote {
                         return Ok(());
                     } else {
-                        debug_panic!("buffer {remote_id} was already registered");
-                        anyhow::bail!("buffer {remote_id} was already registered");
+                        debug_panic!("buffer {} was already registered", remote_id);
+                        Err(anyhow!("buffer {} was already registered", remote_id))?;
                     }
                 }
                 entry.insert(open_buffer);
@@ -956,7 +963,7 @@ impl BufferStore {
 
     pub fn get_existing(&self, buffer_id: BufferId) -> Result<Entity<Buffer>> {
         self.get(buffer_id)
-            .with_context(|| format!("unknown buffer id {buffer_id}"))
+            .ok_or_else(|| anyhow!("unknown buffer id {}", buffer_id))
     }
 
     pub fn get_possibly_incomplete(&self, buffer_id: BufferId) -> Option<Entity<Buffer>> {
@@ -1272,9 +1279,9 @@ impl BufferStore {
         capability: Capability,
         cx: &mut Context<Self>,
     ) -> Result<()> {
-        let remote = self
-            .as_remote_mut()
-            .context("buffer store is not a remote")?;
+        let Some(remote) = self.as_remote_mut() else {
+            return Err(anyhow!("buffer store is not a remote"));
+        };
 
         if let Some(buffer) =
             remote.handle_create_buffer_for_peer(envelope, replica_id, capability, cx)?
@@ -1296,12 +1303,12 @@ impl BufferStore {
         this.update(&mut cx, |this, cx| {
             let payload = envelope.payload.clone();
             if let Some(buffer) = this.get_possibly_incomplete(buffer_id) {
-                let file = payload.file.context("invalid file")?;
+                let file = payload.file.ok_or_else(|| anyhow!("invalid file"))?;
                 let worktree = this
                     .worktree_store
                     .read(cx)
                     .worktree_for_id(WorktreeId::from_proto(file.worktree_id), cx)
-                    .context("no such worktree")?;
+                    .ok_or_else(|| anyhow!("no such worktree"))?;
                 let file = File::from_proto(file, worktree, cx)?;
                 let old_file = buffer.update(cx, |buffer, cx| {
                     let old_file = buffer.file().cloned();
@@ -1438,7 +1445,7 @@ impl BufferStore {
         let mtime = envelope.payload.mtime.clone().map(|time| time.into());
         let line_ending = deserialize_line_ending(
             proto::LineEnding::from_i32(envelope.payload.line_ending)
-                .context("missing line ending")?,
+                .ok_or_else(|| anyhow!("missing line ending"))?,
         );
         this.update(&mut cx, |this, cx| {
             if let Some(buffer) = this.get_possibly_incomplete(buffer_id) {
@@ -1488,7 +1495,7 @@ impl BufferStore {
                 let buffer_id = BufferId::new(*buffer_id)?;
                 buffers.insert(this.get_existing(buffer_id)?);
             }
-            anyhow::Ok(this.reload_buffers(buffers, false, cx))
+            Ok::<_, anyhow::Error>(this.reload_buffers(buffers, false, cx))
         })??;
 
         let project_transaction = reload.await?;

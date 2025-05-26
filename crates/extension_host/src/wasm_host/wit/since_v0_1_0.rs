@@ -1,7 +1,7 @@
 use crate::wasm_host::{WasmState, wit::ToWasmtimeResult};
 use ::http_client::{AsyncBody, HttpRequestExt};
 use ::settings::{Settings, WorktreeId};
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use async_compression::futures::bufread::GzipDecoder;
 use async_tar::Archive;
 use extension::{ExtensionLanguageServerProxy, KeyValueStoreDelegate, WorktreeDelegate};
@@ -365,7 +365,7 @@ impl From<http_client::HttpMethod> for ::http_client::Method {
 
 fn convert_request(
     extension_request: &http_client::HttpRequest,
-) -> anyhow::Result<::http_client::Request<AsyncBody>> {
+) -> Result<::http_client::Request<AsyncBody>, anyhow::Error> {
     let mut request = ::http_client::Request::builder()
         .method(::http_client::Method::from(extension_request.method))
         .uri(&extension_request.url)
@@ -389,7 +389,7 @@ fn convert_request(
 
 async fn convert_response(
     response: &mut ::http_client::Response<AsyncBody>,
-) -> anyhow::Result<http_client::HttpResponse> {
+) -> Result<http_client::HttpResponse, anyhow::Error> {
     let mut extension_response = http_client::HttpResponse {
         body: Vec::new(),
         headers: Vec::new(),
@@ -508,13 +508,14 @@ impl ExtensionImports for WasmState {
                 .http_client
                 .get(&url, Default::default(), true)
                 .await
-                .context("downloading release")?;
+                .map_err(|err| anyhow!("error downloading release: {}", err))?;
 
-            anyhow::ensure!(
-                response.status().is_success(),
-                "download failed with status {}",
-                response.status().to_string()
-            );
+            if !response.status().is_success() {
+                Err(anyhow!(
+                    "download failed with status {}",
+                    response.status().to_string()
+                ))?;
+            }
             let body = BufReader::new(response.body_mut());
 
             match file_type {
@@ -567,7 +568,7 @@ impl ExtensionImports for WasmState {
             use std::os::unix::fs::PermissionsExt;
 
             return fs::set_permissions(&path, Permissions::from_mode(0o755))
-                .with_context(|| format!("setting permissions for path {path:?}"))
+                .map_err(|error| anyhow!("failed to set permissions for path {path:?}: {error}"))
                 .to_wasmtime_result();
         }
 

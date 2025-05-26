@@ -1,5 +1,5 @@
 use crate::db::{ChannelId, ChannelRole, UserId};
-use anyhow::{Context as _, Result};
+use anyhow::{Result, anyhow};
 use collections::{BTreeMap, HashMap, HashSet};
 use rpc::ConnectionId;
 use semantic_version::SemanticVersion;
@@ -77,7 +77,7 @@ impl ConnectionPool {
         let connection = self
             .connections
             .get_mut(&connection_id)
-            .context("no such connection")?;
+            .ok_or_else(|| anyhow!("no such connection"))?;
 
         let user_id = connection.user_id;
 

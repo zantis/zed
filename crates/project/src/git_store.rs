@@ -163,7 +163,7 @@ struct LocalDownstreamState {
     _task: Task<Result<()>>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct GitStoreCheckpoint {
     checkpoints_by_work_dir_abs_path: HashMap<Arc<Path>, GitRepositoryCheckpoint>,
 }
@@ -976,7 +976,7 @@ impl GitStore {
             return cx.spawn(async move |cx| {
                 let provider_registry = cx.update(GitHostingProviderRegistry::default_global)?;
                 get_permalink_in_rust_registry_src(provider_registry, file_path, selection)
-                    .context("no permalink available")
+                    .map_err(|_| anyhow!("no permalink available"))
             });
 
             // TODO remote case
@@ -997,20 +997,23 @@ impl GitStore {
                     RepositoryState::Local { backend, .. } => {
                         let origin_url = backend
                             .remote_url(&remote)
-                            .with_context(|| format!("remote \"{remote}\" not found"))?;
+                            .ok_or_else(|| anyhow!("remote \"{remote}\" not found"))?;
 
-                        let sha = backend.head_sha().await.context("reading HEAD SHA")?;
+                        let sha = backend
+                            .head_sha()
+                            .await
+                            .ok_or_else(|| anyhow!("failed to read HEAD SHA"))?;
 
                         let provider_registry =
                             cx.update(GitHostingProviderRegistry::default_global)?;
 
                         let (provider, remote) =
                             parse_git_remote_url(provider_registry, &origin_url)
-                                .context("parsing Git remote URL")?;
+                                .ok_or_else(|| anyhow!("failed to parse Git remote URL"))?;
 
-                        let path = repo_path.to_str().with_context(|| {
-                            format!("converting repo path {repo_path:?} to string")
-                        })?;
+                        let path = repo_path
+                            .to_str()
+                            .ok_or_else(|| anyhow!("failed to convert path to string"))?;
 
                         Ok(provider.build_permalink(
                             remote,
@@ -1963,7 +1966,7 @@ impl GitStore {
         let delegates = cx.update(|cx| repository.read(cx).askpass_delegates.clone())?;
         let Some(mut askpass) = delegates.lock().remove(&envelope.payload.askpass_id) else {
             debug_panic!("no askpass found");
-            anyhow::bail!("no askpass found");
+            return Err(anyhow::anyhow!("no askpass found"));
         };
 
         let response = askpass.ask_password(envelope.payload.prompt).await?;
@@ -2032,7 +2035,7 @@ impl GitStore {
                 let buffer = this.buffer_store.read(cx).get(buffer_id)?;
                 Some(this.open_unstaged_diff(buffer, cx))
             })?
-            .context("missing buffer")?
+            .ok_or_else(|| anyhow!("no such buffer"))?
             .await?;
         this.update(&mut cx, |this, _| {
             let shared_diffs = this
@@ -2056,7 +2059,7 @@ impl GitStore {
                 let buffer = this.buffer_store.read(cx).get(buffer_id)?;
                 Some(this.open_uncommitted_diff(buffer, cx))
             })?
-            .context("missing buffer")?
+            .ok_or_else(|| anyhow!("no such buffer"))?
             .await?;
         this.update(&mut cx, |this, _| {
             let shared_diffs = this
@@ -3912,7 +3915,7 @@ impl Repository {
         self.send_job(None, |repo, _cx| async move {
             match repo {
                 RepositoryState::Local { backend, .. } => backend.checkpoint().await,
-                RepositoryState::Remote { .. } => anyhow::bail!("not implemented yet"),
+                RepositoryState::Remote { .. } => Err(anyhow!("not implemented yet")),
             }
         })
     }
@@ -3926,7 +3929,7 @@ impl Repository {
                 RepositoryState::Local { backend, .. } => {
                     backend.restore_checkpoint(checkpoint).await
                 }
-                RepositoryState::Remote { .. } => anyhow::bail!("not implemented yet"),
+                RepositoryState::Remote { .. } => Err(anyhow!("not implemented yet")),
             }
         })
     }
@@ -3981,7 +3984,7 @@ impl Repository {
                 RepositoryState::Local { backend, .. } => {
                     backend.compare_checkpoints(left, right).await
                 }
-                RepositoryState::Remote { .. } => anyhow::bail!("not implemented yet"),
+                RepositoryState::Remote { .. } => Err(anyhow!("not implemented yet")),
             }
         })
     }
@@ -3998,7 +4001,7 @@ impl Repository {
                         .diff_checkpoints(base_checkpoint, target_checkpoint)
                         .await
                 }
-                RepositoryState::Remote { .. } => anyhow::bail!("not implemented yet"),
+                RepositoryState::Remote { .. } => Err(anyhow!("not implemented yet")),
             }
         })
     }
@@ -4061,7 +4064,7 @@ impl Repository {
         cx.spawn(async move |_, cx| {
             let environment = project_environment
                 .upgrade()
-                .context("missing project environment")?
+                .ok_or_else(|| anyhow!("missing project environment"))?
                 .update(cx, |project_environment, cx| {
                     project_environment.get_directory_environment(work_directory_abs_path.clone(), cx)
                 })?
@@ -4073,7 +4076,7 @@ impl Repository {
             let backend = cx
                 .background_spawn(async move {
                     fs.open_repo(&dot_git_abs_path)
-                        .with_context(|| format!("opening repository at {dot_git_abs_path:?}"))
+                        .ok_or_else(|| anyhow!("failed to build repository"))
                 })
                 .await?;
 
@@ -4212,7 +4215,8 @@ impl Repository {
                             buffer_id: buffer_id.to_proto(),
                         })
                         .await?;
-                    let mode = Mode::from_i32(response.mode).context("Invalid mode")?;
+                    let mode =
+                        Mode::from_i32(response.mode).ok_or_else(|| anyhow!("Invalid mode"))?;
                     let bases = match mode {
                         Mode::IndexMatchesHead => DiffBasesChange::SetBoth(response.committed_text),
                         Mode::IndexAndHead => DiffBasesChange::SetEach {
@@ -4349,7 +4353,7 @@ fn get_permalink_in_rust_registry_src(
     let cargo_toml = std::fs::read_to_string(dir.join("Cargo.toml"))?;
     let manifest = toml::from_str::<CargoToml>(&cargo_toml)?;
     let (provider, remote) = parse_git_remote_url(provider_registry, &manifest.package.repository)
-        .context("parsing package.repository field of manifest")?;
+        .ok_or_else(|| anyhow!("Failed to parse package.repository field of manifest"))?;
     let path = PathBuf::from(cargo_vcs_info.path_in_vcs).join(path.strip_prefix(dir).unwrap());
     let permalink = provider.build_permalink(
         remote,
@@ -4593,7 +4597,7 @@ fn status_from_proto(
 
     let Some(variant) = status.and_then(|status| status.variant) else {
         let code = proto::GitStatus::from_i32(simple_status)
-            .with_context(|| format!("Invalid git status code: {simple_status}"))?;
+            .ok_or_else(|| anyhow!("Invalid git status code: {simple_status}"))?;
         let result = match code {
             proto::GitStatus::Added => TrackedStatus {
                 worktree_status: StatusCode::Added,
@@ -4615,7 +4619,7 @@ fn status_from_proto(
                 index_status: StatusCode::Unmodified,
             }
             .into(),
-            _ => anyhow::bail!("Invalid code for simple status: {simple_status}"),
+            _ => return Err(anyhow!("Invalid code for simple status: {simple_status}")),
         };
         return Ok(result);
     };
@@ -4627,12 +4631,12 @@ fn status_from_proto(
             let [first_head, second_head] =
                 [unmerged.first_head, unmerged.second_head].map(|head| {
                     let code = proto::GitStatus::from_i32(head)
-                        .with_context(|| format!("Invalid git status code: {head}"))?;
+                        .ok_or_else(|| anyhow!("Invalid git status code: {head}"))?;
                     let result = match code {
                         proto::GitStatus::Added => UnmergedStatusCode::Added,
                         proto::GitStatus::Updated => UnmergedStatusCode::Updated,
                         proto::GitStatus::Deleted => UnmergedStatusCode::Deleted,
-                        _ => anyhow::bail!("Invalid code for unmerged status: {code:?}"),
+                        _ => return Err(anyhow!("Invalid code for unmerged status: {code:?}")),
                     };
                     Ok(result)
                 });
@@ -4647,7 +4651,7 @@ fn status_from_proto(
             let [index_status, worktree_status] = [tracked.index_status, tracked.worktree_status]
                 .map(|status| {
                     let code = proto::GitStatus::from_i32(status)
-                        .with_context(|| format!("Invalid git status code: {status}"))?;
+                        .ok_or_else(|| anyhow!("Invalid git status code: {status}"))?;
                     let result = match code {
                         proto::GitStatus::Modified => StatusCode::Modified,
                         proto::GitStatus::TypeChanged => StatusCode::TypeChanged,
@@ -4656,7 +4660,7 @@ fn status_from_proto(
                         proto::GitStatus::Renamed => StatusCode::Renamed,
                         proto::GitStatus::Copied => StatusCode::Copied,
                         proto::GitStatus::Unmodified => StatusCode::Unmodified,
-                        _ => anyhow::bail!("Invalid code for tracked status: {code:?}"),
+                        _ => return Err(anyhow!("Invalid code for tracked status: {code:?}")),
                     };
                     Ok(result)
                 });

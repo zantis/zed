@@ -1,7 +1,6 @@
-use std::sync::Arc;
-
 use gpui::{Hsla, IntoElement, Point, svg};
 use strum::{EnumIter, EnumString, IntoStaticStr};
+use ui_macros::DerivePathStr;
 
 use crate::prelude::*;
 
@@ -9,8 +8,9 @@ const ICON_DECORATION_SIZE: Pixels = px(11.);
 
 /// An icon silhouette used to knockout the background of an element for an icon
 /// to sit on top of it, emulating a stroke/border.
-#[derive(Debug, PartialEq, Eq, Copy, Clone, EnumIter, EnumString, IntoStaticStr)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, EnumIter, EnumString, IntoStaticStr, DerivePathStr)]
 #[strum(serialize_all = "snake_case")]
+#[path_str(prefix = "icons/knockouts", suffix = ".svg")]
 pub enum KnockoutIconName {
     XFg,
     XBg,
@@ -18,14 +18,6 @@ pub enum KnockoutIconName {
     DotBg,
     TriangleFg,
     TriangleBg,
-}
-
-impl KnockoutIconName {
-    /// Returns the path to this icon.
-    pub fn path(&self) -> Arc<str> {
-        let file_stem: &'static str = self.into();
-        format!("icons/knockouts/{file_stem}.svg").into()
-    }
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, EnumIter, EnumString)]
