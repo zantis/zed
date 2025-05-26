@@ -1,4 +1,5 @@
 pub mod arc_cow;
+pub mod archive;
 pub mod command;
 pub mod fs;
 pub mod markdown;
@@ -397,6 +398,31 @@ pub fn parse_env_output(env: &str, mut f: impl FnMut(String, String)) {
     }
     if let Some((key, value)) = Option::zip(current_key.take(), current_value.take()) {
         f(key, value)
+    }
+}
+
+pub fn merge_json_lenient_value_into(
+    source: serde_json_lenient::Value,
+    target: &mut serde_json_lenient::Value,
+) {
+    match (source, target) {
+        (serde_json_lenient::Value::Object(source), serde_json_lenient::Value::Object(target)) => {
+            for (key, value) in source {
+                if let Some(target) = target.get_mut(&key) {
+                    merge_json_lenient_value_into(value, target);
+                } else {
+                    target.insert(key, value);
+                }
+            }
+        }
+
+        (serde_json_lenient::Value::Array(source), serde_json_lenient::Value::Array(target)) => {
+            for value in source {
+                target.push(value);
+            }
+        }
+
+        (source, target) => *target = source,
     }
 }
 

@@ -2821,23 +2821,65 @@ async fn test_newline_comments(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-async fn test_newline_documentation_comments(cx: &mut TestAppContext) {
+async fn test_newline_comments_with_multiple_delimiters(cx: &mut TestAppContext) {
     init_test(cx, |settings| {
         settings.defaults.tab_size = NonZeroU32::new(4)
     });
 
     let language = Arc::new(Language::new(
         LanguageConfig {
-            documentation: Some(language::DocumentationConfig {
-                start: "/**".into(),
-                end: "*/".into(),
-                prefix: "* ".into(),
-                tab_size: NonZeroU32::new(1).unwrap(),
-            }),
+            line_comments: vec!["// ".into(), "/// ".into()],
             ..LanguageConfig::default()
         },
         None,
     ));
+    {
+        let mut cx = EditorTestContext::new(cx).await;
+        cx.update_buffer(|buffer, cx| buffer.set_language(Some(language), cx));
+        cx.set_state(indoc! {"
+        //ˇ
+    "});
+        cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
+        cx.assert_editor_state(indoc! {"
+        //
+        // ˇ
+    "});
+
+        cx.set_state(indoc! {"
+        ///ˇ
+    "});
+        cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
+        cx.assert_editor_state(indoc! {"
+        ///
+        /// ˇ
+    "});
+    }
+}
+
+#[gpui::test]
+async fn test_newline_documentation_comments(cx: &mut TestAppContext) {
+    init_test(cx, |settings| {
+        settings.defaults.tab_size = NonZeroU32::new(4)
+    });
+
+    let language = Arc::new(
+        Language::new(
+            LanguageConfig {
+                documentation: Some(language::DocumentationConfig {
+                    start: "/**".into(),
+                    end: "*/".into(),
+                    prefix: "* ".into(),
+                    tab_size: NonZeroU32::new(1).unwrap(),
+                }),
+
+                ..LanguageConfig::default()
+            },
+            Some(tree_sitter_rust::LANGUAGE.into()),
+        )
+        .with_override_query("[(line_comment)(block_comment)] @comment.inclusive")
+        .unwrap(),
+    );
+
     {
         let mut cx = EditorTestContext::new(cx).await;
         cx.update_buffer(|buffer, cx| buffer.set_language(Some(language), cx));
@@ -2974,6 +3016,43 @@ async fn test_newline_documentation_comments(cx: &mut TestAppContext) {
          *
          */
          ˇ
+    "});
+
+        // Ensure that inline comment followed by code
+        // doesn't add comment prefix on newline
+        cx.set_state(indoc! {"
+        /** */ textˇ
+    "});
+        cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
+        cx.assert_editor_state(indoc! {"
+        /** */ text
+        ˇ
+    "});
+
+        // Ensure that text after comment end tag
+        // doesn't add comment prefix on newline
+        cx.set_state(indoc! {"
+        /**
+         *
+         */ˇtext
+    "});
+        cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
+        cx.assert_editor_state(indoc! {"
+        /**
+         *
+         */
+         ˇtext
+    "});
+
+        // Ensure if not comment block it doesn't
+        // add comment prefix on newline
+        cx.set_state(indoc! {"
+        * textˇ
+    "});
+        cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
+        cx.assert_editor_state(indoc! {"
+        * text
+        ˇ
     "});
     }
     // Ensure that comment continuations can be disabled.
@@ -14062,7 +14141,7 @@ async fn test_context_menus_hide_hover_popover(cx: &mut gpui::TestAppContext) {
     cx.update_editor(|editor, window, cx| {
         editor.toggle_code_actions(
             &ToggleCodeActions {
-                deployed_from_indicator: None,
+                deployed_from: None,
                 quick_launch: false,
             },
             window,
