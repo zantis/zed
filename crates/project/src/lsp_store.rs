@@ -366,6 +366,7 @@ impl LocalLspStore {
                 }
             })
         };
+        // TODO kb emit langserver state update here
         let state = LanguageServerState::Starting {
             startup,
             pending_workspace_folders,
@@ -1030,6 +1031,7 @@ impl LocalLspStore {
             .drain()
             .map(|(_, server_state)| async {
                 use LanguageServerState::*;
+                // TODO kb emit langserver state update here
                 match server_state {
                     Running { server, .. } => server.shutdown()?.await,
                     Starting { startup, .. } => startup.await?.shutdown()?.await,
@@ -2448,6 +2450,7 @@ impl LocalLspStore {
                 }
             })
             .collect::<Vec<_>>();
+        // TODO kb emit langserver association updates here
         for (server, adapter) in servers_and_adapters {
             buffer_handle.update(cx, |buffer, cx| {
                 buffer.set_completion_triggers(
@@ -3478,6 +3481,7 @@ pub enum LspStoreEvent {
     LanguageServerRemoved(LanguageServerId),
     LanguageServerUpdate {
         language_server_id: LanguageServerId,
+        name: Option<LanguageServerName>,
         message: proto::update_language_server::Variant,
     },
     LanguageServerLog(LanguageServerId, LanguageServerLogType, String),
@@ -7491,16 +7495,16 @@ impl LspStore {
     }
 
     async fn handle_update_language_server(
-        this: Entity<Self>,
+        lsp_store: Entity<Self>,
         envelope: TypedEnvelope<proto::UpdateLanguageServer>,
         mut cx: AsyncApp,
     ) -> Result<()> {
-        this.update(&mut cx, |this, cx| {
+        lsp_store.update(&mut cx, |lsp_store, cx| {
             let language_server_id = LanguageServerId(envelope.payload.language_server_id as usize);
 
             match envelope.payload.variant.context("invalid variant")? {
                 proto::update_language_server::Variant::WorkStart(payload) => {
-                    this.on_lsp_work_start(
+                    lsp_store.on_lsp_work_start(
                         language_server_id,
                         payload.token,
                         LanguageServerProgress {
@@ -7514,9 +7518,8 @@ impl LspStore {
                         cx,
                     );
                 }
-
                 proto::update_language_server::Variant::WorkProgress(payload) => {
-                    this.on_lsp_work_progress(
+                    lsp_store.on_lsp_work_progress(
                         language_server_id,
                         payload.token,
                         LanguageServerProgress {
@@ -7532,15 +7535,26 @@ impl LspStore {
                 }
 
                 proto::update_language_server::Variant::WorkEnd(payload) => {
-                    this.on_lsp_work_end(language_server_id, payload.token, cx);
+                    lsp_store.on_lsp_work_end(language_server_id, payload.token, cx);
                 }
 
                 proto::update_language_server::Variant::DiskBasedDiagnosticsUpdating(_) => {
-                    this.disk_based_diagnostics_started(language_server_id, cx);
+                    lsp_store.disk_based_diagnostics_started(language_server_id, cx);
                 }
 
                 proto::update_language_server::Variant::DiskBasedDiagnosticsUpdated(_) => {
-                    this.disk_based_diagnostics_finished(language_server_id, cx)
+                    lsp_store.disk_based_diagnostics_finished(language_server_id, cx)
+                }
+
+                non_lsp @ proto::update_language_server::Variant::StatusUpdate(_)
+                | non_lsp @ proto::update_language_server::Variant::AssociationUpdate(_) => {
+                    cx.emit(LspStoreEvent::LanguageServerUpdate {
+                        language_server_id,
+                        name: lsp_store
+                            .language_server_adapter_for_id(language_server_id)
+                            .map(|adapter| adapter.name()),
+                        message: non_lsp,
+                    });
                 }
             }
 
@@ -7656,6 +7670,9 @@ impl LspStore {
         cx.emit(LspStoreEvent::DiskBasedDiagnosticsStarted { language_server_id });
         cx.emit(LspStoreEvent::LanguageServerUpdate {
             language_server_id,
+            name: self
+                .language_server_adapter_for_id(language_server_id)
+                .map(|adapter| adapter.name()),
             message: proto::update_language_server::Variant::DiskBasedDiagnosticsUpdating(
                 Default::default(),
             ),
@@ -7674,8 +7691,12 @@ impl LspStore {
         }
 
         cx.emit(LspStoreEvent::DiskBasedDiagnosticsFinished { language_server_id });
+
         cx.emit(LspStoreEvent::LanguageServerUpdate {
             language_server_id,
+            name: self
+                .language_server_adapter_for_id(language_server_id)
+                .map(|adapter| adapter.name()),
             message: proto::update_language_server::Variant::DiskBasedDiagnosticsUpdated(
                 Default::default(),
             ),
@@ -7984,6 +8005,9 @@ impl LspStore {
         }
         cx.emit(LspStoreEvent::LanguageServerUpdate {
             language_server_id,
+            name: self
+                .language_server_adapter_for_id(language_server_id)
+                .map(|adapter| adapter.name()),
             message: proto::update_language_server::Variant::WorkStart(proto::LspWorkStart {
                 token,
                 title: progress.title,
@@ -8032,6 +8056,9 @@ impl LspStore {
         if did_update {
             cx.emit(LspStoreEvent::LanguageServerUpdate {
                 language_server_id,
+                name: self
+                    .language_server_adapter_for_id(language_server_id)
+                    .map(|adapter| adapter.name()),
                 message: proto::update_language_server::Variant::WorkProgress(
                     proto::LspWorkProgress {
                         token,
@@ -8061,6 +8088,9 @@ impl LspStore {
 
         cx.emit(LspStoreEvent::LanguageServerUpdate {
             language_server_id,
+            name: self
+                .language_server_adapter_for_id(language_server_id)
+                .map(|adapter| adapter.name()),
             message: proto::update_language_server::Variant::WorkEnd(proto::LspWorkEnd { token }),
         })
     }
@@ -10308,6 +10338,7 @@ pub enum LanguageServerState {
         simulate_disk_based_diagnostics_completion: Option<Task<()>>,
         workspace_refresh_task: Option<(mpsc::Sender<()>, Task<()>)>,
     },
+    // TODO kb add stopped
 }
 
 impl LanguageServerState {
