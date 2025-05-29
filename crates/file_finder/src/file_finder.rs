@@ -24,7 +24,6 @@ use new_path_prompt::NewPathPrompt;
 use open_path_prompt::OpenPathPrompt;
 use picker::{Picker, PickerDelegate};
 use project::{PathMatchCandidateSet, Project, ProjectPath, WorktreeId};
-use search::ToggleIncludeIgnored;
 use settings::Settings;
 use std::{
     borrow::Cow,
@@ -38,8 +37,8 @@ use std::{
 };
 use text::Point;
 use ui::{
-    ContextMenu, HighlightedLabel, IconButtonShape, ListItem, ListItemSpacing, PopoverMenu,
-    PopoverMenuHandle, Tooltip, prelude::*,
+    ContextMenu, HighlightedLabel, ListItem, ListItemSpacing, PopoverMenu, PopoverMenuHandle,
+    prelude::*,
 };
 use util::{ResultExt, maybe, paths::PathWithPosition, post_inc};
 use workspace::{
@@ -223,26 +222,6 @@ impl FileFinder {
         });
     }
 
-    fn handle_toggle_ignored(
-        &mut self,
-        _: &ToggleIncludeIgnored,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.picker.update(cx, |picker, cx| {
-            picker.delegate.include_ignored = match picker.delegate.include_ignored {
-                Some(true) => match FileFinderSettings::get_global(cx).include_ignored {
-                    Some(_) => Some(false),
-                    None => None,
-                },
-                Some(false) => Some(true),
-                None => Some(true),
-            };
-            picker.delegate.include_ignored_refresh =
-                picker.delegate.update_matches(picker.query(cx), window, cx);
-        });
-    }
-
     fn go_to_file_split_left(
         &mut self,
         _: &pane::SplitLeft,
@@ -346,7 +325,6 @@ impl Render for FileFinder {
             .on_modifiers_changed(cx.listener(Self::handle_modifiers_changed))
             .on_action(cx.listener(Self::handle_select_prev))
             .on_action(cx.listener(Self::handle_toggle_menu))
-            .on_action(cx.listener(Self::handle_toggle_ignored))
             .on_action(cx.listener(Self::go_to_file_split_left))
             .on_action(cx.listener(Self::go_to_file_split_right))
             .on_action(cx.listener(Self::go_to_file_split_up))
@@ -373,8 +351,6 @@ pub struct FileFinderDelegate {
     first_update: bool,
     popover_menu_handle: PopoverMenuHandle<ContextMenu>,
     focus_handle: FocusHandle,
-    include_ignored: Option<bool>,
-    include_ignored_refresh: Task<()>,
 }
 
 /// Use a custom ordering for file finder: the regular one
@@ -760,8 +736,6 @@ impl FileFinderDelegate {
             first_update: true,
             popover_menu_handle: PopoverMenuHandle::default(),
             focus_handle: cx.focus_handle(),
-            include_ignored: FileFinderSettings::get_global(cx).include_ignored,
-            include_ignored_refresh: Task::ready(()),
         }
     }
 
@@ -805,11 +779,9 @@ impl FileFinderDelegate {
                 let worktree = worktree.read(cx);
                 PathMatchCandidateSet {
                     snapshot: worktree.snapshot(),
-                    include_ignored: self.include_ignored.unwrap_or_else(|| {
-                        worktree
-                            .root_entry()
-                            .map_or(false, |entry| entry.is_ignored)
-                    }),
+                    include_ignored: worktree
+                        .root_entry()
+                        .map_or(false, |entry| entry.is_ignored),
                     include_root_name,
                     candidates: project::Candidates::Files,
                 }
@@ -1066,7 +1038,7 @@ impl FileFinderDelegate {
     ) -> Task<()> {
         cx.spawn_in(window, async move |picker, cx| {
             let Some(project) = picker
-                .read_with(cx, |picker, _| picker.delegate.project.clone())
+                .update(cx, |picker, _| picker.delegate.project.clone())
                 .log_err()
             else {
                 return;
@@ -1200,48 +1172,6 @@ impl PickerDelegate for FileFinderDelegate {
     ) -> Task<()> {
         let raw_query = raw_query.replace(' ', "");
         let raw_query = raw_query.trim();
-
-        let raw_query = match &raw_query.get(0..2) {
-            Some(".\\") | Some("./") => &raw_query[2..],
-            Some("a\\") | Some("a/") => {
-                if self
-                    .workspace
-                    .upgrade()
-                    .into_iter()
-                    .flat_map(|workspace| workspace.read(cx).worktrees(cx))
-                    .all(|worktree| {
-                        worktree
-                            .read(cx)
-                            .entry_for_path(Path::new("a"))
-                            .is_none_or(|entry| !entry.is_dir())
-                    })
-                {
-                    &raw_query[2..]
-                } else {
-                    raw_query
-                }
-            }
-            Some("b\\") | Some("b/") => {
-                if self
-                    .workspace
-                    .upgrade()
-                    .into_iter()
-                    .flat_map(|workspace| workspace.read(cx).worktrees(cx))
-                    .all(|worktree| {
-                        worktree
-                            .read(cx)
-                            .entry_for_path(Path::new("b"))
-                            .is_none_or(|entry| !entry.is_dir())
-                    })
-                {
-                    &raw_query[2..]
-                } else {
-                    raw_query
-                }
-            }
-            _ => raw_query,
-        };
-
         if raw_query.is_empty() {
             // if there was no query before, and we already have some (history) matches
             // there's no need to update anything, since nothing has changed.
@@ -1498,74 +1428,38 @@ impl PickerDelegate for FileFinderDelegate {
             h_flex()
                 .w_full()
                 .p_2()
-                .justify_between()
+                .gap_2()
+                .justify_end()
                 .border_t_1()
                 .border_color(cx.theme().colors().border_variant)
                 .child(
-                    IconButton::new("toggle-ignored", IconName::Sliders)
-                        .on_click({
-                            let focus_handle = self.focus_handle.clone();
-                            move |_, window, cx| {
-                                focus_handle.dispatch_action(&ToggleIncludeIgnored, window, cx);
-                            }
-                        })
-                        .style(ButtonStyle::Subtle)
-                        .shape(IconButtonShape::Square)
-                        .toggle_state(self.include_ignored.unwrap_or(false))
-                        .tooltip({
-                            let focus_handle = self.focus_handle.clone();
-                            move |window, cx| {
-                                Tooltip::for_action_in(
-                                    "Use ignored files",
-                                    &ToggleIncludeIgnored,
-                                    &focus_handle,
-                                    window,
-                                    cx,
-                                )
-                            }
-                        }),
+                    Button::new("open-selection", "Open").on_click(|_, window, cx| {
+                        window.dispatch_action(menu::Confirm.boxed_clone(), cx)
+                    }),
                 )
                 .child(
-                    h_flex()
-                        .gap_2()
-                        .child(
-                            Button::new("open-selection", "Open").on_click(|_, window, cx| {
-                                window.dispatch_action(menu::Confirm.boxed_clone(), cx)
-                            }),
+                    PopoverMenu::new("menu-popover")
+                        .with_handle(self.popover_menu_handle.clone())
+                        .attach(gpui::Corner::TopRight)
+                        .anchor(gpui::Corner::BottomRight)
+                        .trigger(
+                            Button::new("actions-trigger", "Split…")
+                                .selected_label_color(Color::Accent),
                         )
-                        .child(
-                            PopoverMenu::new("menu-popover")
-                                .with_handle(self.popover_menu_handle.clone())
-                                .attach(gpui::Corner::TopRight)
-                                .anchor(gpui::Corner::BottomRight)
-                                .trigger(
-                                    Button::new("actions-trigger", "Split…")
-                                        .selected_label_color(Color::Accent),
-                                )
-                                .menu({
-                                    move |window, cx| {
-                                        Some(ContextMenu::build(window, cx, {
-                                            let context = context.clone();
-                                            move |menu, _, _| {
-                                                menu.context(context)
-                                                    .action(
-                                                        "Split Left",
-                                                        pane::SplitLeft.boxed_clone(),
-                                                    )
-                                                    .action(
-                                                        "Split Right",
-                                                        pane::SplitRight.boxed_clone(),
-                                                    )
-                                                    .action("Split Up", pane::SplitUp.boxed_clone())
-                                                    .action(
-                                                        "Split Down",
-                                                        pane::SplitDown.boxed_clone(),
-                                                    )
-                                            }
-                                        }))
+                        .menu({
+                            move |window, cx| {
+                                Some(ContextMenu::build(window, cx, {
+                                    let context = context.clone();
+                                    move |menu, _, _| {
+                                        menu.context(context)
+                                            .action("Split Left", pane::SplitLeft.boxed_clone())
+                                            .action("Split Right", pane::SplitRight.boxed_clone())
+                                            .action("Split Up", pane::SplitUp.boxed_clone())
+                                            .action("Split Down", pane::SplitDown.boxed_clone())
                                     }
-                                }),
-                        ),
+                                }))
+                            }
+                        }),
                 )
                 .into_any(),
         )

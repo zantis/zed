@@ -28,7 +28,6 @@ use language_model::{LanguageModel, LanguageModelRegistry};
 use parking_lot::Mutex;
 use settings::Settings;
 use std::cmp;
-use std::rc::Rc;
 use std::sync::Arc;
 use theme::ThemeSettings;
 use ui::utils::WithRemSize;
@@ -327,7 +326,9 @@ impl<T: 'static> PromptEditor<T> {
             EditorEvent::Edited { .. } => {
                 if let Some(workspace) = window.root::<Workspace>().flatten() {
                     workspace.update(cx, |workspace, cx| {
-                        let is_via_ssh = workspace.project().read(cx).is_via_ssh();
+                        let is_via_ssh = workspace
+                            .project()
+                            .update(cx, |project, _| project.is_via_ssh());
 
                         workspace
                             .client()
@@ -372,7 +373,7 @@ impl<T: 'static> PromptEditor<T> {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.context_store.update(cx, |store, cx| store.clear(cx));
+        self.context_store.update(cx, |store, _cx| store.clear());
         cx.notify();
     }
 
@@ -891,7 +892,7 @@ impl PromptEditor<BufferCodegen> {
 
         let prompt_editor_entity = prompt_editor.downgrade();
         prompt_editor.update(cx, |editor, _| {
-            editor.set_completion_provider(Some(Rc::new(ContextPickerCompletionProvider::new(
+            editor.set_completion_provider(Some(Box::new(ContextPickerCompletionProvider::new(
                 workspace.clone(),
                 context_store.downgrade(),
                 thread_store.clone(),
@@ -1062,7 +1063,7 @@ impl PromptEditor<TerminalCodegen> {
 
         let prompt_editor_entity = prompt_editor.downgrade();
         prompt_editor.update(cx, |editor, _| {
-            editor.set_completion_provider(Some(Rc::new(ContextPickerCompletionProvider::new(
+            editor.set_completion_provider(Some(Box::new(ContextPickerCompletionProvider::new(
                 workspace.clone(),
                 context_store.downgrade(),
                 thread_store.clone(),

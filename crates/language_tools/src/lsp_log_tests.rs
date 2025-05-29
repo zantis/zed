@@ -15,7 +15,9 @@ use util::path;
 
 #[gpui::test]
 async fn test_lsp_logs(cx: &mut TestAppContext) {
-    zlog::init_test();
+    if std::env::var("RUST_LOG").is_ok() {
+        env_logger::init();
+    }
 
     init_test(cx);
 

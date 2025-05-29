@@ -149,8 +149,22 @@ impl DebugAdapter for PhpDebugAdapter {
                     "default": false
                 },
                 "pathMappings": {
-                    "type": "object",
-                    "description": "A mapping of server paths to local paths.",
+                    "type": "array",
+                    "description": "A list of server paths mapping to the local source paths on your machine for remote host debugging",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "serverPath": {
+                                "type": "string",
+                                "description": "Path on the server"
+                            },
+                            "localPath": {
+                                "type": "string",
+                                "description": "Corresponding path on the local machine"
+                            }
+                        },
+                        "required": ["serverPath", "localPath"]
+                    }
                 },
                 "log": {
                     "type": "boolean",

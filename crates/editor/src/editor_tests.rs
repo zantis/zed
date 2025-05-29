@@ -1,7 +1,6 @@
 use super::*;
 use crate::{
     JoinLines,
-    inline_completion_tests::FakeInlineCompletionProvider,
     linked_editing_ranges::LinkedEditingRanges,
     scroll::scroll_amount::ScrollAmount,
     test::{
@@ -6045,34 +6044,8 @@ async fn test_add_selection_above_below(cx: &mut TestAppContext) {
     cx.assert_editor_state(indoc!(
         r#"abc
            defˇghi
-           ˇ
+
            jk
-           nlmo
-           "#
-    ));
-
-    cx.update_editor(|editor, window, cx| {
-        editor.add_selection_below(&Default::default(), window, cx);
-    });
-
-    cx.assert_editor_state(indoc!(
-        r#"abc
-           defˇghi
-           ˇ
-           jkˇ
-           nlmo
-           "#
-    ));
-
-    cx.update_editor(|editor, window, cx| {
-        editor.add_selection_below(&Default::default(), window, cx);
-    });
-
-    cx.assert_editor_state(indoc!(
-        r#"abc
-           defˇghi
-           ˇ
-           jkˇ
            nlmˇo
            "#
     ));
@@ -6084,10 +6057,10 @@ async fn test_add_selection_above_below(cx: &mut TestAppContext) {
     cx.assert_editor_state(indoc!(
         r#"abc
            defˇghi
-           ˇ
-           jkˇ
+
+           jk
            nlmˇo
-           ˇ"#
+           "#
     ));
 
     // change selections
@@ -6421,98 +6394,6 @@ async fn test_undo_format_scrolls_to_last_edit_pos(cx: &mut TestAppContext) {
         linXˇe 3
         line 4
         line 5
-    "});
-}
-
-#[gpui::test]
-async fn test_undo_inline_completion_scrolls_to_edit_pos(cx: &mut TestAppContext) {
-    init_test(cx, |_| {});
-
-    let mut cx = EditorTestContext::new(cx).await;
-
-    let provider = cx.new(|_| FakeInlineCompletionProvider::default());
-    cx.update_editor(|editor, window, cx| {
-        editor.set_edit_prediction_provider(Some(provider.clone()), window, cx);
-    });
-
-    cx.set_state(indoc! {"
-        line 1
-        line 2
-        linˇe 3
-        line 4
-        line 5
-        line 6
-        line 7
-        line 8
-        line 9
-        line 10
-    "});
-
-    let snapshot = cx.buffer_snapshot();
-    let edit_position = snapshot.anchor_after(Point::new(2, 4));
-
-    cx.update(|_, cx| {
-        provider.update(cx, |provider, _| {
-            provider.set_inline_completion(Some(inline_completion::InlineCompletion {
-                id: None,
-                edits: vec![(edit_position..edit_position, "X".into())],
-                edit_preview: None,
-            }))
-        })
-    });
-
-    cx.update_editor(|editor, window, cx| editor.update_visible_inline_completion(window, cx));
-    cx.update_editor(|editor, window, cx| {
-        editor.accept_edit_prediction(&crate::AcceptEditPrediction, window, cx)
-    });
-
-    cx.assert_editor_state(indoc! {"
-        line 1
-        line 2
-        lineXˇ 3
-        line 4
-        line 5
-        line 6
-        line 7
-        line 8
-        line 9
-        line 10
-    "});
-
-    cx.update_editor(|editor, window, cx| {
-        editor.change_selections(None, window, cx, |s| {
-            s.select_ranges([Point::new(9, 2)..Point::new(9, 2)]);
-        });
-    });
-
-    cx.assert_editor_state(indoc! {"
-        line 1
-        line 2
-        lineX 3
-        line 4
-        line 5
-        line 6
-        line 7
-        line 8
-        line 9
-        liˇne 10
-    "});
-
-    cx.update_editor(|editor, window, cx| {
-        editor.undo(&Default::default(), window, cx);
-    });
-
-    cx.assert_editor_state(indoc! {"
-        line 1
-        line 2
-        lineˇ 3
-        line 4
-        line 5
-        line 6
-        line 7
-        line 8
-        line 9
-        line 10
     "});
 }
 
@@ -9111,10 +8992,11 @@ async fn test_range_format_during_save(cx: &mut TestAppContext) {
                 lsp::Url::from_file_path(path!("/file.rs")).unwrap()
             );
             assert_eq!(params.options.tab_size, 8);
-            Ok(Some(Vec::new()))
+            Ok(Some(vec![]))
         })
         .next()
         .await;
+    cx.executor().start_waiting();
     save.await;
 }
 
@@ -16768,9 +16650,9 @@ fn indent_guide(buffer_id: BufferId, start_row: u32, end_row: u32, depth: u32) -
 async fn test_indent_guide_single_line(cx: &mut TestAppContext) {
     let (buffer_id, mut cx) = setup_indent_guides_editor(
         &"
-        fn main() {
-            let a = 1;
-        }"
+    fn main() {
+        let a = 1;
+    }"
         .unindent(),
         cx,
     )
@@ -16783,10 +16665,10 @@ async fn test_indent_guide_single_line(cx: &mut TestAppContext) {
 async fn test_indent_guide_simple_block(cx: &mut TestAppContext) {
     let (buffer_id, mut cx) = setup_indent_guides_editor(
         &"
-        fn main() {
-            let a = 1;
-            let b = 2;
-        }"
+    fn main() {
+        let a = 1;
+        let b = 2;
+    }"
         .unindent(),
         cx,
     )
@@ -16799,14 +16681,14 @@ async fn test_indent_guide_simple_block(cx: &mut TestAppContext) {
 async fn test_indent_guide_nested(cx: &mut TestAppContext) {
     let (buffer_id, mut cx) = setup_indent_guides_editor(
         &"
-        fn main() {
-            let a = 1;
-            if a == 3 {
-                let b = 2;
-            } else {
-                let c = 3;
-            }
-        }"
+    fn main() {
+        let a = 1;
+        if a == 3 {
+            let b = 2;
+        } else {
+            let c = 3;
+        }
+    }"
         .unindent(),
         cx,
     )
@@ -16828,11 +16710,11 @@ async fn test_indent_guide_nested(cx: &mut TestAppContext) {
 async fn test_indent_guide_tab(cx: &mut TestAppContext) {
     let (buffer_id, mut cx) = setup_indent_guides_editor(
         &"
-        fn main() {
-            let a = 1;
-                let b = 2;
-            let c = 3;
-        }"
+    fn main() {
+        let a = 1;
+            let b = 2;
+        let c = 3;
+    }"
         .unindent(),
         cx,
     )
@@ -16956,72 +16838,6 @@ async fn test_indent_guide_ends_off_screen(cx: &mut TestAppContext) {
             indent_guide(buffer_id, 1, 9, 0),
             indent_guide(buffer_id, 6, 6, 1),
             indent_guide(buffer_id, 8, 8, 1),
-        ],
-        None,
-        &mut cx,
-    );
-}
-
-#[gpui::test]
-async fn test_indent_guide_with_folds(cx: &mut TestAppContext) {
-    let (buffer_id, mut cx) = setup_indent_guides_editor(
-        &"
-        fn main() {
-            if a {
-                b(
-                    c,
-                    d,
-                )
-            } else {
-                e(
-                    f
-                )
-            }
-        }"
-        .unindent(),
-        cx,
-    )
-    .await;
-
-    assert_indent_guides(
-        0..11,
-        vec![
-            indent_guide(buffer_id, 1, 10, 0),
-            indent_guide(buffer_id, 2, 5, 1),
-            indent_guide(buffer_id, 7, 9, 1),
-            indent_guide(buffer_id, 3, 4, 2),
-            indent_guide(buffer_id, 8, 8, 2),
-        ],
-        None,
-        &mut cx,
-    );
-
-    cx.update_editor(|editor, window, cx| {
-        editor.fold_at(MultiBufferRow(2), window, cx);
-        assert_eq!(
-            editor.display_text(cx),
-            "
-            fn main() {
-                if a {
-                    b(⋯
-                    )
-                } else {
-                    e(
-                        f
-                    )
-                }
-            }"
-            .unindent()
-        );
-    });
-
-    assert_indent_guides(
-        0..11,
-        vec![
-            indent_guide(buffer_id, 1, 10, 0),
-            indent_guide(buffer_id, 2, 5, 1),
-            indent_guide(buffer_id, 7, 9, 1),
-            indent_guide(buffer_id, 8, 8, 2),
         ],
         None,
         &mut cx,
@@ -20900,19 +20716,6 @@ async fn test_outdent_after_input_for_python(cx: &mut TestAppContext) {
                 if i == 3:
                     break
             else:ˇ
-    "});
-
-    // test does not outdent on typing after line with square brackets
-    cx.set_state(indoc! {"
-        def f() -> list[str]:
-            ˇ
-    "});
-    cx.update_editor(|editor, window, cx| {
-        editor.handle_input("a", window, cx);
-    });
-    cx.assert_editor_state(indoc! {"
-        def f() -> list[str]:
-            aˇ
     "});
 }
 

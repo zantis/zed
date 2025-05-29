@@ -154,7 +154,7 @@ impl RenderOnce for Tab {
                     if self.selected {
                         this.border_l_1().border_r_1().pb_px()
                     } else {
-                        this.pl_px().border_b_1().border_r_1()
+                        this.pr_px().border_b_1().border_r_1()
                     }
                 }
                 TabPosition::Middle(Ordering::Equal) => this.border_l_1().border_r_1().pb_px(),

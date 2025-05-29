@@ -1,6 +1,6 @@
 use crate::{
-    App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, IntoElement, LayoutId,
-    ObjectFit, Pixels, Style, StyleRefinement, Styled, Window,
+    App, Bounds, Element, ElementId, GlobalElementId, IntoElement, LayoutId, ObjectFit, Pixels,
+    Style, StyleRefinement, Styled, Window,
 };
 #[cfg(target_os = "macos")]
 use core_video::pixel_buffer::CVPixelBuffer;
@@ -53,14 +53,9 @@ impl Element for Surface {
         None
     }
 
-    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
-        None
-    }
-
     fn request_layout(
         &mut self,
         _global_id: Option<&GlobalElementId>,
-        _inspector_id: Option<&InspectorElementId>,
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
@@ -73,7 +68,6 @@ impl Element for Surface {
     fn prepaint(
         &mut self,
         _global_id: Option<&GlobalElementId>,
-        _inspector_id: Option<&InspectorElementId>,
         _bounds: Bounds<Pixels>,
         _request_layout: &mut Self::RequestLayoutState,
         _window: &mut Window,
@@ -84,7 +78,6 @@ impl Element for Surface {
     fn paint(
         &mut self,
         _global_id: Option<&GlobalElementId>,
-        _inspector_id: Option<&InspectorElementId>,
         #[cfg_attr(not(target_os = "macos"), allow(unused_variables))] bounds: Bounds<Pixels>,
         _: &mut Self::RequestLayoutState,
         _: &mut Self::PrepaintState,

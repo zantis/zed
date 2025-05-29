@@ -17,7 +17,6 @@ chrono.workspace = true
 component.workspace = true
 documented.workspace = true
 gpui.workspace = true
-gpui_macros.workspace = true
 icons.workspace = true
 itertools.workspace = true
 menu.workspace = true

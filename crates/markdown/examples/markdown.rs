@@ -67,8 +67,14 @@ struct MarkdownExample {
 
 impl MarkdownExample {
     pub fn new(text: SharedString, language_registry: Arc<LanguageRegistry>, cx: &mut App) -> Self {
-        let markdown = cx
-            .new(|cx| Markdown::new(text, Some(language_registry), Some("TypeScript".into()), cx));
+        let markdown = cx.new(|cx| {
+            Markdown::new(
+                text,
+                Some(language_registry),
+                Some("TypeScript".to_string()),
+                cx,
+            )
+        });
         Self { markdown }
     }
 }

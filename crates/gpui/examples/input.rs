@@ -26,7 +26,6 @@ actions!(
         Paste,
         Cut,
         Copy,
-        Quit,
     ]
 );
 
@@ -405,20 +404,16 @@ impl IntoElement for TextElement {
 
 impl Element for TextElement {
     type RequestLayoutState = ();
+
     type PrepaintState = PrepaintState;
 
     fn id(&self) -> Option<ElementId> {
         None
     }
 
-    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
-        None
-    }
-
     fn request_layout(
         &mut self,
         _id: Option<&GlobalElementId>,
-        _inspector_id: Option<&gpui::InspectorElementId>,
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
@@ -431,7 +426,6 @@ impl Element for TextElement {
     fn prepaint(
         &mut self,
         _id: Option<&GlobalElementId>,
-        _inspector_id: Option<&gpui::InspectorElementId>,
         bounds: Bounds<Pixels>,
         _request_layout: &mut Self::RequestLayoutState,
         window: &mut Window,
@@ -529,7 +523,6 @@ impl Element for TextElement {
     fn paint(
         &mut self,
         _id: Option<&GlobalElementId>,
-        _inspector_id: Option<&gpui::InspectorElementId>,
         bounds: Bounds<Pixels>,
         _request_layout: &mut Self::RequestLayoutState,
         prepaint: &mut Self::PrepaintState,
@@ -742,7 +735,5 @@ fn main() {
                 cx.activate(true);
             })
             .unwrap();
-        cx.on_action(|_: &Quit, cx| cx.quit());
-        cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
     });
 }
