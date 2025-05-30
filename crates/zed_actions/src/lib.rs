@@ -111,12 +111,6 @@ impl_actions!(
     ]
 );
 
-pub mod dev {
-    use gpui::actions;
-
-    actions!(dev, [ToggleInspector]);
-}
-
 pub mod workspace {
     use gpui::action_with_deprecated_aliases;
 

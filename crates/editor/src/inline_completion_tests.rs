@@ -302,8 +302,8 @@ fn assign_editor_completion_provider(
 }
 
 #[derive(Default, Clone)]
-pub struct FakeInlineCompletionProvider {
-    pub completion: Option<inline_completion::InlineCompletion>,
+struct FakeInlineCompletionProvider {
+    completion: Option<inline_completion::InlineCompletion>,
 }
 
 impl FakeInlineCompletionProvider {

@@ -1522,8 +1522,6 @@ pub fn parse_json_with_comments<T: DeserializeOwned>(content: &str) -> Result<T>
 
 #[cfg(test)]
 mod tests {
-    use crate::VsCodeSettingsSource;
-
     use super::*;
     use serde_derive::Deserialize;
     use unindent::Unindent;
@@ -2006,10 +2004,7 @@ mod tests {
         cx: &mut App,
     ) {
         store.set_user_settings(&old, cx).ok();
-        let new = store.get_vscode_edits(
-            old,
-            &VsCodeSettings::from_str(&vscode, VsCodeSettingsSource::VsCode).unwrap(),
-        );
+        let new = store.get_vscode_edits(old, &VsCodeSettings::from_str(&vscode).unwrap());
         pretty_assertions::assert_eq!(new, expected);
     }
 

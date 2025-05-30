@@ -374,12 +374,6 @@ impl super::LspAdapter for GoLspAdapter {
             filter_range,
         })
     }
-
-    fn diagnostic_message_to_markdown(&self, message: &str) -> Option<String> {
-        static REGEX: LazyLock<Regex> =
-            LazyLock::new(|| Regex::new(r"(?m)\n\s*").expect("Failed to create REGEX"));
-        Some(REGEX.replace_all(message, "\n\n").to_string())
-    }
 }
 
 fn parse_version_output(output: &Output) -> Result<&str> {
@@ -444,13 +438,12 @@ impl ContextProvider for GoContextProvider {
     fn build_context(
         &self,
         variables: &TaskVariables,
-        location: ContextLocation<'_>,
+        location: &Location,
         _: Option<HashMap<String, String>>,
         _: Arc<dyn LanguageToolchainStore>,
         cx: &mut gpui::App,
     ) -> Task<Result<TaskVariables>> {
         let local_abs_path = location
-            .file_location
             .buffer
             .read(cx)
             .file()

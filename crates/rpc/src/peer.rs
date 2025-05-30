@@ -684,7 +684,9 @@ mod tests {
     use gpui::TestAppContext;
 
     fn init_logger() {
-        zlog::init_test();
+        if std::env::var("RUST_LOG").is_ok() {
+            env_logger::init();
+        }
     }
 
     #[gpui::test(iterations = 50)]

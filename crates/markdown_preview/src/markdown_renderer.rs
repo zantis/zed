@@ -4,7 +4,6 @@ use crate::markdown_elements::{
     ParsedMarkdownHeading, ParsedMarkdownListItem, ParsedMarkdownListItemType, ParsedMarkdownTable,
     ParsedMarkdownTableAlignment, ParsedMarkdownTableRow,
 };
-use fs::normalize_path;
 use gpui::{
     AbsoluteLength, AnyElement, App, AppContext as _, ClipboardItem, Context, DefiniteLength, Div,
     Element, ElementId, Entity, HighlightStyle, Hsla, ImageSource, InteractiveText, IntoElement,
@@ -681,7 +680,7 @@ fn render_markdown_text(parsed_new: &MarkdownParagraph, cx: &mut RenderContext) 
                                         _ = workspace.update(cx, |workspace, cx| {
                                             workspace
                                                 .open_abs_path(
-                                                    normalize_path(path.clone().as_path()),
+                                                    path.clone(),
                                                     OpenOptions {
                                                         visible: Some(OpenVisible::None),
                                                         ..Default::default()

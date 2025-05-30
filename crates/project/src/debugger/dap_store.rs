@@ -101,10 +101,7 @@ impl DapStore {
     pub fn init(client: &AnyProtoClient, cx: &mut App) {
         static ADD_LOCATORS: Once = Once::new();
         ADD_LOCATORS.call_once(|| {
-            let registry = DapRegistry::global(cx);
-            registry.add_locator(Arc::new(locators::cargo::CargoLocator {}));
-            registry.add_locator(Arc::new(locators::python::PythonLocator));
-            registry.add_locator(Arc::new(locators::go::GoLocator {}));
+            DapRegistry::global(cx).add_locator(Arc::new(locators::cargo::CargoLocator {}))
         });
         client.add_entity_request_handler(Self::handle_run_debug_locator);
         client.add_entity_request_handler(Self::handle_get_debug_adapter_binary);
@@ -235,7 +232,7 @@ impl DapStore {
                 cx.spawn(async move |_, cx| {
                     let response = request.await?;
                     let binary = DebugAdapterBinary::from_proto(response)?;
-                    let mut ssh_command = ssh_client.read_with(cx, |ssh, _| {
+                    let mut ssh_command = ssh_client.update(cx, |ssh, _| {
                         anyhow::Ok(SshCommand {
                             arguments: ssh.ssh_args().context("SSH arguments not found")?,
                         })
@@ -415,6 +412,7 @@ impl DapStore {
                         this.get_debug_adapter_binary(definition.clone(), session_id, console, cx)
                     })?
                     .await?;
+
                 session
                     .update(cx, |session, cx| {
                         session.boot(binary, worktree, dap_store, cx)
@@ -611,7 +609,7 @@ impl DapStore {
                         });
                     }
                     VariableLookupKind::Expression => {
-                        let Ok(eval_task) = session.read_with(cx, |session, _| {
+                        let Ok(eval_task) = session.update(cx, |session, _| {
                             session.mode.request_dap(EvaluateCommand {
                                 expression: inline_value_location.variable_name.clone(),
                                 frame_id: Some(stack_frame_id),
@@ -754,7 +752,7 @@ impl DapStore {
             let this = this.clone();
             async move |cx| {
                 while let Some(message) = rx.next().await {
-                    this.read_with(cx, |this, _| {
+                    this.update(cx, |this, _| {
                         if let Some((downstream, project_id)) = this.downstream_client.clone() {
                             downstream
                                 .send(proto::LogToDebugConsole {

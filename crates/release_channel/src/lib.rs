@@ -35,19 +35,14 @@ pub fn app_identifier() -> &'static str {
 }
 
 /// The Git commit SHA that Zed was built at.
-#[derive(Clone, Eq, Debug, PartialEq)]
-pub struct AppCommitSha(String);
+#[derive(Clone)]
+pub struct AppCommitSha(pub String);
 
 struct GlobalAppCommitSha(AppCommitSha);
 
 impl Global for GlobalAppCommitSha {}
 
 impl AppCommitSha {
-    /// Creates a new [`AppCommitSha`].
-    pub fn new(sha: String) -> Self {
-        AppCommitSha(sha)
-    }
-
     /// Returns the global [`AppCommitSha`], if one is set.
     pub fn try_global(cx: &App) -> Option<AppCommitSha> {
         cx.try_global::<GlobalAppCommitSha>()
@@ -57,16 +52,6 @@ impl AppCommitSha {
     /// Sets the global [`AppCommitSha`].
     pub fn set_global(sha: AppCommitSha, cx: &mut App) {
         cx.set_global(GlobalAppCommitSha(sha))
-    }
-
-    /// Returns the full commit SHA.
-    pub fn full(&self) -> String {
-        self.0.to_string()
-    }
-
-    /// Returns the short (7 character) commit SHA.
-    pub fn short(&self) -> String {
-        self.0.chars().take(7).collect()
     }
 }
 

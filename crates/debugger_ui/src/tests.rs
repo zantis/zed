@@ -34,8 +34,9 @@ mod stack_frame_list;
 mod variable_list;
 
 pub fn init_test(cx: &mut gpui::TestAppContext) {
-    #[cfg(test)]
-    zlog::init_test();
+    if std::env::var("RUST_LOG").is_ok() {
+        env_logger::try_init().ok();
+    }
 
     cx.update(|cx| {
         let settings = SettingsStore::test(cx);

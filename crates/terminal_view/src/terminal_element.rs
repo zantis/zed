@@ -413,15 +413,10 @@ impl TerminalElement {
     fn generic_button_handler<E>(
         connection: Entity<Terminal>,
         focus_handle: FocusHandle,
-        steal_focus: bool,
         f: impl Fn(&mut Terminal, &E, &mut Context<Terminal>),
     ) -> impl Fn(&E, &mut Window, &mut App) {
         move |event, window, cx| {
-            if steal_focus {
-                window.focus(&focus_handle);
-            } else if !focus_handle.is_focused(window) {
-                return;
-            }
+            window.focus(&focus_handle);
             connection.update(cx, |terminal, cx| {
                 f(terminal, event, cx);
 
@@ -494,7 +489,6 @@ impl TerminalElement {
             TerminalElement::generic_button_handler(
                 terminal.clone(),
                 focus.clone(),
-                false,
                 move |terminal, e, cx| {
                     terminal.mouse_up(e, cx);
                 },
@@ -505,7 +499,6 @@ impl TerminalElement {
             TerminalElement::generic_button_handler(
                 terminal.clone(),
                 focus.clone(),
-                true,
                 move |terminal, e, cx| {
                     terminal.mouse_down(e, cx);
                 },
@@ -535,7 +528,6 @@ impl TerminalElement {
                 TerminalElement::generic_button_handler(
                     terminal.clone(),
                     focus.clone(),
-                    true,
                     move |terminal, e, cx| {
                         terminal.mouse_down(e, cx);
                     },
@@ -546,7 +538,6 @@ impl TerminalElement {
                 TerminalElement::generic_button_handler(
                     terminal.clone(),
                     focus.clone(),
-                    false,
                     move |terminal, e, cx| {
                         terminal.mouse_up(e, cx);
                     },
@@ -554,14 +545,9 @@ impl TerminalElement {
             );
             self.interactivity.on_mouse_up(
                 MouseButton::Middle,
-                TerminalElement::generic_button_handler(
-                    terminal,
-                    focus,
-                    false,
-                    move |terminal, e, cx| {
-                        terminal.mouse_up(e, cx);
-                    },
-                ),
+                TerminalElement::generic_button_handler(terminal, focus, move |terminal, e, cx| {
+                    terminal.mouse_up(e, cx);
+                }),
             );
         }
     }
@@ -595,14 +581,9 @@ impl Element for TerminalElement {
         self.interactivity.element_id.clone()
     }
 
-    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
-        None
-    }
-
     fn request_layout(
         &mut self,
         global_id: Option<&GlobalElementId>,
-        inspector_id: Option<&gpui::InspectorElementId>,
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
@@ -616,26 +597,21 @@ impl Element for TerminalElement {
             }
         }
 
-        let layout_id = self.interactivity.request_layout(
-            global_id,
-            inspector_id,
-            window,
-            cx,
-            |mut style, window, cx| {
-                style.size.width = relative(1.).into();
-                style.size.height = relative(1.).into();
-                // style.overflow = point(Overflow::Hidden, Overflow::Hidden);
+        let layout_id =
+            self.interactivity
+                .request_layout(global_id, window, cx, |mut style, window, cx| {
+                    style.size.width = relative(1.).into();
+                    style.size.height = relative(1.).into();
+                    // style.overflow = point(Overflow::Hidden, Overflow::Hidden);
 
-                window.request_layout(style, None, cx)
-            },
-        );
+                    window.request_layout(style, None, cx)
+                });
         (layout_id, ())
     }
 
     fn prepaint(
         &mut self,
         global_id: Option<&GlobalElementId>,
-        inspector_id: Option<&gpui::InspectorElementId>,
         bounds: Bounds<Pixels>,
         _: &mut Self::RequestLayoutState,
         window: &mut Window,
@@ -644,7 +620,6 @@ impl Element for TerminalElement {
         let rem_size = self.rem_size(cx);
         self.interactivity.prepaint(
             global_id,
-            inspector_id,
             bounds,
             bounds.size,
             window,
@@ -929,7 +904,6 @@ impl Element for TerminalElement {
     fn paint(
         &mut self,
         global_id: Option<&GlobalElementId>,
-        inspector_id: Option<&gpui::InspectorElementId>,
         bounds: Bounds<Pixels>,
         _: &mut Self::RequestLayoutState,
         layout: &mut Self::PrepaintState,
@@ -973,7 +947,6 @@ impl Element for TerminalElement {
             let block_below_cursor_element = layout.block_below_cursor_element.take();
             self.interactivity.paint(
                 global_id,
-                inspector_id,
                 bounds,
                 Some(&layout.hitbox),
                 window,

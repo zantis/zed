@@ -658,13 +658,9 @@ impl StdioTransport {
             .stderr(Stdio::piped())
             .kill_on_drop(true);
 
-        let mut process = command.spawn().with_context(|| {
-            format!(
-                "failed to spawn command `{} {}`.",
-                binary.command,
-                binary.arguments.join(" ")
-            )
-        })?;
+        let mut process = command
+            .spawn()
+            .with_context(|| "failed to spawn command.")?;
 
         let stdin = process.stdin.take().context("Failed to open stdin")?;
         let stdout = process.stdout.take().context("Failed to open stdout")?;

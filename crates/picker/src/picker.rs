@@ -1,7 +1,3 @@
-mod head;
-pub mod highlighted_match_with_paths;
-pub mod popover_menu;
-
 use anyhow::Result;
 use editor::{
     Editor,
@@ -23,6 +19,9 @@ use ui::{
 };
 use util::ResultExt;
 use workspace::ModalView;
+
+mod head;
+pub mod highlighted_match_with_paths;
 
 enum ElementContainer {
     List(ListState),
@@ -190,7 +189,7 @@ pub trait PickerDelegate: Sized + 'static {
                     .overflow_hidden()
                     .flex_none()
                     .h_9()
-                    .px_2p5()
+                    .px_3()
                     .child(editor.clone()),
             )
             .when(

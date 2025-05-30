@@ -2,7 +2,6 @@ name = "TSX"
 grammar = "tsx"
 path_suffixes = ["tsx"]
 line_comments = ["// "]
-block_comment = ["/*", "*/"]
 autoclose_before = ";:.,=}])>"
 brackets = [
     { start = "{", end = "}", close = true, newline = true },

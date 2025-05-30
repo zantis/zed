@@ -1,7 +1,6 @@
 use super::*;
 use crate::{
     JoinLines,
-    inline_completion_tests::FakeInlineCompletionProvider,
     linked_editing_ranges::LinkedEditingRanges,
     scroll::scroll_amount::ScrollAmount,
     test::{
@@ -6045,34 +6044,8 @@ async fn test_add_selection_above_below(cx: &mut TestAppContext) {
     cx.assert_editor_state(indoc!(
         r#"abc
            defˇghi
-           ˇ
+
            jk
-           nlmo
-           "#
-    ));
-
-    cx.update_editor(|editor, window, cx| {
-        editor.add_selection_below(&Default::default(), window, cx);
-    });
-
-    cx.assert_editor_state(indoc!(
-        r#"abc
-           defˇghi
-           ˇ
-           jkˇ
-           nlmo
-           "#
-    ));
-
-    cx.update_editor(|editor, window, cx| {
-        editor.add_selection_below(&Default::default(), window, cx);
-    });
-
-    cx.assert_editor_state(indoc!(
-        r#"abc
-           defˇghi
-           ˇ
-           jkˇ
            nlmˇo
            "#
     ));
@@ -6084,10 +6057,10 @@ async fn test_add_selection_above_below(cx: &mut TestAppContext) {
     cx.assert_editor_state(indoc!(
         r#"abc
            defˇghi
-           ˇ
-           jkˇ
+
+           jk
            nlmˇo
-           ˇ"#
+           "#
     ));
 
     // change selections
@@ -6421,98 +6394,6 @@ async fn test_undo_format_scrolls_to_last_edit_pos(cx: &mut TestAppContext) {
         linXˇe 3
         line 4
         line 5
-    "});
-}
-
-#[gpui::test]
-async fn test_undo_inline_completion_scrolls_to_edit_pos(cx: &mut TestAppContext) {
-    init_test(cx, |_| {});
-
-    let mut cx = EditorTestContext::new(cx).await;
-
-    let provider = cx.new(|_| FakeInlineCompletionProvider::default());
-    cx.update_editor(|editor, window, cx| {
-        editor.set_edit_prediction_provider(Some(provider.clone()), window, cx);
-    });
-
-    cx.set_state(indoc! {"
-        line 1
-        line 2
-        linˇe 3
-        line 4
-        line 5
-        line 6
-        line 7
-        line 8
-        line 9
-        line 10
-    "});
-
-    let snapshot = cx.buffer_snapshot();
-    let edit_position = snapshot.anchor_after(Point::new(2, 4));
-
-    cx.update(|_, cx| {
-        provider.update(cx, |provider, _| {
-            provider.set_inline_completion(Some(inline_completion::InlineCompletion {
-                id: None,
-                edits: vec![(edit_position..edit_position, "X".into())],
-                edit_preview: None,
-            }))
-        })
-    });
-
-    cx.update_editor(|editor, window, cx| editor.update_visible_inline_completion(window, cx));
-    cx.update_editor(|editor, window, cx| {
-        editor.accept_edit_prediction(&crate::AcceptEditPrediction, window, cx)
-    });
-
-    cx.assert_editor_state(indoc! {"
-        line 1
-        line 2
-        lineXˇ 3
-        line 4
-        line 5
-        line 6
-        line 7
-        line 8
-        line 9
-        line 10
-    "});
-
-    cx.update_editor(|editor, window, cx| {
-        editor.change_selections(None, window, cx, |s| {
-            s.select_ranges([Point::new(9, 2)..Point::new(9, 2)]);
-        });
-    });
-
-    cx.assert_editor_state(indoc! {"
-        line 1
-        line 2
-        lineX 3
-        line 4
-        line 5
-        line 6
-        line 7
-        line 8
-        line 9
-        liˇne 10
-    "});
-
-    cx.update_editor(|editor, window, cx| {
-        editor.undo(&Default::default(), window, cx);
-    });
-
-    cx.assert_editor_state(indoc! {"
-        line 1
-        line 2
-        lineˇ 3
-        line 4
-        line 5
-        line 6
-        line 7
-        line 8
-        line 9
-        line 10
     "});
 }
 
@@ -9111,10 +8992,11 @@ async fn test_range_format_during_save(cx: &mut TestAppContext) {
                 lsp::Url::from_file_path(path!("/file.rs")).unwrap()
             );
             assert_eq!(params.options.tab_size, 8);
-            Ok(Some(Vec::new()))
+            Ok(Some(vec![]))
         })
         .next()
         .await;
+    cx.executor().start_waiting();
     save.await;
 }
 
@@ -20900,19 +20782,6 @@ async fn test_outdent_after_input_for_python(cx: &mut TestAppContext) {
                 if i == 3:
                     break
             else:ˇ
-    "});
-
-    // test does not outdent on typing after line with square brackets
-    cx.set_state(indoc! {"
-        def f() -> list[str]:
-            ˇ
-    "});
-    cx.update_editor(|editor, window, cx| {
-        editor.handle_input("a", window, cx);
-    });
-    cx.assert_editor_state(indoc! {"
-        def f() -> list[str]:
-            aˇ
     "});
 }
 
