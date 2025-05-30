@@ -589,7 +589,9 @@ async fn test_remote_server_debugger(
     cx_a.update(|cx| {
         release_channel::init(SemanticVersion::default(), cx);
         command_palette_hooks::init(cx);
-        zlog::init_test();
+        if std::env::var("RUST_LOG").is_ok() {
+            env_logger::try_init().ok();
+        }
         dap_adapters::init(cx);
     });
     server_cx.update(|cx| {

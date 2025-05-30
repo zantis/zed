@@ -1,6 +1,6 @@
 mod markdown_preview;
 mod repl_menu;
-use agent_settings::AgentSettings;
+use assistant_settings::AssistantSettings;
 use editor::actions::{
     AddSelectionAbove, AddSelectionBelow, CodeActionSource, DuplicateLineDown, GoToDiagnostic,
     GoToHunk, GoToPreviousDiagnostic, GoToPreviousHunk, MoveLineDown, MoveLineUp, SelectAll,
@@ -558,7 +558,8 @@ impl Render for QuickActionBar {
             .children(self.render_toggle_markdown_preview(self.workspace.clone(), cx))
             .children(search_button)
             .when(
-                AgentSettings::get_global(cx).enabled && AgentSettings::get_global(cx).button,
+                AssistantSettings::get_global(cx).enabled
+                    && AssistantSettings::get_global(cx).button,
                 |bar| bar.child(assistant_button),
             )
             .children(code_actions_dropdown)

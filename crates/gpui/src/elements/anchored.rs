@@ -1,9 +1,9 @@
 use smallvec::SmallVec;
+use taffy::style::{Display, Position};
 
 use crate::{
-    AnyElement, App, Axis, Bounds, Corner, Display, Edges, Element, GlobalElementId,
-    InspectorElementId, IntoElement, LayoutId, ParentElement, Pixels, Point, Position, Size, Style,
-    Window, point, px,
+    AnyElement, App, Axis, Bounds, Corner, Edges, Element, GlobalElementId, IntoElement, LayoutId,
+    ParentElement, Pixels, Point, Size, Style, Window, point, px,
 };
 
 /// The state that the anchored element element uses to track its children.
@@ -91,14 +91,9 @@ impl Element for Anchored {
         None
     }
 
-    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
-        None
-    }
-
     fn request_layout(
         &mut self,
         _id: Option<&GlobalElementId>,
-        _inspector_id: Option<&InspectorElementId>,
         window: &mut Window,
         cx: &mut App,
     ) -> (crate::LayoutId, Self::RequestLayoutState) {
@@ -122,7 +117,6 @@ impl Element for Anchored {
     fn prepaint(
         &mut self,
         _id: Option<&GlobalElementId>,
-        _inspector_id: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
         request_layout: &mut Self::RequestLayoutState,
         window: &mut Window,
@@ -219,7 +213,6 @@ impl Element for Anchored {
     fn paint(
         &mut self,
         _id: Option<&GlobalElementId>,
-        _inspector_id: Option<&InspectorElementId>,
         _bounds: crate::Bounds<crate::Pixels>,
         _request_layout: &mut Self::RequestLayoutState,
         _prepaint: &mut Self::PrepaintState,

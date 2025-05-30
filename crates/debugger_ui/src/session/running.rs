@@ -319,7 +319,7 @@ pub(crate) fn new_debugger_pane(
                 if let Some(tab) = dragged_item.downcast_ref::<DraggedTab>() {
                     let is_current_pane = tab.pane == cx.entity();
                     let Some(can_drag_away) = weak_running
-                        .read_with(cx, |running_state, _| {
+                        .update(cx, |running_state, _| {
                             let current_panes = running_state.panes.panes();
                             !current_panes.contains(&&tab.pane)
                                 || current_panes.len() > 1
@@ -547,10 +547,6 @@ impl RunningState {
                     .for_each(|value| Self::substitute_variables_in_config(value, context));
             }
             serde_json::Value::String(s) => {
-                // Some built-in zed tasks wrap their arguments in quotes as they might contain spaces.
-                if s.starts_with("\"$ZED_") && s.ends_with('"') {
-                    *s = s[1..s.len() - 1].to_string();
-                }
                 if let Some(substituted) = substitute_variables_in_str(&s, context) {
                     *s = substituted;
                 }
@@ -575,10 +571,6 @@ impl RunningState {
                     .for_each(|value| Self::relativlize_paths(None, value, context));
             }
             serde_json::Value::String(s) if key == Some("program") || key == Some("cwd") => {
-                // Some built-in zed tasks wrap their arguments in quotes as they might contain spaces.
-                if s.starts_with("\"$ZED_") && s.ends_with('"') {
-                    *s = s[1..s.len() - 1].to_string();
-                }
                 resolve_path(s);
 
                 if let Some(substituted) = substitute_variables_in_str(&s, context) {
@@ -874,7 +866,6 @@ impl RunningState {
                     args,
                     ..task.resolved.clone()
                 };
-
                 let terminal = project
                     .update_in(cx, |project, window, cx| {
                         project.create_terminal(
@@ -919,6 +910,12 @@ impl RunningState {
             };
 
             if config_is_valid {
+                // Ok(DebugTaskDefinition {
+                //     label,
+                //     adapter: DebugAdapterName(adapter),
+                //     config,
+                //     tcp_connection,
+                // })
             } else if let Some((task, locator_name)) = build_output {
                 let locator_name =
                     locator_name.context("Could not find a valid locator for a build task")?;
@@ -937,7 +934,7 @@ impl RunningState {
 
                 let scenario = dap_registry
                     .adapter(&adapter)
-                    .context(format!("{}: is not a valid adapter name", &adapter))
+                    .ok_or_else(|| anyhow!("{}: is not a valid adapter name", &adapter))
                     .map(|adapter| adapter.config_from_zed_format(zed_config))??;
                 config = scenario.config;
                 Self::substitute_variables_in_config(&mut config, &task_context);
@@ -964,7 +961,7 @@ impl RunningState {
         let running = cx.entity();
         let Ok(project) = self
             .workspace
-            .read_with(cx, |workspace, _| workspace.project().clone())
+            .update(cx, |workspace, _| workspace.project().clone())
         else {
             return Task::ready(Err(anyhow!("no workspace")));
         };

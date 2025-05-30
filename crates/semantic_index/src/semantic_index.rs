@@ -280,7 +280,7 @@ mod tests {
     use util::separator;
 
     fn init_test(cx: &mut TestAppContext) {
-        zlog::init_test();
+        env_logger::try_init().ok();
 
         cx.update(|cx| {
             let store = SettingsStore::test(cx);

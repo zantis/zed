@@ -12,7 +12,7 @@ use std::{
 };
 
 fn main() {
-    zlog::init();
+    env_logger::init();
 
     use clock::FakeSystemClock;
 

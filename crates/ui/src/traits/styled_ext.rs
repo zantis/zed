@@ -18,7 +18,6 @@ fn elevated_borderless<E: Styled>(this: E, cx: &mut App, index: ElevationIndex) 
 }
 
 /// Extends [`gpui::Styled`] with Zed-specific styling methods.
-#[cfg_attr(debug_assertions, gpui_macros::derive_inspector_reflection)]
 pub trait StyledExt: Styled + Sized {
     /// Horizontally stacks elements.
     ///

@@ -739,7 +739,9 @@ mod tests {
     use std::path::PathBuf;
 
     pub fn init_test(cx: &mut TestAppContext) {
-        zlog::init_test();
+        if std::env::var("RUST_LOG").is_ok() {
+            env_logger::try_init().ok();
+        }
 
         cx.update(|cx| {
             let settings_store = SettingsStore::test(cx);

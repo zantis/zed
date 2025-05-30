@@ -164,9 +164,13 @@ impl DapLocator for CargoLocator {
 
         Ok(DebugRequest::Launch(task::LaunchRequest {
             program: executable,
-            cwd: build_config.cwd,
+            cwd: build_config.cwd.clone(),
             args,
-            env: build_config.env.into_iter().collect(),
+            env: build_config
+                .env
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
         }))
     }
 }

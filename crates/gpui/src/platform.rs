@@ -45,7 +45,6 @@ use image::codecs::gif::GifDecoder;
 use image::{AnimationDecoder as _, Frame};
 use parking::Unparker;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
-use schemars::JsonSchema;
 use seahash::SeaHasher;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
@@ -1245,7 +1244,7 @@ pub enum PromptLevel {
 }
 
 /// The style of the cursor (pointer)
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum CursorStyle {
     /// The default cursor
     Arrow,

@@ -1,6 +1,6 @@
 use gpui::{
-    App, Application, Bounds, Context, KeyBinding, SharedString, Timer, Window, WindowBounds,
-    WindowKind, WindowOptions, actions, div, prelude::*, px, rgb, size,
+    App, Application, Bounds, Context, SharedString, Timer, Window, WindowBounds, WindowKind,
+    WindowOptions, div, prelude::*, px, rgb, size,
 };
 
 struct SubWindow {
@@ -172,8 +172,6 @@ impl Render for WindowDemo {
     }
 }
 
-actions!(window, [Quit]);
-
 fn main() {
     Application::new().run(|cx: &mut App| {
         let bounds = Bounds::centered(None, size(px(800.0), px(600.0)), cx);
@@ -195,8 +193,5 @@ fn main() {
             },
         )
         .unwrap();
-        cx.activate(true);
-        cx.on_action(|_: &Quit, cx| cx.quit());
-        cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
     });
 }

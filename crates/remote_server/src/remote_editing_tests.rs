@@ -1663,7 +1663,9 @@ pub async fn init_test(
 }
 
 fn init_logger() {
-    zlog::init_test();
+    if std::env::var("RUST_LOG").is_ok() {
+        env_logger::try_init().ok();
+    }
 }
 
 fn build_project(ssh: Entity<SshRemoteClient>, cx: &mut TestAppContext) -> Entity<Project> {

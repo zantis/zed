@@ -2,8 +2,6 @@ pub mod parser;
 mod path_range;
 
 use base64::Engine as _;
-use futures::FutureExt as _;
-use language::LanguageName;
 use log::Level;
 pub use path_range::{LineCol, PathWithRange};
 
@@ -32,7 +30,7 @@ use pulldown_cmark::Alignment;
 use sum_tree::TreeMap;
 use theme::SyntaxTheme;
 use ui::{Tooltip, prelude::*};
-use util::ResultExt;
+use util::{ResultExt, TryFutureExt};
 
 use crate::parser::CodeBlockKind;
 
@@ -100,10 +98,10 @@ pub struct Markdown {
     parsed_markdown: ParsedMarkdown,
     images_by_source_offset: HashMap<usize, Arc<Image>>,
     should_reparse: bool,
-    pending_parse: Option<Task<()>>,
+    pending_parse: Option<Task<Option<()>>>,
     focus_handle: FocusHandle,
     language_registry: Option<Arc<LanguageRegistry>>,
-    fallback_code_block_language: Option<LanguageName>,
+    fallback_code_block_language: Option<String>,
     options: Options,
     copied_code_blocks: HashSet<ElementId>,
 }
@@ -146,7 +144,7 @@ impl Markdown {
     pub fn new(
         source: SharedString,
         language_registry: Option<Arc<LanguageRegistry>>,
-        fallback_code_block_language: Option<LanguageName>,
+        fallback_code_block_language: Option<String>,
         cx: &mut Context<Self>,
     ) -> Self {
         let focus_handle = cx.focus_handle();
@@ -194,10 +192,6 @@ impl Markdown {
         this
     }
 
-    pub fn is_parsing(&self) -> bool {
-        self.pending_parse.is_some()
-    }
-
     pub fn source(&self) -> &str {
         &self.source
     }
@@ -225,7 +219,6 @@ impl Markdown {
         self.parse(cx);
     }
 
-    #[cfg(any(test, feature = "test-support"))]
     pub fn parsed_markdown(&self) -> &ParsedMarkdown {
         &self.parsed_markdown
     }
@@ -282,19 +275,14 @@ impl Markdown {
             self.should_reparse = true;
             return;
         }
-        self.should_reparse = false;
-        self.pending_parse = Some(self.start_background_parse(cx));
-    }
 
-    fn start_background_parse(&self, cx: &Context<Self>) -> Task<()> {
         let source = self.source.clone();
         let should_parse_links_only = self.options.parse_links_only;
         let language_registry = self.language_registry.clone();
         let fallback = self.fallback_code_block_language.clone();
-
         let parsed = cx.background_spawn(async move {
             if should_parse_links_only {
-                return (
+                return anyhow::Ok((
                     ParsedMarkdown {
                         events: Arc::from(parse_links_only(source.as_ref())),
                         source,
@@ -302,9 +290,8 @@ impl Markdown {
                         languages_by_path: TreeMap::default(),
                     },
                     Default::default(),
-                );
+                ));
             }
-
             let (events, language_names, paths) = parse_markdown(&source);
             let mut images_by_source_offset = HashMap::default();
             let mut languages_by_name = TreeMap::default();
@@ -312,9 +299,9 @@ impl Markdown {
             if let Some(registry) = language_registry.as_ref() {
                 for name in language_names {
                     let language = if !name.is_empty() {
-                        registry.language_for_name_or_extension(&name).left_future()
+                        registry.language_for_name_or_extension(&name)
                     } else if let Some(fallback) = &fallback {
-                        registry.language_for_name(fallback.as_ref()).right_future()
+                        registry.language_for_name_or_extension(fallback)
                     } else {
                         continue;
                     };
@@ -356,7 +343,7 @@ impl Markdown {
                 }
             }
 
-            (
+            anyhow::Ok((
                 ParsedMarkdown {
                     source,
                     events: Arc::from(events),
@@ -364,23 +351,29 @@ impl Markdown {
                     languages_by_path,
                 },
                 images_by_source_offset,
-            )
+            ))
         });
 
-        cx.spawn(async move |this, cx| {
-            let (parsed, images_by_source_offset) = parsed.await;
+        self.should_reparse = false;
+        self.pending_parse = Some(cx.spawn(async move |this, cx| {
+            async move {
+                let (parsed, images_by_source_offset) = parsed.await?;
 
-            this.update(cx, |this, cx| {
-                this.parsed_markdown = parsed;
-                this.images_by_source_offset = images_by_source_offset;
-                this.pending_parse.take();
-                if this.should_reparse {
-                    this.parse(cx);
-                }
-                cx.refresh_windows();
-            })
-            .ok();
-        })
+                this.update(cx, |this, cx| {
+                    this.parsed_markdown = parsed;
+                    this.images_by_source_offset = images_by_source_offset;
+                    this.pending_parse.take();
+                    if this.should_reparse {
+                        this.parse(cx);
+                    }
+                    cx.notify();
+                })
+                .ok();
+                anyhow::Ok(())
+            }
+            .log_err()
+            .await
+        }));
     }
 }
 
@@ -722,14 +715,9 @@ impl Element for MarkdownElement {
         None
     }
 
-    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
-        None
-    }
-
     fn request_layout(
         &mut self,
         _id: Option<&GlobalElementId>,
-        _inspector_id: Option<&gpui::InspectorElementId>,
         window: &mut Window,
         cx: &mut App,
     ) -> (gpui::LayoutId, Self::RequestLayoutState) {
@@ -1201,7 +1189,6 @@ impl Element for MarkdownElement {
     fn prepaint(
         &mut self,
         _id: Option<&GlobalElementId>,
-        _inspector_id: Option<&gpui::InspectorElementId>,
         bounds: Bounds<Pixels>,
         rendered_markdown: &mut Self::RequestLayoutState,
         window: &mut Window,
@@ -1220,7 +1207,6 @@ impl Element for MarkdownElement {
     fn paint(
         &mut self,
         _id: Option<&GlobalElementId>,
-        _inspector_id: Option<&gpui::InspectorElementId>,
         bounds: Bounds<Pixels>,
         rendered_markdown: &mut Self::RequestLayoutState,
         hitbox: &mut Self::PrepaintState,

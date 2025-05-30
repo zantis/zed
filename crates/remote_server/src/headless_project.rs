@@ -383,7 +383,7 @@ impl HeadlessProject {
         };
 
         let worktree = this
-            .read_with(&mut cx.clone(), |this, _| {
+            .update(&mut cx.clone(), |this, _| {
                 Worktree::local(
                     Arc::from(canonicalized.as_path()),
                     message.payload.visible,
@@ -394,12 +394,11 @@ impl HeadlessProject {
             })?
             .await?;
 
-        let response = this.read_with(&mut cx, |_, cx| {
-            let worktree = worktree.read(cx);
-            proto::AddWorktreeResponse {
+        let response = this.update(&mut cx, |_, cx| {
+            worktree.update(cx, |worktree, _| proto::AddWorktreeResponse {
                 worktree_id: worktree.id().to_proto(),
                 canonicalized_path: canonicalized.to_proto(),
-            }
+            })
         })?;
 
         // We spawn this asynchronously, so that we can send the response back
@@ -537,7 +536,7 @@ impl HeadlessProject {
                 });
             }
 
-            let buffer_id = buffer.read(cx).remote_id();
+            let buffer_id = buffer.read_with(cx, |b, _| b.remote_id());
 
             buffer_store.update(cx, |buffer_store, cx| {
                 buffer_store
@@ -573,7 +572,7 @@ impl HeadlessProject {
         let buffer_store = this.read_with(&cx, |this, _| this.buffer_store.clone())?;
 
         while let Ok(buffer) = results.recv().await {
-            let buffer_id = buffer.read_with(&mut cx, |this, _| this.remote_id())?;
+            let buffer_id = buffer.update(&mut cx, |this, _| this.remote_id())?;
             response.buffer_ids.push(buffer_id.to_proto());
             buffer_store
                 .update(&mut cx, |buffer_store, cx| {

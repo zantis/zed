@@ -304,12 +304,9 @@ pub fn task_contexts(
         .unwrap_or_default();
 
     let latest_selection = active_editor.as_ref().map(|active_editor| {
-        active_editor
-            .read(cx)
-            .selections
-            .newest_anchor()
-            .head()
-            .text_anchor
+        active_editor.update(cx, |editor, _| {
+            editor.selections.newest_anchor().head().text_anchor
+        })
     });
 
     let mut worktree_abs_paths = workspace
@@ -419,7 +416,7 @@ mod tests {
         )
         .await;
         let project = Project::test(fs, [path!("/dir").as_ref()], cx).await;
-        let worktree_store = project.read_with(cx, |project, _| project.worktree_store().clone());
+        let worktree_store = project.update(cx, |project, _| project.worktree_store().clone());
         let rust_language = Arc::new(
             Language::new(
                 LanguageConfig::default(),
@@ -509,7 +506,6 @@ mod tests {
                     (VariableName::File, path!("/dir/rust/b.rs").into()),
                     (VariableName::Filename, "b.rs".into()),
                     (VariableName::RelativeFile, separator!("rust/b.rs").into()),
-                    (VariableName::RelativeDir, "rust".into()),
                     (VariableName::Dirname, path!("/dir/rust").into()),
                     (VariableName::Stem, "b".into()),
                     (VariableName::WorktreeRoot, path!("/dir").into()),
@@ -541,7 +537,6 @@ mod tests {
                     (VariableName::File, path!("/dir/rust/b.rs").into()),
                     (VariableName::Filename, "b.rs".into()),
                     (VariableName::RelativeFile, separator!("rust/b.rs").into()),
-                    (VariableName::RelativeDir, "rust".into()),
                     (VariableName::Dirname, path!("/dir/rust").into()),
                     (VariableName::Stem, "b".into()),
                     (VariableName::WorktreeRoot, path!("/dir").into()),
@@ -570,7 +565,6 @@ mod tests {
                     (VariableName::File, path!("/dir/a.ts").into()),
                     (VariableName::Filename, "a.ts".into()),
                     (VariableName::RelativeFile, "a.ts".into()),
-                    (VariableName::RelativeDir, ".".into()),
                     (VariableName::Dirname, path!("/dir").into()),
                     (VariableName::Stem, "a".into()),
                     (VariableName::WorktreeRoot, path!("/dir").into()),

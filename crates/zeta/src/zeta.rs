@@ -1574,17 +1574,6 @@ impl inline_completion::EditPredictionProvider for ZetaInlineCompletionProvider 
             return;
         }
 
-        if self
-            .zeta
-            .read(cx)
-            .user_store
-            .read_with(cx, |user_store, _| {
-                user_store.account_too_young() || user_store.has_overdue_invoices()
-            })
-        {
-            return;
-        }
-
         if let Some(current_completion) = self.current_completion.as_ref() {
             let snapshot = buffer.read(cx).snapshot();
             if current_completion
@@ -2140,6 +2129,8 @@ mod tests {
 
     #[ctor::ctor]
     fn init_logger() {
-        zlog::init_test();
+        if std::env::var("RUST_LOG").is_ok() {
+            env_logger::init();
+        }
     }
 }

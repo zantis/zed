@@ -310,9 +310,9 @@ impl Inventory {
             .unwrap_or((None, None, None));
 
         self.list_tasks(file, language, worktree_id.or(buffer_worktree_id), cx)
-            .into_iter()
+            .iter()
             .find(|(_, template)| template.label == label)
-            .map(|val| val.1)
+            .map(|val| val.1.clone())
     }
 
     /// Pulls its task sources relevant to the worktree and the language given,
@@ -847,21 +847,11 @@ impl ContextProvider for BasicContextProvider {
             );
             if let Some(full_path) = current_file.as_ref() {
                 let relative_path = pathdiff::diff_paths(full_path, worktree_path);
-                if let Some(relative_file) = relative_path {
+                if let Some(relative_path) = relative_path {
                     task_variables.insert(
                         VariableName::RelativeFile,
-                        relative_file.to_sanitized_string(),
+                        relative_path.to_sanitized_string(),
                     );
-                    if let Some(relative_dir) = relative_file.parent() {
-                        task_variables.insert(
-                            VariableName::RelativeDir,
-                            if relative_dir.as_os_str().is_empty() {
-                                String::from(".")
-                            } else {
-                                relative_dir.to_sanitized_string()
-                            },
-                        );
-                    }
                 }
             }
         }
@@ -1205,7 +1195,9 @@ mod tests {
     }
 
     fn init_test(_cx: &mut TestAppContext) {
-        zlog::init_test();
+        if std::env::var("RUST_LOG").is_ok() {
+            env_logger::try_init().ok();
+        }
         TaskStore::init(None);
     }
 

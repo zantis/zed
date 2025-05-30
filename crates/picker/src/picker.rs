@@ -189,7 +189,7 @@ pub trait PickerDelegate: Sized + 'static {
                     .overflow_hidden()
                     .flex_none()
                     .h_9()
-                    .px_2p5()
+                    .px_3()
                     .child(editor.clone()),
             )
             .when(

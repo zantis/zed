@@ -193,8 +193,7 @@ impl TerminalTransaction {
         });
     }
 
-    fn sanitize_input(mut input: String) -> String {
-        input.retain(|c| c != '\r' && c != '\n');
-        input
+    fn sanitize_input(input: String) -> String {
+        input.replace(['\r', '\n'], "")
     }
 }

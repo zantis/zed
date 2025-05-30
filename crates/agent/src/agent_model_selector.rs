@@ -1,4 +1,4 @@
-use agent_settings::AgentSettings;
+use assistant_settings::AssistantSettings;
 use fs::Fs;
 use gpui::{Entity, FocusHandle, SharedString};
 
@@ -63,7 +63,7 @@ impl AgentModelSelector {
                                         );
                                     }
                                 });
-                                update_settings_file::<AgentSettings>(
+                                update_settings_file::<AssistantSettings>(
                                     fs.clone(),
                                     cx,
                                     move |settings, _cx| {
@@ -72,7 +72,7 @@ impl AgentModelSelector {
                                 );
                             }
                             ModelType::InlineAssistant => {
-                                update_settings_file::<AgentSettings>(
+                                update_settings_file::<AssistantSettings>(
                                     fs.clone(),
                                     cx,
                                     move |settings, _cx| {

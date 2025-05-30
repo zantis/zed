@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::agent_model_selector::{AgentModelSelector, ModelType};
@@ -9,8 +8,8 @@ use crate::ui::{
     AnimatedLabel, MaxModeTooltip,
     preview::{AgentPreview, UsageCallout},
 };
-use agent_settings::{AgentSettings, CompletionMode};
 use assistant_context_editor::language_model_selector::ToggleModelSelector;
+use assistant_settings::{AssistantSettings, CompletionMode};
 use buffer_diff::BufferDiff;
 use client::UserStore;
 use collections::{HashMap, HashSet};
@@ -42,6 +41,7 @@ use theme::ThemeSettings;
 use ui::{Disclosure, KeyBinding, PopoverMenuHandle, Tooltip, prelude::*};
 use util::{ResultExt as _, maybe};
 use workspace::{CollaboratorId, Workspace};
+use zed_llm_client::CompletionIntent;
 
 use crate::context_picker::{ContextPicker, ContextPickerCompletionProvider, crease_for_mention};
 use crate::context_store::ContextStore;
@@ -50,9 +50,8 @@ use crate::profile_selector::ProfileSelector;
 use crate::thread::{MessageCrease, Thread, TokenUsageRatio};
 use crate::thread_store::{TextThreadStore, ThreadStore};
 use crate::{
-    ActiveThread, AgentDiffPane, Chat, ChatWithFollow, ExpandMessageEditor, Follow, NewThread,
-    OpenAgentDiff, RemoveAllContext, ToggleBurnMode, ToggleContextPicker, ToggleProfileSelector,
-    register_agent_preview,
+    ActiveThread, AgentDiffPane, Chat, ExpandMessageEditor, Follow, NewThread, OpenAgentDiff,
+    RemoveAllContext, ToggleContextPicker, ToggleProfileSelector, register_agent_preview,
 };
 
 #[derive(RegisterComponent)]
@@ -122,7 +121,7 @@ pub(crate) fn create_editor(
 
     let editor_entity = editor.downgrade();
     editor.update(cx, |editor, _| {
-        editor.set_completion_provider(Some(Rc::new(ContextPickerCompletionProvider::new(
+        editor.set_completion_provider(Some(Box::new(ContextPickerCompletionProvider::new(
             workspace,
             context_store,
             Some(thread_store),
@@ -280,7 +279,7 @@ impl MessageEditor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.context_store.update(cx, |store, cx| store.clear(cx));
+        self.context_store.update(cx, |store, _cx| store.clear());
         cx.notify();
     }
 
@@ -302,21 +301,6 @@ impl MessageEditor {
         self.send_to_model(window, cx);
 
         cx.notify();
-    }
-
-    fn chat_with_follow(
-        &mut self,
-        _: &ChatWithFollow,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.workspace
-            .update(cx, |this, cx| {
-                this.follow(CollaboratorId::Agent, window, cx)
-            })
-            .log_err();
-
-        self.chat(&Chat, window, cx);
     }
 
     fn is_editor_empty(&self, cx: &App) -> bool {
@@ -375,7 +359,12 @@ impl MessageEditor {
             thread
                 .update(cx, |thread, cx| {
                     thread.advance_prompt_id();
-                    thread.send_to_model(model, Some(window_handle), cx);
+                    thread.send_to_model(
+                        model,
+                        CompletionIntent::UserPrompt,
+                        Some(window_handle),
+                        cx,
+                    );
                 })
                 .log_err();
         })
@@ -471,22 +460,6 @@ impl MessageEditor {
         }
     }
 
-    pub fn toggle_burn_mode(
-        &mut self,
-        _: &ToggleBurnMode,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.thread.update(cx, |thread, _cx| {
-            let active_completion_mode = thread.completion_mode();
-
-            thread.set_completion_mode(match active_completion_mode {
-                CompletionMode::Max => CompletionMode::Normal,
-                CompletionMode::Normal => CompletionMode::Max,
-            });
-        });
-    }
-
     fn render_max_mode_toggle(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let thread = self.thread.read(cx);
         let model = thread.configured_model();
@@ -496,20 +469,23 @@ impl MessageEditor {
 
         let active_completion_mode = thread.completion_mode();
         let max_mode_enabled = active_completion_mode == CompletionMode::Max;
-        let icon = if max_mode_enabled {
-            IconName::ZedBurnModeOn
-        } else {
-            IconName::ZedBurnMode
-        };
 
         Some(
-            IconButton::new("burn-mode", icon)
+            Button::new("max-mode", "Max Mode")
+                .label_size(LabelSize::Small)
+                .color(Color::Muted)
+                .icon(IconName::ZedMaxMode)
                 .icon_size(IconSize::Small)
                 .icon_color(Color::Muted)
+                .icon_position(IconPosition::Start)
                 .toggle_state(max_mode_enabled)
-                .selected_icon_color(Color::Error)
-                .on_click(cx.listener(|this, _event, window, cx| {
-                    this.toggle_burn_mode(&ToggleBurnMode, window, cx);
+                .on_click(cx.listener(move |this, _event, _window, cx| {
+                    this.thread.update(cx, |thread, _cx| {
+                        thread.set_completion_mode(match active_completion_mode {
+                            CompletionMode::Max => CompletionMode::Normal,
+                            CompletionMode::Normal => CompletionMode::Max,
+                        });
+                    });
                 }))
                 .tooltip(move |_window, cx| {
                     cx.new(|_| MaxModeTooltip::new().selected(max_mode_enabled))
@@ -592,7 +568,6 @@ impl MessageEditor {
         v_flex()
             .key_context("MessageEditor")
             .on_action(cx.listener(Self::chat))
-            .on_action(cx.listener(Self::chat_with_follow))
             .on_action(cx.listener(|this, _: &ToggleProfileSelector, window, cx| {
                 this.profile_selector
                     .read(cx)
@@ -607,7 +582,6 @@ impl MessageEditor {
             .on_action(cx.listener(Self::remove_all_context))
             .on_action(cx.listener(Self::move_up))
             .on_action(cx.listener(Self::expand_message_editor))
-            .on_action(cx.listener(Self::toggle_burn_mode))
             .capture_action(cx.listener(Self::paste))
             .gap_2()
             .p_2()
@@ -700,6 +674,7 @@ impl MessageEditor {
                             .justify_between()
                             .child(
                                 h_flex()
+                                    .gap_1()
                                     .child(self.render_follow_toggle(cx))
                                     .children(self.render_max_mode_toggle(cx)),
                             )
@@ -873,7 +848,7 @@ impl MessageEditor {
             .border_b_0()
             .border_color(border_color)
             .rounded_t_md()
-            .shadow(vec![gpui::BoxShadow {
+            .shadow(smallvec::smallvec![gpui::BoxShadow {
                 color: gpui::black().opacity(0.15),
                 offset: point(px(1.), px(-1.)),
                 blur_radius: px(3.),
@@ -1198,10 +1173,9 @@ impl MessageEditor {
     fn reload_context(&mut self, cx: &mut Context<Self>) -> Task<Option<ContextLoadResult>> {
         let load_task = cx.spawn(async move |this, cx| {
             let Ok(load_task) = this.update(cx, |this, cx| {
-                let new_context = this
-                    .context_store
-                    .read(cx)
-                    .new_context_for_thread(this.thread.read(cx), None);
+                let new_context = this.context_store.read_with(cx, |context_store, cx| {
+                    context_store.new_context_for_thread(this.thread.read(cx), None)
+                });
                 load_context(new_context, &this.project, &this.prompt_store, cx)
             }) else {
                 return;
@@ -1280,12 +1254,13 @@ impl MessageEditor {
                     let request = language_model::LanguageModelRequest {
                         thread_id: None,
                         prompt_id: None,
+                        intent: None,
                         mode: None,
                         messages: vec![request_message],
                         tools: vec![],
                         tool_choice: None,
                         stop: vec![],
-                        temperature: AgentSettings::temperature_for_model(&model.model, cx),
+                        temperature: AssistantSettings::temperature_for_model(&model.model, cx),
                     };
 
                     Some(model.model.count_tokens(request, cx))

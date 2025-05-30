@@ -15,7 +15,6 @@ use picker::{Picker, PickerDelegate};
 use release_channel::ReleaseChannel;
 use rope::Rope;
 use settings::Settings;
-use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
@@ -71,7 +70,7 @@ pub trait InlineAssistDelegate {
 pub fn open_rules_library(
     language_registry: Arc<LanguageRegistry>,
     inline_assist_delegate: Box<dyn InlineAssistDelegate>,
-    make_completion_provider: Rc<dyn Fn() -> Rc<dyn CompletionProvider>>,
+    make_completion_provider: Arc<dyn Fn() -> Box<dyn CompletionProvider>>,
     prompt_to_select: Option<PromptId>,
     cx: &mut App,
 ) -> Task<Result<WindowHandle<RulesLibrary>>> {
@@ -147,7 +146,7 @@ pub struct RulesLibrary {
     picker: Entity<Picker<RulePickerDelegate>>,
     pending_load: Task<()>,
     inline_assist_delegate: Box<dyn InlineAssistDelegate>,
-    make_completion_provider: Rc<dyn Fn() -> Rc<dyn CompletionProvider>>,
+    make_completion_provider: Arc<dyn Fn() -> Box<dyn CompletionProvider>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -350,7 +349,7 @@ impl RulesLibrary {
         store: Entity<PromptStore>,
         language_registry: Arc<LanguageRegistry>,
         inline_assist_delegate: Box<dyn InlineAssistDelegate>,
-        make_completion_provider: Rc<dyn Fn() -> Rc<dyn CompletionProvider>>,
+        make_completion_provider: Arc<dyn Fn() -> Box<dyn CompletionProvider>>,
         rule_to_select: Option<PromptId>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -923,6 +922,7 @@ impl RulesLibrary {
                                 LanguageModelRequest {
                                     thread_id: None,
                                     prompt_id: None,
+                                    intent: None,
                                     mode: None,
                                     messages: vec![LanguageModelRequestMessage {
                                         role: Role::System,

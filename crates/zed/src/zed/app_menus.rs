@@ -45,7 +45,7 @@ pub fn app_menus() -> Vec<Menu> {
                 #[cfg(target_os = "macos")]
                 MenuItem::action("Show All", super::ShowAll),
                 MenuItem::separator(),
-                MenuItem::action("Quit Zed", Quit),
+                MenuItem::action("Quit", Quit),
             ],
         },
         Menu {
