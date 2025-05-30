@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use crate::TaskContexts;
-use editor::Editor;
 use fuzzy::{StringMatch, StringMatchCandidate};
 use gpui::{
     Action, AnyElement, App, AppContext as _, Context, DismissEvent, Entity, EventEmitter,
@@ -23,7 +22,7 @@ use workspace::{ModalView, Workspace};
 pub use zed_actions::{Rerun, Spawn};
 
 /// A modal used to spawn new tasks.
-pub struct TasksModalDelegate {
+pub(crate) struct TasksModalDelegate {
     task_store: Entity<TaskStore>,
     candidates: Option<Vec<(TaskSourceKind, ResolvedTask)>>,
     task_overrides: Option<TaskOverrides>,
@@ -33,21 +32,21 @@ pub struct TasksModalDelegate {
     selected_index: usize,
     workspace: WeakEntity<Workspace>,
     prompt: String,
-    task_contexts: Arc<TaskContexts>,
+    task_contexts: TaskContexts,
     placeholder_text: Arc<str>,
 }
 
 /// Task template amendments to do before resolving the context.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct TaskOverrides {
+pub(crate) struct TaskOverrides {
     /// See [`RevealTarget`].
-    pub reveal_target: Option<RevealTarget>,
+    pub(crate) reveal_target: Option<RevealTarget>,
 }
 
 impl TasksModalDelegate {
     fn new(
         task_store: Entity<TaskStore>,
-        task_contexts: Arc<TaskContexts>,
+        task_contexts: TaskContexts,
         task_overrides: Option<TaskOverrides>,
         workspace: WeakEntity<Workspace>,
     ) -> Self {
@@ -123,16 +122,15 @@ impl TasksModalDelegate {
 }
 
 pub struct TasksModal {
-    pub picker: Entity<Picker<TasksModalDelegate>>,
+    picker: Entity<Picker<TasksModalDelegate>>,
     _subscription: [Subscription; 2],
 }
 
 impl TasksModal {
-    pub fn new(
+    pub(crate) fn new(
         task_store: Entity<TaskStore>,
-        task_contexts: Arc<TaskContexts>,
+        task_contexts: TaskContexts,
         task_overrides: Option<TaskOverrides>,
-        is_modal: bool,
         workspace: WeakEntity<Workspace>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -143,7 +141,6 @@ impl TasksModal {
                 window,
                 cx,
             )
-            .modal(is_modal)
         });
         let _subscription = [
             cx.subscribe(&picker, |_, _, _: &DismissEvent, cx| {
@@ -159,20 +156,6 @@ impl TasksModal {
             picker,
             _subscription,
         }
-    }
-
-    pub fn task_contexts_loaded(
-        &mut self,
-        task_contexts: Arc<TaskContexts>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.picker.update(cx, |picker, cx| {
-            picker.delegate.task_contexts = task_contexts;
-            picker.delegate.candidates = None;
-            picker.refresh(window, cx);
-            cx.notify();
-        })
     }
 }
 
@@ -247,28 +230,15 @@ impl PickerDelegate for TasksModalDelegate {
                     let workspace = self.workspace.clone();
                     let lsp_task_sources = self.task_contexts.lsp_task_sources.clone();
                     let task_position = self.task_contexts.latest_selection;
+
                     cx.spawn(async move |picker, cx| {
-                        let Ok((lsp_tasks, prefer_lsp)) = workspace.update(cx, |workspace, cx| {
-                            let lsp_tasks = editor::lsp_tasks(
+                        let Ok(lsp_tasks) = workspace.update(cx, |workspace, cx| {
+                            editor::lsp_tasks(
                                 workspace.project().clone(),
                                 &lsp_task_sources,
                                 task_position,
                                 cx,
-                            );
-                            let prefer_lsp = workspace
-                                .active_item(cx)
-                                .and_then(|item| item.downcast::<Editor>())
-                                .map(|editor| {
-                                    editor
-                                        .read(cx)
-                                        .buffer()
-                                        .read(cx)
-                                        .language_settings(cx)
-                                        .tasks
-                                        .prefer_lsp
-                                })
-                                .unwrap_or(false);
-                            (lsp_tasks, prefer_lsp)
+                            )
                         }) else {
                             return Vec::new();
                         };
@@ -283,8 +253,6 @@ impl PickerDelegate for TasksModalDelegate {
                                 };
 
                                 let mut new_candidates = used;
-                                let add_current_language_tasks =
-                                    !prefer_lsp || lsp_tasks.is_empty();
                                 new_candidates.extend(lsp_tasks.into_iter().flat_map(
                                     |(kind, tasks_with_locations)| {
                                         tasks_with_locations
@@ -295,12 +263,7 @@ impl PickerDelegate for TasksModalDelegate {
                                             .map(move |(_, task)| (kind.clone(), task))
                                     },
                                 ));
-                                new_candidates.extend(current.into_iter().filter(
-                                    |(task_kind, _)| {
-                                        add_current_language_tasks
-                                            || !matches!(task_kind, TaskSourceKind::Language { .. })
-                                    },
-                                ));
+                                new_candidates.extend(current);
                                 let match_candidates = string_match_candidates(&new_candidates);
                                 let _ = picker.delegate.candidates.insert(new_candidates);
                                 match_candidates
@@ -584,7 +547,6 @@ impl PickerDelegate for TasksModalDelegate {
             Vec::new()
         }
     }
-
     fn render_footer(
         &self,
         window: &mut Window,

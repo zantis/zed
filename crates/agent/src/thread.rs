@@ -24,7 +24,7 @@ use language_model::{
     LanguageModelRequestMessage, LanguageModelRequestTool, LanguageModelToolResult,
     LanguageModelToolResultContent, LanguageModelToolUseId, MessageContent,
     ModelRequestLimitReachedError, PaymentRequiredError, RequestUsage, Role, SelectedModel,
-    StopReason, TokenUsage,
+    StopReason, TokenUsage, WrappedTextContent,
 };
 use postage::stream::Stream as _;
 use project::Project;
@@ -891,7 +891,10 @@ impl Thread {
 
     pub fn output_for_tool(&self, id: &LanguageModelToolUseId) -> Option<&Arc<str>> {
         match &self.tool_use.tool_result(id)?.content {
-            LanguageModelToolResultContent::Text(text) => Some(text),
+            LanguageModelToolResultContent::Text(text)
+            | LanguageModelToolResultContent::WrappedText(WrappedTextContent { text, .. }) => {
+                Some(text)
+            }
             LanguageModelToolResultContent::Image(_) => {
                 // TODO: We should display image
                 None
@@ -1428,7 +1431,7 @@ impl Thread {
         messages: &mut Vec<LanguageModelRequestMessage>,
         cx: &App,
     ) {
-        const STALE_FILES_HEADER: &str = include_str!("./prompts/stale_files_prompt_header.txt");
+        const STALE_FILES_HEADER: &str = "These files changed since last read:";
 
         let mut stale_message = String::new();
 
@@ -1440,7 +1443,7 @@ impl Thread {
             };
 
             if stale_message.is_empty() {
-                write!(&mut stale_message, "{}\n", STALE_FILES_HEADER.trim()).ok();
+                write!(&mut stale_message, "{}\n", STALE_FILES_HEADER).ok();
             }
 
             writeln!(&mut stale_message, "- {}", file.path().display()).ok();
@@ -1854,7 +1857,10 @@ impl Thread {
             return;
         }
 
-        let added_user_message = include_str!("./prompts/summarize_thread_prompt.txt");
+        let added_user_message = "Generate a concise 3-7 word title for this conversation, omitting punctuation. \
+            Go straight to the title, without any preamble and prefix like `Here's a concise suggestion:...` or `Title:`. \
+            If the conversation is about a specific subject, include it in the title. \
+            Be descriptive. DO NOT speak in the first person.";
 
         let request = self.to_summarize_request(
             &model.model,
@@ -1955,7 +1961,12 @@ impl Thread {
             return;
         }
 
-        let added_user_message = include_str!("./prompts/summarize_thread_detailed_prompt.txt");
+        let added_user_message = "Generate a detailed summary of this conversation. Include:\n\
+             1. A brief overview of what was discussed\n\
+             2. Key facts or information discovered\n\
+             3. Outcomes or conclusions reached\n\
+             4. Any action items or next steps if any\n\
+             Format it in Markdown with headings and bullet points.";
 
         let request = self.to_summarize_request(
             &model,
@@ -2598,7 +2609,11 @@ impl Thread {
 
                 writeln!(markdown, "**\n")?;
                 match &tool_result.content {
-                    LanguageModelToolResultContent::Text(text) => {
+                    LanguageModelToolResultContent::Text(text)
+                    | LanguageModelToolResultContent::WrappedText(WrappedTextContent {
+                        text,
+                        ..
+                    }) => {
                         writeln!(markdown, "{text}")?;
                     }
                     LanguageModelToolResultContent::Image(image) => {

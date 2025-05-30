@@ -9111,10 +9111,11 @@ async fn test_range_format_during_save(cx: &mut TestAppContext) {
                 lsp::Url::from_file_path(path!("/file.rs")).unwrap()
             );
             assert_eq!(params.options.tab_size, 8);
-            Ok(Some(Vec::new()))
+            Ok(Some(vec![]))
         })
         .next()
         .await;
+    cx.executor().start_waiting();
     save.await;
 }
 

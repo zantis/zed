@@ -1535,22 +1535,9 @@ impl ActiveThread {
         });
     }
 
-    fn cancel_editing_message(
-        &mut self,
-        _: &menu::Cancel,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn cancel_editing_message(&mut self, _: &menu::Cancel, _: &mut Window, cx: &mut Context<Self>) {
         self.editing_message.take();
         cx.notify();
-
-        if let Some(workspace) = self.workspace.upgrade() {
-            workspace.update(cx, |workspace, cx| {
-                if let Some(panel) = workspace.panel::<AgentPanel>(cx) {
-                    panel.focus_handle(cx).focus(window);
-                }
-            });
-        }
     }
 
     fn confirm_editing_message(
@@ -1838,7 +1825,6 @@ impl ActiveThread {
 
         let colors = cx.theme().colors();
         let editor_bg_color = colors.editor_background;
-        let panel_bg = colors.panel_background;
 
         let open_as_markdown = IconButton::new(("open-as-markdown", ix), IconName::DocumentText)
             .icon_size(IconSize::XSmall)
@@ -1859,6 +1845,7 @@ impl ActiveThread {
         const RESPONSE_PADDING_X: Pixels = px(19.);
 
         let show_feedback = thread.is_turn_end(ix);
+
         let feedback_container = h_flex()
             .group("feedback_container")
             .mt_1()
@@ -2155,14 +2142,16 @@ impl ActiveThread {
                 message_id > *editing_message_id
             });
 
+        let panel_background = cx.theme().colors().panel_background;
+
         let backdrop = div()
-            .id(("backdrop", ix))
-            .size_full()
+            .id("backdrop")
+            .stop_mouse_events_except_scroll()
             .absolute()
             .inset_0()
-            .bg(panel_bg)
+            .size_full()
+            .bg(panel_background)
             .opacity(0.8)
-            .block_mouse_except_scroll()
             .on_click(cx.listener(Self::handle_cancel_click));
 
         v_flex()

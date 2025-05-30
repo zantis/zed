@@ -1,6 +1,6 @@
 use crate::{
     language_model_selector::{
-        LanguageModelSelector, ToggleModelSelector, language_model_selector,
+        LanguageModelSelector, LanguageModelSelectorPopoverMenu, ToggleModelSelector,
     },
     max_mode_tooltip::MaxModeTooltip,
 };
@@ -43,7 +43,7 @@ use language_model::{
     Role,
 };
 use multi_buffer::MultiBufferRow;
-use picker::{Picker, popover_menu::PickerPopoverMenu};
+use picker::Picker;
 use project::{Project, Worktree};
 use project::{ProjectPath, lsp_store::LocalLspAdapterDelegate};
 use rope::Point;
@@ -283,7 +283,7 @@ impl ContextEditor {
             slash_menu_handle: Default::default(),
             dragged_file_worktrees: Vec::new(),
             language_model_selector: cx.new(|cx| {
-                language_model_selector(
+                LanguageModelSelector::new(
                     |cx| LanguageModelRegistry::read_global(cx).default_model(),
                     move |model, cx| {
                         update_settings_file::<AgentSettings>(
@@ -2071,8 +2071,8 @@ impl ContextEditor {
         }
 
         let active_completion_mode = context.completion_mode();
-        let burn_mode_enabled = active_completion_mode == CompletionMode::Burn;
-        let icon = if burn_mode_enabled {
+        let max_mode_enabled = active_completion_mode == CompletionMode::Max;
+        let icon = if max_mode_enabled {
             IconName::ZedBurnModeOn
         } else {
             IconName::ZedBurnMode
@@ -2082,29 +2082,25 @@ impl ContextEditor {
             IconButton::new("burn-mode", icon)
                 .icon_size(IconSize::Small)
                 .icon_color(Color::Muted)
-                .toggle_state(burn_mode_enabled)
+                .toggle_state(max_mode_enabled)
                 .selected_icon_color(Color::Error)
                 .on_click(cx.listener(move |this, _event, _window, cx| {
                     this.context().update(cx, |context, _cx| {
                         context.set_completion_mode(match active_completion_mode {
-                            CompletionMode::Burn => CompletionMode::Normal,
-                            CompletionMode::Normal => CompletionMode::Burn,
+                            CompletionMode::Max => CompletionMode::Normal,
+                            CompletionMode::Normal => CompletionMode::Max,
                         });
                     });
                 }))
                 .tooltip(move |_window, cx| {
-                    cx.new(|_| MaxModeTooltip::new().selected(burn_mode_enabled))
+                    cx.new(|_| MaxModeTooltip::new().selected(max_mode_enabled))
                         .into()
                 })
                 .into_any_element(),
         )
     }
 
-    fn render_language_model_selector(
-        &self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render_language_model_selector(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let active_model = LanguageModelRegistry::read_global(cx)
             .default_model()
             .map(|default| default.model);
@@ -2114,7 +2110,7 @@ impl ContextEditor {
             None => SharedString::from("No model selected"),
         };
 
-        PickerPopoverMenu::new(
+        LanguageModelSelectorPopoverMenu::new(
             self.language_model_selector.clone(),
             ButtonLike::new("active-model")
                 .style(ButtonStyle::Subtle)
@@ -2142,10 +2138,8 @@ impl ContextEditor {
                 )
             },
             gpui::Corner::BottomLeft,
-            cx,
         )
         .with_handle(self.language_model_selector_menu_handle.clone())
-        .render(window, cx)
     }
 
     fn render_last_error(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
@@ -2621,7 +2615,7 @@ impl Render for ContextEditor {
                     .child(
                         h_flex()
                             .gap_1()
-                            .child(self.render_language_model_selector(window, cx))
+                            .child(self.render_language_model_selector(cx))
                             .child(self.render_send_button(window, cx)),
                     ),
             )
