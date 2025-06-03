@@ -50,10 +50,6 @@ impl Tool for DiagnosticsTool {
         false
     }
 
-    fn may_perform_edits(&self) -> bool {
-        false
-    }
-
     fn description(&self) -> String {
         include_str!("./diagnostics_tool/description.md").into()
     }

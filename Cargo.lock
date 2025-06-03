@@ -114,7 +114,6 @@ dependencies = [
  "serde_json_lenient",
  "settings",
  "smol",
- "sqlez",
  "streaming_diff",
  "telemetry",
  "telemetry_events",
@@ -134,7 +133,6 @@ dependencies = [
  "workspace-hack",
  "zed_actions",
  "zed_llm_client",
- "zstd",
 ]
 
 [[package]]
@@ -527,7 +525,6 @@ dependencies = [
  "fuzzy",
  "gpui",
  "indexed_docs",
- "indoc",
  "language",
  "language_model",
  "languages",
@@ -687,7 +684,6 @@ dependencies = [
  "language_model",
  "language_models",
  "log",
- "lsp",
  "markdown",
  "open",
  "paths",
@@ -2203,7 +2199,6 @@ dependencies = [
  "editor",
  "gpui",
  "itertools 0.14.0",
- "settings",
  "theme",
  "ui",
  "workspace",
@@ -7073,7 +7068,6 @@ dependencies = [
  "image",
  "inventory",
  "itertools 0.14.0",
- "libc",
  "log",
  "lyon",
  "media",
@@ -8762,7 +8756,6 @@ dependencies = [
  "serde",
  "serde_json",
  "settings",
- "shellexpand 2.1.2",
  "smallvec",
  "smol",
  "streaming-iterator",
@@ -8864,7 +8857,6 @@ dependencies = [
  "mistral",
  "ollama",
  "open_ai",
- "open_router",
  "partial-json-fixer",
  "project",
  "proto",
@@ -10706,19 +10698,6 @@ dependencies = [
  "serde",
  "serde_json",
  "strum 0.27.1",
- "workspace-hack",
-]
-
-[[package]]
-name = "open_router"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "futures 0.3.31",
- "http_client",
- "schemars",
- "serde",
- "serde_json",
  "workspace-hack",
 ]
 
@@ -19706,7 +19685,7 @@ dependencies = [
 
 [[package]]
 name = "zed"
-version = "0.190.0"
+version = "0.189.5"
 dependencies = [
  "activity_indicator",
  "agent",

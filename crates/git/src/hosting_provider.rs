@@ -2,6 +2,7 @@ use std::{ops::Range, sync::Arc};
 
 use anyhow::Result;
 use async_trait::async_trait;
+use collections::BTreeMap;
 use derive_more::{Deref, DerefMut};
 use gpui::{App, Global, SharedString};
 use http_client::HttpClient;
@@ -129,8 +130,7 @@ impl Global for GlobalGitHostingProviderRegistry {}
 
 #[derive(Default)]
 struct GitHostingProviderRegistryState {
-    default_providers: Vec<Arc<dyn GitHostingProvider + Send + Sync + 'static>>,
-    setting_providers: Vec<Arc<dyn GitHostingProvider + Send + Sync + 'static>>,
+    providers: BTreeMap<String, Arc<dyn GitHostingProvider + Send + Sync + 'static>>,
 }
 
 #[derive(Default)]
@@ -140,7 +140,6 @@ pub struct GitHostingProviderRegistry {
 
 impl GitHostingProviderRegistry {
     /// Returns the global [`GitHostingProviderRegistry`].
-    #[track_caller]
     pub fn global(cx: &App) -> Arc<Self> {
         cx.global::<GlobalGitHostingProviderRegistry>().0.clone()
     }
@@ -169,8 +168,7 @@ impl GitHostingProviderRegistry {
     pub fn new() -> Self {
         Self {
             state: RwLock::new(GitHostingProviderRegistryState {
-                setting_providers: Vec::default(),
-                default_providers: Vec::default(),
+                providers: BTreeMap::default(),
             }),
         }
     }
@@ -179,22 +177,7 @@ impl GitHostingProviderRegistry {
     pub fn list_hosting_providers(
         &self,
     ) -> Vec<Arc<dyn GitHostingProvider + Send + Sync + 'static>> {
-        let state = self.state.read();
-        state
-            .default_providers
-            .iter()
-            .cloned()
-            .chain(state.setting_providers.iter().cloned())
-            .collect()
-    }
-
-    pub fn set_setting_providers(
-        &self,
-        providers: impl IntoIterator<Item = Arc<dyn GitHostingProvider + Send + Sync + 'static>>,
-    ) {
-        let mut state = self.state.write();
-        state.setting_providers.clear();
-        state.setting_providers.extend(providers);
+        self.state.read().providers.values().cloned().collect()
     }
 
     /// Adds the provided [`GitHostingProvider`] to the registry.
@@ -202,7 +185,10 @@ impl GitHostingProviderRegistry {
         &self,
         provider: Arc<dyn GitHostingProvider + Send + Sync + 'static>,
     ) {
-        self.state.write().default_providers.push(provider);
+        self.state
+            .write()
+            .providers
+            .insert(provider.name(), provider);
     }
 }
 

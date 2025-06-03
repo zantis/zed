@@ -1,9 +1,9 @@
 use editor::{CursorLayout, HighlightedRange, HighlightedRangeLine};
 use gpui::{
     AnyElement, App, AvailableSpace, Bounds, ContentMask, Context, DispatchPhase, Element,
-    ElementId, Entity, FocusHandle, Font, FontStyle, FontWeight, GlobalElementId, HighlightStyle,
-    Hitbox, Hsla, InputHandler, InteractiveElement, Interactivity, IntoElement, LayoutId,
-    ModifiersChangedEvent, MouseButton, MouseMoveEvent, Pixels, Point, ShapedLine,
+    ElementId, Entity, FocusHandle, Focusable, Font, FontStyle, FontWeight, GlobalElementId,
+    HighlightStyle, Hitbox, Hsla, InputHandler, InteractiveElement, Interactivity, IntoElement,
+    LayoutId, ModifiersChangedEvent, MouseButton, MouseMoveEvent, Pixels, Point, ShapedLine,
     StatefulInteractiveElement, StrikethroughStyle, Styled, TextRun, TextStyle, UTF16Selection,
     UnderlineStyle, WeakEntity, WhiteSpace, Window, WindowTextSystem, div, fill, point, px,
     relative, size,
@@ -32,7 +32,7 @@ use workspace::Workspace;
 use std::mem;
 use std::{fmt::Debug, ops::RangeInclusive, rc::Rc};
 
-use crate::{BlockContext, BlockProperties, TerminalMode, TerminalView};
+use crate::{BlockContext, BlockProperties, TerminalView};
 
 /// The information generated during layout that is necessary for painting.
 pub struct LayoutState {
@@ -160,7 +160,7 @@ pub struct TerminalElement {
     focused: bool,
     cursor_visible: bool,
     interactivity: Interactivity,
-    mode: TerminalMode,
+    embedded: bool,
     block_below_cursor: Option<Rc<BlockProperties>>,
 }
 
@@ -181,7 +181,7 @@ impl TerminalElement {
         focused: bool,
         cursor_visible: bool,
         block_below_cursor: Option<Rc<BlockProperties>>,
-        mode: TerminalMode,
+        embedded: bool,
     ) -> TerminalElement {
         TerminalElement {
             terminal,
@@ -191,7 +191,7 @@ impl TerminalElement {
             focus: focus.clone(),
             cursor_visible,
             block_below_cursor,
-            mode,
+            embedded,
             interactivity: Default::default(),
         }
         .track_focus(&focus)
@@ -413,15 +413,10 @@ impl TerminalElement {
     fn generic_button_handler<E>(
         connection: Entity<Terminal>,
         focus_handle: FocusHandle,
-        steal_focus: bool,
         f: impl Fn(&mut Terminal, &E, &mut Context<Terminal>),
     ) -> impl Fn(&E, &mut Window, &mut App) {
         move |event, window, cx| {
-            if steal_focus {
-                window.focus(&focus_handle);
-            } else if !focus_handle.is_focused(window) {
-                return;
-            }
+            window.focus(&focus_handle);
             connection.update(cx, |terminal, cx| {
                 f(terminal, event, cx);
 
@@ -494,7 +489,6 @@ impl TerminalElement {
             TerminalElement::generic_button_handler(
                 terminal.clone(),
                 focus.clone(),
-                false,
                 move |terminal, e, cx| {
                     terminal.mouse_up(e, cx);
                 },
@@ -505,26 +499,26 @@ impl TerminalElement {
             TerminalElement::generic_button_handler(
                 terminal.clone(),
                 focus.clone(),
-                true,
                 move |terminal, e, cx| {
                     terminal.mouse_down(e, cx);
                 },
             ),
         );
-
-        if !matches!(self.mode, TerminalMode::Embedded { .. }) {
-            self.interactivity.on_scroll_wheel({
-                let terminal_view = self.terminal_view.downgrade();
-                move |e, _window, cx| {
-                    terminal_view
-                        .update(cx, |terminal_view, cx| {
+        self.interactivity.on_scroll_wheel({
+            let terminal_view = self.terminal_view.downgrade();
+            move |e, window, cx| {
+                terminal_view
+                    .update(cx, |terminal_view, cx| {
+                        if !terminal_view.embedded
+                            || terminal_view.focus_handle(cx).is_focused(window)
+                        {
                             terminal_view.scroll_wheel(e, cx);
                             cx.notify();
-                        })
-                        .ok();
-                }
-            });
-        }
+                        }
+                    })
+                    .ok();
+            }
+        });
 
         // Mouse mode handlers:
         // All mouse modes need the extra click handlers
@@ -534,7 +528,6 @@ impl TerminalElement {
                 TerminalElement::generic_button_handler(
                     terminal.clone(),
                     focus.clone(),
-                    true,
                     move |terminal, e, cx| {
                         terminal.mouse_down(e, cx);
                     },
@@ -545,7 +538,6 @@ impl TerminalElement {
                 TerminalElement::generic_button_handler(
                     terminal.clone(),
                     focus.clone(),
-                    false,
                     move |terminal, e, cx| {
                         terminal.mouse_up(e, cx);
                     },
@@ -553,14 +545,9 @@ impl TerminalElement {
             );
             self.interactivity.on_mouse_up(
                 MouseButton::Middle,
-                TerminalElement::generic_button_handler(
-                    terminal,
-                    focus,
-                    false,
-                    move |terminal, e, cx| {
-                        terminal.mouse_up(e, cx);
-                    },
-                ),
+                TerminalElement::generic_button_handler(terminal, focus, move |terminal, e, cx| {
+                    terminal.mouse_up(e, cx);
+                }),
             );
         }
     }
@@ -605,6 +592,16 @@ impl Element for TerminalElement {
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
+        if self.embedded {
+            let scrollable = {
+                let term = self.terminal.read(cx);
+                !term.scrolled_to_top() && !term.scrolled_to_bottom() && self.focused
+            };
+            if scrollable {
+                self.interactivity.occlude_mouse();
+            }
+        }
+
         let layout_id = self.interactivity.request_layout(
             global_id,
             inspector_id,
@@ -612,29 +609,8 @@ impl Element for TerminalElement {
             cx,
             |mut style, window, cx| {
                 style.size.width = relative(1.).into();
-
-                match &self.mode {
-                    TerminalMode::Scrollable => {
-                        style.size.height = relative(1.).into();
-                    }
-                    TerminalMode::Embedded { max_lines } => {
-                        let rem_size = window.rem_size();
-                        let line_height = window.text_style().font_size.to_pixels(rem_size)
-                            * TerminalSettings::get_global(cx)
-                                .line_height
-                                .value()
-                                .to_pixels(rem_size)
-                                .0;
-
-                        let mut line_count = self.terminal.read(cx).total_lines();
-                        if !self.focused {
-                            if let Some(max_lines) = max_lines {
-                                line_count = line_count.min(*max_lines);
-                            }
-                        }
-                        style.size.height = (line_count * line_height).into();
-                    }
-                }
+                style.size.height = relative(1.).into();
+                // style.overflow = point(Overflow::Hidden, Overflow::Hidden);
 
                 window.request_layout(style, None, cx)
             },
@@ -689,13 +665,12 @@ impl Element for TerminalElement {
 
                 let line_height = terminal_settings.line_height.value();
 
-                let font_size = match &self.mode {
-                    TerminalMode::Embedded { .. } => {
-                        window.text_style().font_size.to_pixels(window.rem_size())
-                    }
-                    TerminalMode::Scrollable => terminal_settings
+                let font_size = if self.embedded {
+                    window.text_style().font_size.to_pixels(window.rem_size())
+                } else {
+                    terminal_settings
                         .font_size
-                        .map_or(buffer_font_size, |size| theme::adjusted_font_size(size, cx)),
+                        .map_or(buffer_font_size, |size| theme::adjusted_font_size(size, cx))
                 };
 
                 let theme = cx.theme().clone();

@@ -50,7 +50,6 @@ pub struct ExampleMetadata {
     pub max_assertions: Option<usize>,
     pub profile_id: AgentProfileId,
     pub existing_thread_json: Option<String>,
-    pub max_turns: Option<u32>,
 }
 
 #[derive(Clone, Debug)]
@@ -246,7 +245,6 @@ impl ExampleContext {
                 | ThreadEvent::StreamedAssistantThinking(_, _)
                 | ThreadEvent::UsePendingTools { .. }
                 | ThreadEvent::CompletionCanceled => {}
-                ThreadEvent::ToolUseLimitReached => {}
                 ThreadEvent::ToolFinished {
                     tool_use_id,
                     pending_tool_use,

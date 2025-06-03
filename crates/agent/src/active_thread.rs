@@ -999,7 +999,7 @@ impl ActiveThread {
             ThreadEvent::Stopped(reason) => match reason {
                 Ok(StopReason::EndTurn | StopReason::MaxTokens) => {
                     let used_tools = self.thread.read(cx).used_tools_since_last_user_message();
-                    self.play_notification_sound(window, cx);
+                    self.play_notification_sound(cx);
                     self.show_notification(
                         if used_tools {
                             "Finished running tools"
@@ -1014,17 +1014,8 @@ impl ActiveThread {
                 _ => {}
             },
             ThreadEvent::ToolConfirmationNeeded => {
-                self.play_notification_sound(window, cx);
+                self.play_notification_sound(cx);
                 self.show_notification("Waiting for tool confirmation", IconName::Info, window, cx);
-            }
-            ThreadEvent::ToolUseLimitReached => {
-                self.play_notification_sound(window, cx);
-                self.show_notification(
-                    "Consecutive tool use limit reached.",
-                    IconName::Warning,
-                    window,
-                    cx,
-                );
             }
             ThreadEvent::StreamedAssistantText(message_id, text) => {
                 if let Some(rendered_message) = self.rendered_messages_by_id.get_mut(&message_id) {
@@ -1160,9 +1151,9 @@ impl ActiveThread {
         cx.notify();
     }
 
-    fn play_notification_sound(&self, window: &Window, cx: &mut App) {
+    fn play_notification_sound(&self, cx: &mut App) {
         let settings = AgentSettings::get_global(cx);
-        if settings.play_sound_when_agent_done && !window.is_window_active() {
+        if settings.play_sound_when_agent_done {
             Audio::play_sound(Sound::AgentDone, cx);
         }
     }
@@ -1544,22 +1535,9 @@ impl ActiveThread {
         });
     }
 
-    fn cancel_editing_message(
-        &mut self,
-        _: &menu::Cancel,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn cancel_editing_message(&mut self, _: &menu::Cancel, _: &mut Window, cx: &mut Context<Self>) {
         self.editing_message.take();
         cx.notify();
-
-        if let Some(workspace) = self.workspace.upgrade() {
-            workspace.update(cx, |workspace, cx| {
-                if let Some(panel) = workspace.panel::<AgentPanel>(cx) {
-                    panel.focus_handle(cx).focus(window);
-                }
-            });
-        }
     }
 
     fn confirm_editing_message(
@@ -1847,7 +1825,6 @@ impl ActiveThread {
 
         let colors = cx.theme().colors();
         let editor_bg_color = colors.editor_background;
-        let panel_bg = colors.panel_background;
 
         let open_as_markdown = IconButton::new(("open-as-markdown", ix), IconName::DocumentText)
             .icon_size(IconSize::XSmall)
@@ -1868,6 +1845,7 @@ impl ActiveThread {
         const RESPONSE_PADDING_X: Pixels = px(19.);
 
         let show_feedback = thread.is_turn_end(ix);
+
         let feedback_container = h_flex()
             .group("feedback_container")
             .mt_1()
@@ -2164,14 +2142,16 @@ impl ActiveThread {
                 message_id > *editing_message_id
             });
 
+        let panel_background = cx.theme().colors().panel_background;
+
         let backdrop = div()
-            .id(("backdrop", ix))
-            .size_full()
+            .id("backdrop")
+            .stop_mouse_events_except_scroll()
             .absolute()
             .inset_0()
-            .bg(panel_bg)
+            .size_full()
+            .bg(panel_background)
             .opacity(0.8)
-            .block_mouse_except_scroll()
             .on_click(cx.listener(Self::handle_cancel_click));
 
         v_flex()

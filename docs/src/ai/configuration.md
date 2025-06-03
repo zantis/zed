@@ -1,7 +1,7 @@
 # Configuration
 
 There are various aspects about the Agent Panel that you can customize.
-All of them can be seen by either visiting [the Configuring Zed page](../configuring-zed.md#agent) or by running the `zed: open default settings` action and searching for `"agent"`.
+All of them can be seen by either visiting [the Configuring Zed page](./configuring-zed.md#agent) or by running the `zed: open default settings` action and searching for `"agent"`.
 Alternatively, you can also visit the panel's Settings view by running the `agent: open configuration` action or going to the top-right menu and hitting "Settings".
 
 ## LLM Providers
@@ -16,7 +16,7 @@ Here's an overview of the supported providers and tool call support:
 | [DeepSeek](#deepseek)                           | 🚫                                                                                                                                                                          |
 | [GitHub Copilot Chat](#github-copilot-chat)     | For Some Models ([link](https://github.com/zed-industries/zed/blob/9e0330ba7d848755c9734bf456c716bddf0973f3/crates/language_models/src/provider/copilot_chat.rs#L189-L198)) |
 | [Google AI](#google-ai)                         | ✅                                                                                                                                                                          |
-| [LM Studio](#lmstudio)                          | ✅                                                                                                                                                                          |
+| [LM Studio](#lmstudio)                          | 🚫                                                                                                                                                                          |
 | [Mistral](#mistral)                             | ✅                                                                                                                                                                          |
 | [Ollama](#ollama)                               | ✅                                                                                                                                                                          |
 | [OpenAI](#openai)                               | ✅                                                                                                                                                                          |
@@ -226,9 +226,7 @@ Zed will also use the `GOOGLE_AI_API_KEY` environment variable if it's defined.
 
 #### Custom Models {#google-ai-custom-models}
 
-By default, Zed will use `stable` versions of models, but you can use specific versions of models, including [experimental models](https://ai.google.dev/gemini-api/docs/models/experimental-models). You can configure a model to use [thinking mode](https://ai.google.dev/gemini-api/docs/thinking) (if it supports it) by adding a `mode` configuration to your model. This is useful for controlling reasoning token usage and response speed. If not specified, Gemini will automatically choose the thinking budget.
-
-Here is an example of a custom Google AI model you could add to your Zed `settings.json`:
+By default, Zed will use `stable` versions of models, but you can use specific versions of models, including [experimental models](https://ai.google.dev/gemini-api/docs/models/experimental-models), with the Google AI provider by adding the following to your Zed `settings.json`:
 
 ```json
 {
@@ -236,13 +234,9 @@ Here is an example of a custom Google AI model you could add to your Zed `settin
     "google": {
       "available_models": [
         {
-          "name": "gemini-2.5-flash-preview-05-20",
-          "display_name": "Gemini 2.5 Flash (Thinking)",
-          "max_tokens": 1000000,
-          "mode": {
-            "type": "thinking",
-            "budget_tokens": 24000
-          }
+          "name": "gemini-1.5-flash-latest",
+          "display_name": "Gemini 1.5 Flash (Latest)",
+          "max_tokens": 1000000
         }
       ]
     }
@@ -254,7 +248,7 @@ Custom models will be listed in the model dropdown in the Agent Panel.
 
 ### LM Studio {#lmstudio}
 
-> ✅ Supports tool use
+> 🚫 Does not support tool use
 
 1. Download and install the latest version of LM Studio from https://lmstudio.ai/download
 2. In the app press ⌘/Ctrl + Shift + M and download at least one model, e.g. qwen2.5-coder-7b

@@ -372,8 +372,6 @@ impl AgentSettingsContent {
                                 None,
                                 None,
                                 Some(language_model.supports_tools()),
-                                Some(language_model.supports_images()),
-                                None,
                             )),
                             api_url,
                         });
@@ -691,15 +689,14 @@ pub struct AgentSettingsContentV2 {
 pub enum CompletionMode {
     #[default]
     Normal,
-    #[serde(alias = "max")]
-    Burn,
+    Max,
 }
 
 impl From<CompletionMode> for zed_llm_client::CompletionMode {
     fn from(value: CompletionMode) -> Self {
         match value {
             CompletionMode::Normal => zed_llm_client::CompletionMode::Normal,
-            CompletionMode::Burn => zed_llm_client::CompletionMode::Max,
+            CompletionMode::Max => zed_llm_client::CompletionMode::Max,
         }
     }
 }
@@ -730,7 +727,6 @@ impl JsonSchema for LanguageModelProviderSetting {
                 "zed.dev".into(),
                 "copilot_chat".into(),
                 "deepseek".into(),
-                "openrouter".into(),
                 "mistral".into(),
             ]),
             ..Default::default()

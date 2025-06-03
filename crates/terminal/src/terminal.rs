@@ -724,13 +724,12 @@ impl Terminal {
                         // The terminal only supports pasting strings, not images.
                         Some(text) => format(text),
                         _ => format(""),
-                    }
-                    .into_bytes(),
+                    },
                 )
             }
-            AlacTermEvent::PtyWrite(out) => self.write_to_pty(out.into_bytes()),
+            AlacTermEvent::PtyWrite(out) => self.write_to_pty(out),
             AlacTermEvent::TextAreaSizeRequest(format) => {
-                self.write_to_pty(format(self.last_content.terminal_bounds.into()).into_bytes())
+                self.write_to_pty(format(self.last_content.terminal_bounds.into()))
             }
             AlacTermEvent::CursorBlinkingChange => {
                 let terminal = self.term.lock();
@@ -762,7 +761,7 @@ impl Terminal {
                 // followed by a color request sequence.
                 let color = self.term.lock().colors()[index]
                     .unwrap_or_else(|| to_alac_rgb(get_color_at_index(index, cx.theme().as_ref())));
-                self.write_to_pty(format(color).into_bytes());
+                self.write_to_pty(format(color));
             }
             AlacTermEvent::ChildExit(error_code) => {
                 self.register_task_finished(Some(error_code), cx);
@@ -1228,11 +1227,11 @@ impl Terminal {
     }
 
     ///Write the Input payload to the tty.
-    fn write_to_pty(&self, input: impl Into<Cow<'static, [u8]>>) {
+    fn write_to_pty(&self, input: impl Into<Vec<u8>>) {
         self.pty_tx.notify(input.into());
     }
 
-    pub fn input(&mut self, input: impl Into<Cow<'static, [u8]>>) {
+    pub fn input(&mut self, input: impl Into<Vec<u8>>) {
         self.events
             .push_back(InternalEvent::Scroll(AlacScroll::Bottom));
         self.events.push_back(InternalEvent::SetSelection(None));
@@ -1346,10 +1345,7 @@ impl Terminal {
         // Keep default terminal behavior
         let esc = to_esc_str(keystroke, &self.last_content.mode, alt_is_meta);
         if let Some(esc) = esc {
-            match esc {
-                Cow::Borrowed(string) => self.input(string.as_bytes()),
-                Cow::Owned(string) => self.input(string.into_bytes()),
-            };
+            self.input(esc);
             true
         } else {
             false
@@ -1382,7 +1378,7 @@ impl Terminal {
             text.replace("\r\n", "\r").replace('\n', "\r")
         };
 
-        self.input(paste_text.into_bytes());
+        self.input(paste_text);
     }
 
     pub fn sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1491,13 +1487,13 @@ impl Terminal {
 
     pub fn focus_in(&self) {
         if self.last_content.mode.contains(TermMode::FOCUS_IN_OUT) {
-            self.write_to_pty("\x1b[I".as_bytes());
+            self.write_to_pty("\x1b[I".to_string());
         }
     }
 
     pub fn focus_out(&mut self) {
         if self.last_content.mode.contains(TermMode::FOCUS_IN_OUT) {
-            self.write_to_pty("\x1b[O".as_bytes());
+            self.write_to_pty("\x1b[O".to_string());
         }
     }
 
@@ -1664,7 +1660,7 @@ impl Terminal {
                 MouseButton::Middle => {
                     if let Some(item) = _cx.read_from_primary() {
                         let text = item.text().unwrap_or_default().to_string();
-                        self.input(text.into_bytes());
+                        self.input(text);
                     }
                 }
                 _ => {}
@@ -1836,7 +1832,7 @@ impl Terminal {
                                 .map(|name| name.to_string_lossy().to_string())
                                 .unwrap_or_default();
 
-                            let argv = fpi.argv.as_slice();
+                            let argv = fpi.argv.clone();
                             let process_name = format!(
                                 "{}{}",
                                 fpi.name,

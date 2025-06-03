@@ -101,10 +101,7 @@ pub fn init(cx: &mut App) {
                         directories: true,
                         multiple: false,
                     },
-                    DirectoryLister::Local(
-                        workspace.project().clone(),
-                        workspace.app_state().fs.clone(),
-                    ),
+                    DirectoryLister::Local(workspace.app_state().fs.clone()),
                     window,
                     cx,
                 );

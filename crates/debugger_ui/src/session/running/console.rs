@@ -13,7 +13,7 @@ use gpui::{
 use language::{Buffer, CodeLabel, ToOffset};
 use menu::Confirm;
 use project::{
-    Completion, CompletionResponse,
+    Completion,
     debugger::session::{CompletionsQuery, OutputToken, Session, SessionEvent},
 };
 use settings::Settings;
@@ -262,9 +262,9 @@ impl CompletionProvider for ConsoleQueryBarCompletionProvider {
         _trigger: editor::CompletionContext,
         _window: &mut Window,
         cx: &mut Context<Editor>,
-    ) -> Task<Result<Vec<CompletionResponse>>> {
+    ) -> Task<Result<Option<Vec<Completion>>>> {
         let Some(console) = self.0.upgrade() else {
-            return Task::ready(Ok(Vec::new()));
+            return Task::ready(Ok(None));
         };
 
         let support_completions = console
@@ -309,7 +309,6 @@ impl CompletionProvider for ConsoleQueryBarCompletionProvider {
         _position: language::Anchor,
         _text: &str,
         _trigger_in_words: bool,
-        _menu_is_open: bool,
         _cx: &mut Context<Editor>,
     ) -> bool {
         true
@@ -323,7 +322,7 @@ impl ConsoleQueryBarCompletionProvider {
         buffer: &Entity<Buffer>,
         buffer_position: language::Anchor,
         cx: &mut Context<Editor>,
-    ) -> Task<Result<Vec<CompletionResponse>>> {
+    ) -> Task<Result<Option<Vec<Completion>>>> {
         let (variables, string_matches) = console.update(cx, |console, cx| {
             let mut variables = HashMap::default();
             let mut string_matches = Vec::default();
@@ -355,43 +354,39 @@ impl ConsoleQueryBarCompletionProvider {
         let query = buffer.read(cx).text();
 
         cx.spawn(async move |_, cx| {
-            const LIMIT: usize = 10;
             let matches = fuzzy::match_strings(
                 &string_matches,
                 &query,
                 true,
-                LIMIT,
+                10,
                 &Default::default(),
                 cx.background_executor().clone(),
             )
             .await;
 
-            let completions = matches
-                .iter()
-                .filter_map(|string_match| {
-                    let variable_value = variables.get(&string_match.string)?;
+            Ok(Some(
+                matches
+                    .iter()
+                    .filter_map(|string_match| {
+                        let variable_value = variables.get(&string_match.string)?;
 
-                    Some(project::Completion {
-                        replace_range: buffer_position..buffer_position,
-                        new_text: string_match.string.clone(),
-                        label: CodeLabel {
-                            filter_range: 0..string_match.string.len(),
-                            text: format!("{} {}", string_match.string, variable_value),
-                            runs: Vec::new(),
-                        },
-                        icon_path: None,
-                        documentation: None,
-                        confirm: None,
-                        source: project::CompletionSource::Custom,
-                        insert_text_mode: None,
+                        Some(project::Completion {
+                            replace_range: buffer_position..buffer_position,
+                            new_text: string_match.string.clone(),
+                            label: CodeLabel {
+                                filter_range: 0..string_match.string.len(),
+                                text: format!("{} {}", string_match.string, variable_value),
+                                runs: Vec::new(),
+                            },
+                            icon_path: None,
+                            documentation: None,
+                            confirm: None,
+                            source: project::CompletionSource::Custom,
+                            insert_text_mode: None,
+                        })
                     })
-                })
-                .collect::<Vec<_>>();
-
-            Ok(vec![project::CompletionResponse {
-                is_incomplete: completions.len() >= LIMIT,
-                completions,
-            }])
+                    .collect(),
+            ))
         })
     }
 
@@ -401,7 +396,7 @@ impl ConsoleQueryBarCompletionProvider {
         buffer: &Entity<Buffer>,
         buffer_position: language::Anchor,
         cx: &mut Context<Editor>,
-    ) -> Task<Result<Vec<CompletionResponse>>> {
+    ) -> Task<Result<Option<Vec<Completion>>>> {
         let completion_task = console.update(cx, |console, cx| {
             console.session.update(cx, |state, cx| {
                 let frame_id = console.stack_frame_list.read(cx).opened_stack_frame_id();
@@ -416,56 +411,53 @@ impl ConsoleQueryBarCompletionProvider {
         cx.background_executor().spawn(async move {
             let completions = completion_task.await?;
 
-            let completions = completions
-                .into_iter()
-                .map(|completion| {
-                    let new_text = completion
-                        .text
-                        .as_ref()
-                        .unwrap_or(&completion.label)
-                        .to_owned();
-                    let buffer_text = snapshot.text();
-                    let buffer_bytes = buffer_text.as_bytes();
-                    let new_bytes = new_text.as_bytes();
+            Ok(Some(
+                completions
+                    .into_iter()
+                    .map(|completion| {
+                        let new_text = completion
+                            .text
+                            .as_ref()
+                            .unwrap_or(&completion.label)
+                            .to_owned();
+                        let buffer_text = snapshot.text();
+                        let buffer_bytes = buffer_text.as_bytes();
+                        let new_bytes = new_text.as_bytes();
 
-                    let mut prefix_len = 0;
-                    for i in (0..new_bytes.len()).rev() {
-                        if buffer_bytes.ends_with(&new_bytes[0..i]) {
-                            prefix_len = i;
-                            break;
+                        let mut prefix_len = 0;
+                        for i in (0..new_bytes.len()).rev() {
+                            if buffer_bytes.ends_with(&new_bytes[0..i]) {
+                                prefix_len = i;
+                                break;
+                            }
                         }
-                    }
 
-                    let buffer_offset = buffer_position.to_offset(&snapshot);
-                    let start = buffer_offset - prefix_len;
-                    let start = snapshot.clip_offset(start, Bias::Left);
-                    let start = snapshot.anchor_before(start);
-                    let replace_range = start..buffer_position;
+                        let buffer_offset = buffer_position.to_offset(&snapshot);
+                        let start = buffer_offset - prefix_len;
+                        let start = snapshot.clip_offset(start, Bias::Left);
+                        let start = snapshot.anchor_before(start);
+                        let replace_range = start..buffer_position;
 
-                    project::Completion {
-                        replace_range,
-                        new_text,
-                        label: CodeLabel {
-                            filter_range: 0..completion.label.len(),
-                            text: completion.label,
-                            runs: Vec::new(),
-                        },
-                        icon_path: None,
-                        documentation: None,
-                        confirm: None,
-                        source: project::CompletionSource::BufferWord {
-                            word_range: buffer_position..language::Anchor::MAX,
-                            resolved: false,
-                        },
-                        insert_text_mode: None,
-                    }
-                })
-                .collect();
-
-            Ok(vec![project::CompletionResponse {
-                completions,
-                is_incomplete: false,
-            }])
+                        project::Completion {
+                            replace_range,
+                            new_text,
+                            label: CodeLabel {
+                                filter_range: 0..completion.label.len(),
+                                text: completion.label,
+                                runs: Vec::new(),
+                            },
+                            icon_path: None,
+                            documentation: None,
+                            confirm: None,
+                            source: project::CompletionSource::BufferWord {
+                                word_range: buffer_position..language::Anchor::MAX,
+                                resolved: false,
+                            },
+                            insert_text_mode: None,
+                        }
+                    })
+                    .collect(),
+            ))
         })
     }
 }

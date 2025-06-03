@@ -11,17 +11,16 @@ use std::{
     borrow::Borrow,
     collections::{BTreeMap, hash_map::Entry},
     ops::ControlFlow,
-    path::Path,
     sync::Arc,
 };
 
 use collections::HashMap;
 use gpui::{App, AppContext as _, Context, Entity, EventEmitter, Subscription};
-use language::{ManifestDelegate, ManifestName, ManifestQuery};
+use language::{LspAdapterDelegate, ManifestName, ManifestQuery};
 pub use manifest_store::ManifestProviders;
 use path_trie::{LabelPresence, RootPathTrie, TriePath};
 use settings::{SettingsStore, WorktreeId};
-use worktree::{Event as WorktreeEvent, Snapshot, Worktree};
+use worktree::{Event as WorktreeEvent, Worktree};
 
 use crate::{
     ProjectPath,
@@ -90,7 +89,7 @@ pub(crate) enum ManifestTreeEvent {
 impl EventEmitter<ManifestTreeEvent> for ManifestTree {}
 
 impl ManifestTree {
-    pub fn new(worktree_store: Entity<WorktreeStore>, cx: &mut App) -> Entity<Self> {
+    pub(crate) fn new(worktree_store: Entity<WorktreeStore>, cx: &mut App) -> Entity<Self> {
         cx.new(|cx| Self {
             root_points: Default::default(),
             _subscriptions: [
@@ -107,11 +106,11 @@ impl ManifestTree {
             worktree_store,
         })
     }
-    pub(crate) fn root_for_path(
+    fn root_for_path(
         &mut self,
         ProjectPath { worktree_id, path }: ProjectPath,
         manifests: &mut dyn Iterator<Item = ManifestName>,
-        delegate: Arc<dyn ManifestDelegate>,
+        delegate: Arc<dyn LspAdapterDelegate>,
         cx: &mut App,
     ) -> BTreeMap<ManifestName, ProjectPath> {
         debug_assert_eq!(delegate.worktree_id(), worktree_id);
@@ -217,28 +216,5 @@ impl ManifestTree {
             }
             _ => {}
         }
-    }
-}
-
-pub(crate) struct ManifestQueryDelegate {
-    worktree: Snapshot,
-}
-impl ManifestQueryDelegate {
-    pub fn new(worktree: Snapshot) -> Self {
-        Self { worktree }
-    }
-}
-
-impl ManifestDelegate for ManifestQueryDelegate {
-    fn exists(&self, path: &Path, is_dir: Option<bool>) -> bool {
-        self.worktree.entry_for_path(path).map_or(false, |entry| {
-            is_dir.map_or(true, |is_required_to_be_dir| {
-                is_required_to_be_dir == entry.is_dir()
-            })
-        })
-    }
-
-    fn worktree_id(&self) -> WorktreeId {
-        self.worktree.id()
     }
 }

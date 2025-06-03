@@ -3,15 +3,14 @@ pub mod lsp_ext_command;
 pub mod rust_analyzer_ext;
 
 use crate::{
-    CodeAction, Completion, CompletionResponse, CompletionSource, CoreCompletion, Hover, InlayHint,
-    LspAction, ProjectItem, ProjectPath, ProjectTransaction, ResolveState, Symbol, ToolchainStore,
+    CodeAction, Completion, CompletionSource, CoreCompletion, Hover, InlayHint, LspAction,
+    ProjectItem, ProjectPath, ProjectTransaction, ResolveState, Symbol, ToolchainStore,
     buffer_store::{BufferStore, BufferStoreEvent},
     environment::ProjectEnvironment,
     lsp_command::{self, *},
     lsp_store,
     manifest_tree::{
-        AdapterQuery, LanguageServerTree, LanguageServerTreeNode, LaunchDisposition,
-        ManifestQueryDelegate, ManifestTree,
+        AdapterQuery, LanguageServerTree, LanguageServerTreeNode, LaunchDisposition, ManifestTree,
     },
     prettier_store::{self, PrettierStore, PrettierStoreEvent},
     project_settings::{LspSettings, ProjectSettings},
@@ -998,7 +997,7 @@ impl LocalLspStore {
             .collect::<Vec<_>>();
 
         async move {
-            join_all(shutdown_futures).await;
+            futures::future::join_all(shutdown_futures).await;
         }
     }
 
@@ -1037,7 +1036,7 @@ impl LocalLspStore {
         else {
             return Vec::new();
         };
-        let delegate = Arc::new(ManifestQueryDelegate::new(worktree.read(cx).snapshot()));
+        let delegate = LocalLspAdapterDelegate::from_local_lsp(self, &worktree, cx);
         let root = self.lsp_tree.update(cx, |this, cx| {
             this.get(
                 project_path,
@@ -2291,8 +2290,7 @@ impl LocalLspStore {
             })
             .map(|(delegate, servers)| (true, delegate, servers))
             .unwrap_or_else(|| {
-                let lsp_delegate = LocalLspAdapterDelegate::from_local_lsp(self, &worktree, cx);
-                let delegate = Arc::new(ManifestQueryDelegate::new(worktree.read(cx).snapshot()));
+                let delegate = LocalLspAdapterDelegate::from_local_lsp(self, &worktree, cx);
                 let servers = self
                     .lsp_tree
                     .clone()
@@ -2306,7 +2304,7 @@ impl LocalLspStore {
                             )
                             .collect::<Vec<_>>()
                     });
-                (false, lsp_delegate, servers)
+                (false, delegate, servers)
             });
         let servers = servers
             .into_iter()
@@ -3587,7 +3585,6 @@ impl LspStore {
         prettier_store: Entity<PrettierStore>,
         toolchain_store: Entity<ToolchainStore>,
         environment: Entity<ProjectEnvironment>,
-        manifest_tree: Entity<ManifestTree>,
         languages: Arc<LanguageRegistry>,
         http_client: Arc<dyn HttpClient>,
         fs: Arc<dyn Fs>,
@@ -3621,7 +3618,7 @@ impl LspStore {
                 sender,
             )
         };
-
+        let manifest_tree = ManifestTree::new(worktree_store.clone(), cx);
         Self {
             mode: LspStoreMode::Local(LocalLspStore {
                 weak: cx.weak_entity(),
@@ -4468,13 +4465,10 @@ impl LspStore {
                             )
                             .map(|(delegate, servers)| (true, delegate, servers))
                             .or_else(|| {
-                                let lsp_delegate = adapters
+                                let delegate = adapters
                                     .entry(worktree_id)
                                     .or_insert_with(|| get_adapter(worktree_id, cx))
                                     .clone()?;
-                                let delegate = Arc::new(ManifestQueryDelegate::new(
-                                    worktree.read(cx).snapshot(),
-                                ));
                                 let path = file
                                     .path()
                                     .parent()
@@ -4489,7 +4483,7 @@ impl LspStore {
                                     cx,
                                 );
 
-                                Some((false, lsp_delegate, nodes.collect()))
+                                Some((false, delegate, nodes.collect()))
                             })
                         else {
                             continue;
@@ -5081,7 +5075,7 @@ impl LspStore {
         position: PointUtf16,
         context: CompletionContext,
         cx: &mut Context<Self>,
-    ) -> Task<Result<Vec<CompletionResponse>>> {
+    ) -> Task<Result<Option<Vec<Completion>>>> {
         let language_registry = self.languages.clone();
 
         if let Some((upstream_client, project_id)) = self.upstream_client() {
@@ -5105,17 +5099,11 @@ impl LspStore {
             });
 
             cx.foreground_executor().spawn(async move {
-                let completion_response = task.await?;
-                let completions = populate_labels_for_completions(
-                    completion_response.completions,
-                    language,
-                    lsp_adapter,
-                )
-                .await;
-                Ok(vec![CompletionResponse {
-                    completions,
-                    is_incomplete: completion_response.is_incomplete,
-                }])
+                let completions = task.await?;
+                let mut result = Vec::new();
+                populate_labels_for_completions(completions, language, lsp_adapter, &mut result)
+                    .await;
+                Ok(Some(result))
             })
         } else if let Some(local) = self.as_local() {
             let snapshot = buffer.read(cx).snapshot();
@@ -5129,7 +5117,7 @@ impl LspStore {
             )
             .completions;
             if !completion_settings.lsp {
-                return Task::ready(Ok(Vec::new()));
+                return Task::ready(Ok(None));
             }
 
             let server_ids: Vec<_> = buffer.update(cx, |buffer, cx| {
@@ -5196,23 +5184,25 @@ impl LspStore {
                     }
                 })?;
 
-                let futures = tasks.into_iter().map(async |(lsp_adapter, task)| {
-                    let completion_response = task.await.ok()??;
-                    let completions = populate_labels_for_completions(
-                            completion_response.completions,
+                let mut has_completions_returned = false;
+                let mut completions = Vec::new();
+                for (lsp_adapter, task) in tasks {
+                    if let Ok(Some(new_completions)) = task.await {
+                        has_completions_returned = true;
+                        populate_labels_for_completions(
+                            new_completions,
                             language.clone(),
                             lsp_adapter,
+                            &mut completions,
                         )
                         .await;
-                    Some(CompletionResponse {
-                        completions,
-                        is_incomplete: completion_response.is_incomplete,
-                    })
-                });
-
-                let responses: Vec<Option<CompletionResponse>> = join_all(futures).await;
-
-                Ok(responses.into_iter().flatten().collect())
+                    }
+                }
+                if has_completions_returned {
+                    Ok(Some(completions))
+                } else {
+                    Ok(None)
+                }
             })
         } else {
             Task::ready(Err(anyhow!("No upstream client or local language server")))
@@ -6486,7 +6476,7 @@ impl LspStore {
                 worktree_id,
                 path: Arc::from("".as_ref()),
             };
-            let delegate = Arc::new(ManifestQueryDelegate::new(worktree.read(cx).snapshot()));
+            let delegate = LocalLspAdapterDelegate::from_local_lsp(local, &worktree, cx);
             local.lsp_tree.update(cx, |language_server_tree, cx| {
                 for node in language_server_tree.get(
                     path,
@@ -9551,7 +9541,8 @@ async fn populate_labels_for_completions(
     new_completions: Vec<CoreCompletion>,
     language: Option<Arc<Language>>,
     lsp_adapter: Option<Arc<CachedLspAdapter>>,
-) -> Vec<Completion> {
+    completions: &mut Vec<Completion>,
+) {
     let lsp_completions = new_completions
         .iter()
         .filter_map(|new_completion| {
@@ -9575,7 +9566,6 @@ async fn populate_labels_for_completions(
     .into_iter()
     .fuse();
 
-    let mut completions = Vec::new();
     for completion in new_completions {
         match completion.source.lsp_completion(true) {
             Some(lsp_completion) => {
@@ -9616,7 +9606,6 @@ async fn populate_labels_for_completions(
             }
         }
     }
-    completions
 }
 
 #[derive(Debug)]
@@ -10213,6 +10202,14 @@ impl LspAdapterDelegate for LocalLspAdapterDelegate {
 
     fn worktree_id(&self) -> WorktreeId {
         self.worktree.id()
+    }
+
+    fn exists(&self, path: &Path, is_dir: Option<bool>) -> bool {
+        self.worktree.entry_for_path(path).map_or(false, |entry| {
+            is_dir.map_or(true, |is_required_to_be_dir| {
+                is_required_to_be_dir == entry.is_dir()
+            })
+        })
     }
 
     fn worktree_root_path(&self) -> &Path {

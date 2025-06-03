@@ -12,7 +12,7 @@ use language::{
     Anchor, Buffer, BufferSnapshot, CodeLabel, LanguageRegistry, ToOffset,
     language_settings::SoftWrap,
 };
-use project::{Completion, CompletionResponse, CompletionSource, search::SearchQuery};
+use project::{Completion, CompletionSource, search::SearchQuery};
 use settings::Settings;
 use std::{
     cell::RefCell,
@@ -64,9 +64,9 @@ impl CompletionProvider for MessageEditorCompletionProvider {
         _: editor::CompletionContext,
         _window: &mut Window,
         cx: &mut Context<Editor>,
-    ) -> Task<Result<Vec<CompletionResponse>>> {
+    ) -> Task<Result<Option<Vec<Completion>>>> {
         let Some(handle) = self.0.upgrade() else {
-            return Task::ready(Ok(Vec::new()));
+            return Task::ready(Ok(None));
         };
         handle.update(cx, |message_editor, cx| {
             message_editor.completions(buffer, buffer_position, cx)
@@ -89,7 +89,6 @@ impl CompletionProvider for MessageEditorCompletionProvider {
         _position: language::Anchor,
         text: &str,
         _trigger_in_words: bool,
-        _menu_is_open: bool,
         _cx: &mut Context<Editor>,
     ) -> bool {
         text == "@"
@@ -249,21 +248,22 @@ impl MessageEditor {
         buffer: &Entity<Buffer>,
         end_anchor: Anchor,
         cx: &mut Context<Self>,
-    ) -> Task<Result<Vec<CompletionResponse>>> {
+    ) -> Task<Result<Option<Vec<Completion>>>> {
         if let Some((start_anchor, query, candidates)) =
             self.collect_mention_candidates(buffer, end_anchor, cx)
         {
             if !candidates.is_empty() {
                 return cx.spawn(async move |_, cx| {
-                    let completion_response = Self::resolve_completions_for_candidates(
-                        &cx,
-                        query.as_str(),
-                        &candidates,
-                        start_anchor..end_anchor,
-                        Self::completion_for_mention,
-                    )
-                    .await;
-                    Ok(vec![completion_response])
+                    Ok(Some(
+                        Self::resolve_completions_for_candidates(
+                            &cx,
+                            query.as_str(),
+                            &candidates,
+                            start_anchor..end_anchor,
+                            Self::completion_for_mention,
+                        )
+                        .await,
+                    ))
                 });
             }
         }
@@ -273,23 +273,21 @@ impl MessageEditor {
         {
             if !candidates.is_empty() {
                 return cx.spawn(async move |_, cx| {
-                    let completion_response = Self::resolve_completions_for_candidates(
-                        &cx,
-                        query.as_str(),
-                        candidates,
-                        start_anchor..end_anchor,
-                        Self::completion_for_emoji,
-                    )
-                    .await;
-                    Ok(vec![completion_response])
+                    Ok(Some(
+                        Self::resolve_completions_for_candidates(
+                            &cx,
+                            query.as_str(),
+                            candidates,
+                            start_anchor..end_anchor,
+                            Self::completion_for_emoji,
+                        )
+                        .await,
+                    ))
                 });
             }
         }
 
-        Task::ready(Ok(vec![CompletionResponse {
-            completions: Vec::new(),
-            is_incomplete: false,
-        }]))
+        Task::ready(Ok(Some(Vec::new())))
     }
 
     async fn resolve_completions_for_candidates(
@@ -298,19 +296,18 @@ impl MessageEditor {
         candidates: &[StringMatchCandidate],
         range: Range<Anchor>,
         completion_fn: impl Fn(&StringMatch) -> (String, CodeLabel),
-    ) -> CompletionResponse {
-        const LIMIT: usize = 10;
+    ) -> Vec<Completion> {
         let matches = fuzzy::match_strings(
             candidates,
             query,
             true,
-            LIMIT,
+            10,
             &Default::default(),
             cx.background_executor().clone(),
         )
         .await;
 
-        let completions = matches
+        matches
             .into_iter()
             .map(|mat| {
                 let (new_text, label) = completion_fn(&mat);
@@ -325,12 +322,7 @@ impl MessageEditor {
                     source: CompletionSource::Custom,
                 }
             })
-            .collect::<Vec<_>>();
-
-        CompletionResponse {
-            is_incomplete: completions.len() >= LIMIT,
-            completions,
-        }
+            .collect()
     }
 
     fn completion_for_mention(mat: &StringMatch) -> (String, CodeLabel) {
