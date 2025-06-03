@@ -2,15 +2,13 @@
 //! can be used to describe common units, concepts, and the relationships
 //! between them.
 
-use anyhow::{Context as _, anyhow};
 use core::fmt::Debug;
 use derive_more::{Add, AddAssign, Div, DivAssign, Mul, Neg, Sub, SubAssign};
 use refineable::Refineable;
-use schemars::{JsonSchema, SchemaGenerator, schema::Schema};
-use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
+use serde_derive::{Deserialize, Serialize};
 use std::{
     cmp::{self, PartialOrd},
-    fmt::{self, Display},
+    fmt,
     hash::Hash,
     ops::{Add, Div, Mul, MulAssign, Neg, Sub},
 };
@@ -73,12 +71,11 @@ pub trait Along {
     Eq,
     Serialize,
     Deserialize,
-    JsonSchema,
     Hash,
 )]
-#[refineable(Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[refineable(Debug)]
 #[repr(C)]
-pub struct Point<T: Clone + Debug + Default + PartialEq> {
+pub struct Point<T: Default + Clone + Debug> {
     /// The x coordinate of the point.
     pub x: T,
     /// The y coordinate of the point.
@@ -104,11 +101,11 @@ pub struct Point<T: Clone + Debug + Default + PartialEq> {
 /// assert_eq!(p.x, 10);
 /// assert_eq!(p.y, 20);
 /// ```
-pub const fn point<T: Clone + Debug + Default + PartialEq>(x: T, y: T) -> Point<T> {
+pub const fn point<T: Clone + Debug + Default>(x: T, y: T) -> Point<T> {
     Point { x, y }
 }
 
-impl<T: Clone + Debug + Default + PartialEq> Point<T> {
+impl<T: Clone + Debug + Default> Point<T> {
     /// Creates a new `Point` with the specified `x` and `y` coordinates.
     ///
     /// # Arguments
@@ -145,7 +142,7 @@ impl<T: Clone + Debug + Default + PartialEq> Point<T> {
     /// let p_float = p.map(|coord| coord as f32);
     /// assert_eq!(p_float, Point { x: 3.0, y: 4.0 });
     /// ```
-    pub fn map<U: Clone + Debug + Default + PartialEq>(&self, f: impl Fn(T) -> U) -> Point<U> {
+    pub fn map<U: Clone + Default + Debug>(&self, f: impl Fn(T) -> U) -> Point<U> {
         Point {
             x: f(self.x.clone()),
             y: f(self.y.clone()),
@@ -153,7 +150,7 @@ impl<T: Clone + Debug + Default + PartialEq> Point<T> {
     }
 }
 
-impl<T: Clone + Debug + Default + PartialEq> Along for Point<T> {
+impl<T: Clone + Debug + Default> Along for Point<T> {
     type Unit = T;
 
     fn along(&self, axis: Axis) -> T {
@@ -177,7 +174,7 @@ impl<T: Clone + Debug + Default + PartialEq> Along for Point<T> {
     }
 }
 
-impl<T: Clone + Debug + Default + PartialEq + Negate> Negate for Point<T> {
+impl<T: Clone + Debug + Default + Negate> Negate for Point<T> {
     fn negate(self) -> Self {
         self.map(Negate::negate)
     }
@@ -222,7 +219,7 @@ impl Point<Pixels> {
 
 impl<T> Point<T>
 where
-    T: Sub<T, Output = T> + Clone + Debug + Default + PartialEq,
+    T: Sub<T, Output = T> + Debug + Clone + Default,
 {
     /// Get the position of this point, relative to the given origin
     pub fn relative_to(&self, origin: &Point<T>) -> Point<T> {
@@ -235,7 +232,7 @@ where
 
 impl<T, Rhs> Mul<Rhs> for Point<T>
 where
-    T: Mul<Rhs, Output = T> + Clone + Debug + Default + PartialEq,
+    T: Mul<Rhs, Output = T> + Clone + Default + Debug,
     Rhs: Clone + Debug,
 {
     type Output = Point<T>;
@@ -250,7 +247,7 @@ where
 
 impl<T, S> MulAssign<S> for Point<T>
 where
-    T: Mul<S, Output = T> + Clone + Debug + Default + PartialEq,
+    T: Clone + Mul<S, Output = T> + Default + Debug,
     S: Clone,
 {
     fn mul_assign(&mut self, rhs: S) {
@@ -261,7 +258,7 @@ where
 
 impl<T, S> Div<S> for Point<T>
 where
-    T: Div<S, Output = T> + Clone + Debug + Default + PartialEq,
+    T: Div<S, Output = T> + Clone + Default + Debug,
     S: Clone,
 {
     type Output = Self;
@@ -276,7 +273,7 @@ where
 
 impl<T> Point<T>
 where
-    T: PartialOrd + Clone + Debug + Default + PartialEq,
+    T: PartialOrd + Clone + Default + Debug,
 {
     /// Returns a new point with the maximum values of each dimension from `self` and `other`.
     ///
@@ -369,7 +366,7 @@ where
     }
 }
 
-impl<T: Clone + Debug + Default + PartialEq> Clone for Point<T> {
+impl<T: Clone + Default + Debug> Clone for Point<T> {
     fn clone(&self) -> Self {
         Self {
             x: self.x.clone(),
@@ -378,27 +375,21 @@ impl<T: Clone + Debug + Default + PartialEq> Clone for Point<T> {
     }
 }
 
-impl<T: Clone + Debug + Default + PartialEq + Display> Display for Point<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "({}, {})", self.x, self.y)
-    }
-}
-
 /// A structure representing a two-dimensional size with width and height in a given unit.
 ///
 /// This struct is generic over the type `T`, which can be any type that implements `Clone`, `Default`, and `Debug`.
 /// It is commonly used to specify dimensions for elements in a UI, such as a window or element.
 #[derive(Refineable, Default, Clone, Copy, PartialEq, Div, Hash, Serialize, Deserialize)]
-#[refineable(Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[refineable(Debug)]
 #[repr(C)]
-pub struct Size<T: Clone + Debug + Default + PartialEq> {
+pub struct Size<T: Clone + Default + Debug> {
     /// The width component of the size.
     pub width: T,
     /// The height component of the size.
     pub height: T,
 }
 
-impl<T: Clone + Debug + Default + PartialEq> Size<T> {
+impl<T: Clone + Default + Debug> Size<T> {
     /// Create a new Size, a synonym for [`size`]
     pub fn new(width: T, height: T) -> Self {
         size(width, height)
@@ -422,14 +413,14 @@ impl<T: Clone + Debug + Default + PartialEq> Size<T> {
 /// ```
 pub const fn size<T>(width: T, height: T) -> Size<T>
 where
-    T: Clone + Debug + Default + PartialEq,
+    T: Clone + Default + Debug,
 {
     Size { width, height }
 }
 
 impl<T> Size<T>
 where
-    T: Clone + Debug + Default + PartialEq,
+    T: Clone + Default + Debug,
 {
     /// Applies a function to the width and height of the size, producing a new `Size<U>`.
     ///
@@ -451,7 +442,7 @@ where
     /// ```
     pub fn map<U>(&self, f: impl Fn(T) -> U) -> Size<U>
     where
-        U: Clone + Debug + Default + PartialEq,
+        U: Clone + Default + Debug,
     {
         Size {
             width: f(self.width.clone()),
@@ -462,7 +453,7 @@ where
 
 impl<T> Size<T>
 where
-    T: Clone + Debug + Default + PartialEq + Half,
+    T: Clone + Default + Debug + Half,
 {
     /// Compute the center point of the size.g
     pub fn center(&self) -> Point<T> {
@@ -502,7 +493,7 @@ impl Size<Pixels> {
 
 impl<T> Along for Size<T>
 where
-    T: Clone + Debug + Default + PartialEq,
+    T: Clone + Default + Debug,
 {
     type Unit = T;
 
@@ -530,7 +521,7 @@ where
 
 impl<T> Size<T>
 where
-    T: PartialOrd + Clone + Debug + Default + PartialEq,
+    T: PartialOrd + Clone + Default + Debug,
 {
     /// Returns a new `Size` with the maximum width and height from `self` and `other`.
     ///
@@ -595,7 +586,7 @@ where
 
 impl<T> Sub for Size<T>
 where
-    T: Sub<Output = T> + Clone + Debug + Default + PartialEq,
+    T: Sub<Output = T> + Clone + Default + Debug,
 {
     type Output = Size<T>;
 
@@ -609,7 +600,7 @@ where
 
 impl<T> Add for Size<T>
 where
-    T: Add<Output = T> + Clone + Debug + Default + PartialEq,
+    T: Add<Output = T> + Clone + Default + Debug,
 {
     type Output = Size<T>;
 
@@ -623,8 +614,8 @@ where
 
 impl<T, Rhs> Mul<Rhs> for Size<T>
 where
-    T: Mul<Rhs, Output = Rhs> + Clone + Debug + Default + PartialEq,
-    Rhs: Clone + Debug + Default + PartialEq,
+    T: Mul<Rhs, Output = Rhs> + Clone + Default + Debug,
+    Rhs: Clone + Default + Debug,
 {
     type Output = Size<Rhs>;
 
@@ -638,7 +629,7 @@ where
 
 impl<T, S> MulAssign<S> for Size<T>
 where
-    T: Mul<S, Output = T> + Clone + Debug + Default + PartialEq,
+    T: Mul<S, Output = T> + Clone + Default + Debug,
     S: Clone,
 {
     fn mul_assign(&mut self, rhs: S) {
@@ -647,24 +638,18 @@ where
     }
 }
 
-impl<T> Eq for Size<T> where T: Eq + Clone + Debug + Default + PartialEq {}
+impl<T> Eq for Size<T> where T: Eq + Default + Debug + Clone {}
 
 impl<T> Debug for Size<T>
 where
-    T: Clone + Debug + Default + PartialEq,
+    T: Clone + Default + Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Size {{ {:?} × {:?} }}", self.width, self.height)
     }
 }
 
-impl<T: Clone + Debug + Default + PartialEq + Display> Display for Size<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} × {}", self.width, self.height)
-    }
-}
-
-impl<T: Clone + Debug + Default + PartialEq> From<Point<T>> for Size<T> {
+impl<T: Clone + Default + Debug> From<Point<T>> for Size<T> {
     fn from(point: Point<T>) -> Self {
         Self {
             width: point.x,
@@ -746,7 +731,7 @@ impl Size<Length> {
 #[derive(Refineable, Clone, Default, Debug, Eq, PartialEq, Serialize, Deserialize, Hash)]
 #[refineable(Debug)]
 #[repr(C)]
-pub struct Bounds<T: Clone + Debug + Default + PartialEq> {
+pub struct Bounds<T: Clone + Default + Debug> {
     /// The origin point of this area.
     pub origin: Point<T>,
     /// The size of the rectangle.
@@ -754,10 +739,7 @@ pub struct Bounds<T: Clone + Debug + Default + PartialEq> {
 }
 
 /// Create a bounds with the given origin and size
-pub fn bounds<T: Clone + Debug + Default + PartialEq>(
-    origin: Point<T>,
-    size: Size<T>,
-) -> Bounds<T> {
+pub fn bounds<T: Clone + Default + Debug>(origin: Point<T>, size: Size<T>) -> Bounds<T> {
     Bounds { origin, size }
 }
 
@@ -793,7 +775,7 @@ impl Bounds<Pixels> {
 
 impl<T> Bounds<T>
 where
-    T: Clone + Debug + Default + PartialEq,
+    T: Clone + Debug + Default,
 {
     /// Creates a new `Bounds` with the specified origin and size.
     ///
@@ -812,7 +794,7 @@ where
 
 impl<T> Bounds<T>
 where
-    T: Sub<Output = T> + Clone + Debug + Default + PartialEq,
+    T: Clone + Debug + Sub<Output = T> + Default,
 {
     /// Constructs a `Bounds` from two corner points: the top left and bottom right corners.
     ///
@@ -878,7 +860,7 @@ where
 
 impl<T> Bounds<T>
 where
-    T: Sub<T, Output = T> + Half + Clone + Debug + Default + PartialEq,
+    T: Clone + Debug + Sub<T, Output = T> + Default + Half,
 {
     /// Creates a new bounds centered at the given point.
     pub fn centered_at(center: Point<T>, size: Size<T>) -> Self {
@@ -892,7 +874,7 @@ where
 
 impl<T> Bounds<T>
 where
-    T: PartialOrd + Add<T, Output = T> + Clone + Debug + Default + PartialEq,
+    T: Clone + Debug + PartialOrd + Add<T, Output = T> + Default,
 {
     /// Checks if this `Bounds` intersects with another `Bounds`.
     ///
@@ -940,7 +922,7 @@ where
 
 impl<T> Bounds<T>
 where
-    T: Add<T, Output = T> + Half + Clone + Debug + Default + PartialEq,
+    T: Clone + Debug + Add<T, Output = T> + Default + Half,
 {
     /// Returns the center point of the bounds.
     ///
@@ -973,7 +955,7 @@ where
 
 impl<T> Bounds<T>
 where
-    T: Add<T, Output = T> + Clone + Debug + Default + PartialEq,
+    T: Clone + Debug + Add<T, Output = T> + Default,
 {
     /// Calculates the half perimeter of a rectangle defined by the bounds.
     ///
@@ -1000,7 +982,7 @@ where
 
 impl<T> Bounds<T>
 where
-    T: Add<T, Output = T> + Sub<Output = T> + Clone + Debug + Default + PartialEq,
+    T: Clone + Debug + Add<T, Output = T> + Sub<Output = T> + Default,
 {
     /// Dilates the bounds by a specified amount in all directions.
     ///
@@ -1051,13 +1033,7 @@ where
 
 impl<T> Bounds<T>
 where
-    T: Add<T, Output = T>
-        + Sub<T, Output = T>
-        + Neg<Output = T>
-        + Clone
-        + Debug
-        + Default
-        + PartialEq,
+    T: Clone + Debug + Add<T, Output = T> + Sub<T, Output = T> + Neg<Output = T> + Default,
 {
     /// Inset the bounds by a specified amount. Equivalent to `dilate` with the amount negated.
     ///
@@ -1067,9 +1043,7 @@ where
     }
 }
 
-impl<T: PartialOrd + Add<T, Output = T> + Sub<Output = T> + Clone + Debug + Default + PartialEq>
-    Bounds<T>
-{
+impl<T: Clone + Default + Debug + PartialOrd + Add<T, Output = T> + Sub<Output = T>> Bounds<T> {
     /// Calculates the intersection of two `Bounds` objects.
     ///
     /// This method computes the overlapping region of two `Bounds`. If the bounds do not intersect,
@@ -1151,7 +1125,7 @@ impl<T: PartialOrd + Add<T, Output = T> + Sub<Output = T> + Clone + Debug + Defa
 
 impl<T> Bounds<T>
 where
-    T: Add<T, Output = T> + Sub<T, Output = T> + Clone + Debug + Default + PartialEq,
+    T: Clone + Debug + Add<T, Output = T> + Sub<T, Output = T> + Default,
 {
     /// Computes the space available within outer bounds.
     pub fn space_within(&self, outer: &Self) -> Edges<T> {
@@ -1166,9 +1140,9 @@ where
 
 impl<T, Rhs> Mul<Rhs> for Bounds<T>
 where
-    T: Mul<Rhs, Output = Rhs> + Clone + Debug + Default + PartialEq,
+    T: Mul<Rhs, Output = Rhs> + Clone + Default + Debug,
     Point<T>: Mul<Rhs, Output = Point<Rhs>>,
-    Rhs: Clone + Debug + Default + PartialEq,
+    Rhs: Clone + Default + Debug,
 {
     type Output = Bounds<Rhs>;
 
@@ -1182,7 +1156,7 @@ where
 
 impl<T, S> MulAssign<S> for Bounds<T>
 where
-    T: Mul<S, Output = T> + Clone + Debug + Default + PartialEq,
+    T: Mul<S, Output = T> + Clone + Default + Debug,
     S: Clone,
 {
     fn mul_assign(&mut self, rhs: S) {
@@ -1194,7 +1168,7 @@ where
 impl<T, S> Div<S> for Bounds<T>
 where
     Size<T>: Div<S, Output = Size<T>>,
-    T: Div<S, Output = T> + Clone + Debug + Default + PartialEq,
+    T: Div<S, Output = T> + Default + Clone + Debug,
     S: Clone,
 {
     type Output = Self;
@@ -1209,7 +1183,7 @@ where
 
 impl<T> Add<Point<T>> for Bounds<T>
 where
-    T: Add<T, Output = T> + Clone + Debug + Default + PartialEq,
+    T: Add<T, Output = T> + Default + Clone + Debug,
 {
     type Output = Self;
 
@@ -1223,7 +1197,7 @@ where
 
 impl<T> Sub<Point<T>> for Bounds<T>
 where
-    T: Sub<T, Output = T> + Clone + Debug + Default + PartialEq,
+    T: Sub<T, Output = T> + Default + Clone + Debug,
 {
     type Output = Self;
 
@@ -1237,7 +1211,7 @@ where
 
 impl<T> Bounds<T>
 where
-    T: Add<T, Output = T> + Clone + Debug + Default + PartialEq,
+    T: Add<T, Output = T> + Clone + Default + Debug,
 {
     /// Returns the top edge of the bounds.
     ///
@@ -1376,7 +1350,7 @@ where
 
 impl<T> Bounds<T>
 where
-    T: Add<T, Output = T> + PartialOrd + Clone + Debug + Default + PartialEq,
+    T: Add<T, Output = T> + PartialOrd + Clone + Default + Debug,
 {
     /// Checks if the given point is within the bounds.
     ///
@@ -1483,7 +1457,7 @@ where
     /// ```
     pub fn map<U>(&self, f: impl Fn(T) -> U) -> Bounds<U>
     where
-        U: Clone + Debug + Default + PartialEq,
+        U: Clone + Default + Debug,
     {
         Bounds {
             origin: self.origin.map(&f),
@@ -1542,7 +1516,7 @@ where
 
 impl<T> Bounds<T>
 where
-    T: Add<T, Output = T> + Sub<T, Output = T> + PartialOrd + Clone + Debug + Default + PartialEq,
+    T: Add<T, Output = T> + PartialOrd + Clone + Default + Debug + Sub<T, Output = T>,
 {
     /// Convert a point to the coordinate space defined by this Bounds
     pub fn localize(&self, point: &Point<T>) -> Option<Point<T>> {
@@ -1556,7 +1530,7 @@ where
 /// # Returns
 ///
 /// Returns `true` if either the width or the height of the bounds is less than or equal to zero, indicating an empty area.
-impl<T: PartialOrd + Clone + Debug + Default + PartialEq> Bounds<T> {
+impl<T: PartialOrd + Default + Debug + Clone> Bounds<T> {
     /// Checks if the bounds represent an empty area.
     ///
     /// # Returns
@@ -1564,18 +1538,6 @@ impl<T: PartialOrd + Clone + Debug + Default + PartialEq> Bounds<T> {
     /// Returns `true` if either the width or the height of the bounds is less than or equal to zero, indicating an empty area.
     pub fn is_empty(&self) -> bool {
         self.size.width <= T::default() || self.size.height <= T::default()
-    }
-}
-
-impl<T: Clone + Debug + Default + PartialEq + Display + Add<T, Output = T>> Display for Bounds<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{} - {} (size {})",
-            self.origin,
-            self.bottom_right(),
-            self.size
-        )
     }
 }
 
@@ -1662,7 +1624,7 @@ impl Bounds<DevicePixels> {
     }
 }
 
-impl<T: Copy + Clone + Debug + Default + PartialEq> Copy for Bounds<T> {}
+impl<T: Clone + Debug + Copy + Default> Copy for Bounds<T> {}
 
 /// Represents the edges of a box in a 2D space, such as padding or margin.
 ///
@@ -1685,9 +1647,9 @@ impl<T: Copy + Clone + Debug + Default + PartialEq> Copy for Bounds<T> {}
 /// assert_eq!(edges.left, 40.0);
 /// ```
 #[derive(Refineable, Clone, Default, Debug, Eq, PartialEq)]
-#[refineable(Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[refineable(Debug)]
 #[repr(C)]
-pub struct Edges<T: Clone + Debug + Default + PartialEq> {
+pub struct Edges<T: Clone + Default + Debug> {
     /// The size of the top edge.
     pub top: T,
     /// The size of the right edge.
@@ -1700,7 +1662,7 @@ pub struct Edges<T: Clone + Debug + Default + PartialEq> {
 
 impl<T> Mul for Edges<T>
 where
-    T: Mul<Output = T> + Clone + Debug + Default + PartialEq,
+    T: Mul<Output = T> + Clone + Default + Debug,
 {
     type Output = Self;
 
@@ -1716,7 +1678,7 @@ where
 
 impl<T, S> MulAssign<S> for Edges<T>
 where
-    T: Mul<S, Output = T> + Clone + Debug + Default + PartialEq,
+    T: Mul<S, Output = T> + Clone + Default + Debug,
     S: Clone,
 {
     fn mul_assign(&mut self, rhs: S) {
@@ -1727,9 +1689,9 @@ where
     }
 }
 
-impl<T: Clone + Debug + Default + PartialEq + Copy> Copy for Edges<T> {}
+impl<T: Clone + Default + Debug + Copy> Copy for Edges<T> {}
 
-impl<T: Clone + Debug + Default + PartialEq> Edges<T> {
+impl<T: Clone + Default + Debug> Edges<T> {
     /// Constructs `Edges` where all sides are set to the same specified value.
     ///
     /// This function creates an `Edges` instance with the `top`, `right`, `bottom`, and `left` fields all initialized
@@ -1787,7 +1749,7 @@ impl<T: Clone + Debug + Default + PartialEq> Edges<T> {
     /// ```
     pub fn map<U>(&self, f: impl Fn(&T) -> U) -> Edges<U>
     where
-        U: Clone + Debug + Default + PartialEq,
+        U: Clone + Default + Debug,
     {
         Edges {
             top: f(&self.top),
@@ -2162,9 +2124,9 @@ impl Corner {
 ///
 /// Each field represents the size of the corner on one side of the box: `top_left`, `top_right`, `bottom_right`, and `bottom_left`.
 #[derive(Refineable, Clone, Default, Debug, Eq, PartialEq)]
-#[refineable(Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[refineable(Debug)]
 #[repr(C)]
-pub struct Corners<T: Clone + Debug + Default + PartialEq> {
+pub struct Corners<T: Clone + Default + Debug> {
     /// The value associated with the top left corner.
     pub top_left: T,
     /// The value associated with the top right corner.
@@ -2177,7 +2139,7 @@ pub struct Corners<T: Clone + Debug + Default + PartialEq> {
 
 impl<T> Corners<T>
 where
-    T: Clone + Debug + Default + PartialEq,
+    T: Clone + Default + Debug,
 {
     /// Constructs `Corners` where all sides are set to the same specified value.
     ///
@@ -2330,7 +2292,7 @@ impl Corners<Pixels> {
     }
 }
 
-impl<T: Div<f32, Output = T> + Ord + Clone + Debug + Default + PartialEq> Corners<T> {
+impl<T: Div<f32, Output = T> + Ord + Clone + Default + Debug> Corners<T> {
     /// Clamps corner radii to be less than or equal to half the shortest side of a quad.
     ///
     /// # Arguments
@@ -2351,7 +2313,7 @@ impl<T: Div<f32, Output = T> + Ord + Clone + Debug + Default + PartialEq> Corner
     }
 }
 
-impl<T: Clone + Debug + Default + PartialEq> Corners<T> {
+impl<T: Clone + Default + Debug> Corners<T> {
     /// Applies a function to each field of the `Corners`, producing a new `Corners<U>`.
     ///
     /// This method allows for converting a `Corners<T>` to a `Corners<U>` by specifying a closure
@@ -2386,7 +2348,7 @@ impl<T: Clone + Debug + Default + PartialEq> Corners<T> {
     /// ```
     pub fn map<U>(&self, f: impl Fn(&T) -> U) -> Corners<U>
     where
-        U: Clone + Debug + Default + PartialEq,
+        U: Clone + Default + Debug,
     {
         Corners {
             top_left: f(&self.top_left),
@@ -2399,7 +2361,7 @@ impl<T: Clone + Debug + Default + PartialEq> Corners<T> {
 
 impl<T> Mul for Corners<T>
 where
-    T: Mul<Output = T> + Clone + Debug + Default + PartialEq,
+    T: Mul<Output = T> + Clone + Default + Debug,
 {
     type Output = Self;
 
@@ -2415,7 +2377,7 @@ where
 
 impl<T, S> MulAssign<S> for Corners<T>
 where
-    T: Mul<S, Output = T> + Clone + Debug + Default + PartialEq,
+    T: Mul<S, Output = T> + Clone + Default + Debug,
     S: Clone,
 {
     fn mul_assign(&mut self, rhs: S) {
@@ -2426,7 +2388,7 @@ where
     }
 }
 
-impl<T> Copy for Corners<T> where T: Copy + Clone + Debug + Default + PartialEq {}
+impl<T> Copy for Corners<T> where T: Copy + Clone + Default + Debug {}
 
 impl From<f32> for Corners<Pixels> {
     fn from(val: f32) -> Self {
@@ -2546,10 +2508,15 @@ impl From<Percentage> for Radians {
     PartialEq,
     Serialize,
     Deserialize,
-    JsonSchema,
 )]
 #[repr(transparent)]
 pub struct Pixels(pub f32);
+
+impl std::fmt::Display for Pixels {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!("{}px", self.0))
+    }
+}
 
 impl Div for Pixels {
     type Output = f32;
@@ -2614,30 +2581,6 @@ impl Mul<Pixels> for usize {
 impl MulAssign<f32> for Pixels {
     fn mul_assign(&mut self, rhs: f32) {
         self.0 *= rhs;
-    }
-}
-
-impl Display for Pixels {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}px", self.0)
-    }
-}
-
-impl Debug for Pixels {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        Display::fmt(self, f)
-    }
-}
-
-impl TryFrom<&'_ str> for Pixels {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &'_ str) -> Result<Self, Self::Error> {
-        value
-            .strip_suffix("px")
-            .context("expected 'px' suffix")
-            .and_then(|number| Ok(number.parse()?))
-            .map(Self)
     }
 }
 
@@ -2760,6 +2703,12 @@ impl From<f64> for Pixels {
 impl From<f32> for Pixels {
     fn from(pixels: f32) -> Self {
         Pixels(pixels)
+    }
+}
+
+impl Debug for Pixels {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} px", self.0)
     }
 }
 
@@ -2961,7 +2910,7 @@ impl Ord for ScaledPixels {
 
 impl Debug for ScaledPixels {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}px (scaled)", self.0)
+        write!(f, "{} px (scaled)", self.0)
     }
 }
 
@@ -3083,27 +3032,9 @@ impl Mul<Pixels> for Rems {
     }
 }
 
-impl Display for Rems {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}rem", self.0)
-    }
-}
-
 impl Debug for Rems {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        Display::fmt(self, f)
-    }
-}
-
-impl TryFrom<&'_ str> for Rems {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &'_ str) -> Result<Self, Self::Error> {
-        value
-            .strip_suffix("rem")
-            .context("expected 'rem' suffix")
-            .and_then(|number| Ok(number.parse()?))
-            .map(Self)
+        write!(f, "{} rem", self.0)
     }
 }
 
@@ -3113,7 +3044,7 @@ impl TryFrom<&'_ str> for Rems {
 /// affected by the current font size, or a number of rems, which is relative to the font size of
 /// the root element. It is used for specifying dimensions that are either independent of or
 /// related to the typographic scale.
-#[derive(Clone, Copy, Neg, PartialEq)]
+#[derive(Clone, Copy, Debug, Neg, PartialEq)]
 pub enum AbsoluteLength {
     /// A length in pixels.
     Pixels(Pixels),
@@ -3195,87 +3126,6 @@ impl Default for AbsoluteLength {
     }
 }
 
-impl Display for AbsoluteLength {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Pixels(pixels) => write!(f, "{pixels}"),
-            Self::Rems(rems) => write!(f, "{rems}"),
-        }
-    }
-}
-
-impl Debug for AbsoluteLength {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        Display::fmt(self, f)
-    }
-}
-
-const EXPECTED_ABSOLUTE_LENGTH: &str = "number with 'px' or 'rem' suffix";
-
-impl TryFrom<&'_ str> for AbsoluteLength {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &'_ str) -> Result<Self, Self::Error> {
-        if let Ok(pixels) = value.try_into() {
-            Ok(Self::Pixels(pixels))
-        } else if let Ok(rems) = value.try_into() {
-            Ok(Self::Rems(rems))
-        } else {
-            Err(anyhow!(
-                "invalid AbsoluteLength '{value}', expected {EXPECTED_ABSOLUTE_LENGTH}"
-            ))
-        }
-    }
-}
-
-impl JsonSchema for AbsoluteLength {
-    fn schema_name() -> String {
-        "AbsoluteLength".to_string()
-    }
-
-    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
-        use schemars::schema::{InstanceType, SchemaObject, StringValidation};
-
-        Schema::Object(SchemaObject {
-            instance_type: Some(InstanceType::String.into()),
-            string: Some(Box::new(StringValidation {
-                pattern: Some(r"^-?\d+(\.\d+)?(px|rem)$".to_string()),
-                ..Default::default()
-            })),
-            ..Default::default()
-        })
-    }
-}
-
-impl<'de> Deserialize<'de> for AbsoluteLength {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct StringVisitor;
-
-        impl de::Visitor<'_> for StringVisitor {
-            type Value = AbsoluteLength;
-
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                write!(f, "{EXPECTED_ABSOLUTE_LENGTH}")
-            }
-
-            fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {
-                AbsoluteLength::try_from(value).map_err(E::custom)
-            }
-        }
-
-        deserializer.deserialize_str(StringVisitor)
-    }
-}
-
-impl Serialize for AbsoluteLength {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&format!("{self}"))
-    }
-}
-
 /// A non-auto length that can be defined in pixels, rems, or percent of parent.
 ///
 /// This enum represents lengths that have a specific value, as opposed to lengths that are automatically
@@ -3331,85 +3181,10 @@ impl DefiniteLength {
 
 impl Debug for DefiniteLength {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        Display::fmt(self, f)
-    }
-}
-
-impl Display for DefiniteLength {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            DefiniteLength::Absolute(length) => write!(f, "{length}"),
-            DefiniteLength::Fraction(fraction) => write!(f, "{}%", (fraction * 100.0) as i32),
+            DefiniteLength::Absolute(length) => Debug::fmt(length, f),
+            DefiniteLength::Fraction(fract) => write!(f, "{}%", (fract * 100.0) as i32),
         }
-    }
-}
-
-const EXPECTED_DEFINITE_LENGTH: &str = "expected number with 'px', 'rem', or '%' suffix";
-
-impl TryFrom<&'_ str> for DefiniteLength {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &'_ str) -> Result<Self, Self::Error> {
-        if let Some(percentage) = value.strip_suffix('%') {
-            let fraction: f32 = percentage.parse::<f32>().with_context(|| {
-                format!("invalid DefiniteLength '{value}', expected {EXPECTED_DEFINITE_LENGTH}")
-            })?;
-            Ok(DefiniteLength::Fraction(fraction / 100.0))
-        } else if let Ok(absolute_length) = value.try_into() {
-            Ok(DefiniteLength::Absolute(absolute_length))
-        } else {
-            Err(anyhow!(
-                "invalid DefiniteLength '{value}', expected {EXPECTED_DEFINITE_LENGTH}"
-            ))
-        }
-    }
-}
-
-impl JsonSchema for DefiniteLength {
-    fn schema_name() -> String {
-        "DefiniteLength".to_string()
-    }
-
-    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
-        use schemars::schema::{InstanceType, SchemaObject, StringValidation};
-
-        Schema::Object(SchemaObject {
-            instance_type: Some(InstanceType::String.into()),
-            string: Some(Box::new(StringValidation {
-                pattern: Some(r"^-?\d+(\.\d+)?(px|rem|%)$".to_string()),
-                ..Default::default()
-            })),
-            ..Default::default()
-        })
-    }
-}
-
-impl<'de> Deserialize<'de> for DefiniteLength {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct StringVisitor;
-
-        impl de::Visitor<'_> for StringVisitor {
-            type Value = DefiniteLength;
-
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                write!(f, "{EXPECTED_DEFINITE_LENGTH}")
-            }
-
-            fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {
-                DefiniteLength::try_from(value).map_err(E::custom)
-            }
-        }
-
-        deserializer.deserialize_str(StringVisitor)
-    }
-}
-
-impl Serialize for DefiniteLength {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&format!("{self}"))
     }
 }
 
@@ -3438,7 +3213,7 @@ impl Default for DefiniteLength {
 }
 
 /// A length that can be defined in pixels, rems, percent of parent, or auto.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy)]
 pub enum Length {
     /// A definite length specified either in pixels, rems, or as a fraction of the parent's size.
     Definite(DefiniteLength),
@@ -3448,82 +3223,10 @@ pub enum Length {
 
 impl Debug for Length {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        Display::fmt(self, f)
-    }
-}
-
-impl Display for Length {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Length::Definite(definite_length) => write!(f, "{}", definite_length),
+            Length::Definite(definite_length) => write!(f, "{:?}", definite_length),
             Length::Auto => write!(f, "auto"),
         }
-    }
-}
-
-const EXPECTED_LENGTH: &str = "expected 'auto' or number with 'px', 'rem', or '%' suffix";
-
-impl TryFrom<&'_ str> for Length {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &'_ str) -> Result<Self, Self::Error> {
-        if value == "auto" {
-            Ok(Length::Auto)
-        } else if let Ok(definite_length) = value.try_into() {
-            Ok(Length::Definite(definite_length))
-        } else {
-            Err(anyhow!(
-                "invalid Length '{value}', expected {EXPECTED_LENGTH}"
-            ))
-        }
-    }
-}
-
-impl JsonSchema for Length {
-    fn schema_name() -> String {
-        "Length".to_string()
-    }
-
-    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
-        use schemars::schema::{InstanceType, SchemaObject, StringValidation};
-
-        Schema::Object(SchemaObject {
-            instance_type: Some(InstanceType::String.into()),
-            string: Some(Box::new(StringValidation {
-                pattern: Some(r"^(auto|-?\d+(\.\d+)?(px|rem|%))$".to_string()),
-                ..Default::default()
-            })),
-            ..Default::default()
-        })
-    }
-}
-
-impl<'de> Deserialize<'de> for Length {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct StringVisitor;
-
-        impl de::Visitor<'_> for StringVisitor {
-            type Value = Length;
-
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                write!(f, "{EXPECTED_LENGTH}")
-            }
-
-            fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {
-                Length::try_from(value).map_err(E::custom)
-            }
-        }
-
-        deserializer.deserialize_str(StringVisitor)
-    }
-}
-
-impl Serialize for Length {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&format!("{self}"))
     }
 }
 
@@ -3783,7 +3486,7 @@ impl IsZero for Length {
     }
 }
 
-impl<T: IsZero + Clone + Debug + Default + PartialEq> IsZero for Point<T> {
+impl<T: IsZero + Debug + Clone + Default> IsZero for Point<T> {
     fn is_zero(&self) -> bool {
         self.x.is_zero() && self.y.is_zero()
     }
@@ -3791,14 +3494,14 @@ impl<T: IsZero + Clone + Debug + Default + PartialEq> IsZero for Point<T> {
 
 impl<T> IsZero for Size<T>
 where
-    T: IsZero + Clone + Debug + Default + PartialEq,
+    T: IsZero + Default + Debug + Clone,
 {
     fn is_zero(&self) -> bool {
         self.width.is_zero() || self.height.is_zero()
     }
 }
 
-impl<T: IsZero + Clone + Debug + Default + PartialEq> IsZero for Bounds<T> {
+impl<T: IsZero + Debug + Clone + Default> IsZero for Bounds<T> {
     fn is_zero(&self) -> bool {
         self.size.is_zero()
     }
@@ -3806,7 +3509,7 @@ impl<T: IsZero + Clone + Debug + Default + PartialEq> IsZero for Bounds<T> {
 
 impl<T> IsZero for Corners<T>
 where
-    T: IsZero + Clone + Debug + Default + PartialEq,
+    T: IsZero + Clone + Default + Debug,
 {
     fn is_zero(&self) -> bool {
         self.top_left.is_zero()

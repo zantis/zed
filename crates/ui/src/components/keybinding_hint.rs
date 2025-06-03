@@ -1,6 +1,7 @@
 use crate::KeyBinding;
 use crate::{h_flex, prelude::*};
 use gpui::{AnyElement, App, BoxShadow, FontStyle, Hsla, IntoElement, Window, point};
+use smallvec::smallvec;
 use theme::Appearance;
 
 /// Represents a hint for a keybinding, optionally with a prefix and suffix.
@@ -192,7 +193,7 @@ impl RenderOnce for KeybindingHint {
                     .border_1()
                     .border_color(border_color)
                     .bg(bg_color)
-                    .shadow(vec![BoxShadow {
+                    .shadow(smallvec![BoxShadow {
                         color: shadow_color,
                         offset: point(px(0.), px(1.)),
                         blur_radius: px(0.),

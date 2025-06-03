@@ -1121,10 +1121,10 @@ impl MultiBuffer {
 
     pub fn last_transaction_id(&self, cx: &App) -> Option<TransactionId> {
         if let Some(buffer) = self.as_singleton() {
-            return buffer
-                .read(cx)
-                .peek_undo_stack()
-                .map(|history_entry| history_entry.transaction_id());
+            return buffer.read_with(cx, |b, _| {
+                b.peek_undo_stack()
+                    .map(|history_entry| history_entry.transaction_id())
+            });
         } else {
             let last_transaction = self.history.undo_stack.last()?;
             return Some(last_transaction.id);
@@ -1575,7 +1575,7 @@ impl MultiBuffer {
         context_line_count: u32,
         cx: &mut Context<Self>,
     ) -> (Vec<Range<Anchor>>, bool) {
-        let buffer_snapshot = buffer.read(cx).snapshot();
+        let buffer_snapshot = buffer.update(cx, |buffer, _| buffer.snapshot());
         let excerpt_ranges = build_excerpt_ranges(ranges, context_line_count, &buffer_snapshot);
 
         let (new, counts) = Self::merge_excerpt_ranges(&excerpt_ranges);
@@ -1690,9 +1690,7 @@ impl MultiBuffer {
                     last_range.context.start <= range.context.start,
                     "Last range: {last_range:?} Range: {range:?}"
                 );
-                if last_range.context.end >= range.context.start
-                    || last_range.context.end.row + 1 == range.context.start.row
-                {
+                if last_range.context.end >= range.context.start {
                     last_range.context.end = range.context.end.max(last_range.context.end);
                     *counts.last_mut().unwrap() += 1;
                     continue;
@@ -5782,7 +5780,7 @@ impl MultiBufferSnapshot {
             // then add to the indent stack with the depth found
             let mut found_indent = false;
             let mut last_row = first_row;
-            if line_indent.is_line_blank() {
+            if line_indent.is_line_empty() {
                 while !found_indent {
                     let Some((target_row, new_line_indent, _)) = row_indents.next() else {
                         break;
@@ -5792,7 +5790,7 @@ impl MultiBufferSnapshot {
                         break;
                     }
 
-                    if new_line_indent.is_line_blank() {
+                    if new_line_indent.is_line_empty() {
                         continue;
                     }
                     last_row = target_row.min(end_row);

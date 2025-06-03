@@ -48,7 +48,7 @@ impl SlashCommandCompletionProvider {
         name_range: Range<Anchor>,
         window: &mut Window,
         cx: &mut App,
-    ) -> Task<Result<Vec<project::CompletionResponse>>> {
+    ) -> Task<Result<Option<Vec<project::Completion>>>> {
         let slash_commands = self.slash_commands.clone();
         let candidates = slash_commands
             .command_names(cx)
@@ -71,27 +71,28 @@ impl SlashCommandCompletionProvider {
             .await;
 
             cx.update(|_, cx| {
-                let completions = matches
-                    .into_iter()
-                    .filter_map(|mat| {
-                        let command = slash_commands.command(&mat.string, cx)?;
-                        let mut new_text = mat.string.clone();
-                        let requires_argument = command.requires_argument();
-                        let accepts_arguments = command.accepts_arguments();
-                        if requires_argument || accepts_arguments {
-                            new_text.push(' ');
-                        }
+                Some(
+                    matches
+                        .into_iter()
+                        .filter_map(|mat| {
+                            let command = slash_commands.command(&mat.string, cx)?;
+                            let mut new_text = mat.string.clone();
+                            let requires_argument = command.requires_argument();
+                            let accepts_arguments = command.accepts_arguments();
+                            if requires_argument || accepts_arguments {
+                                new_text.push(' ');
+                            }
 
-                        let confirm =
-                            editor
-                                .clone()
-                                .zip(workspace.clone())
-                                .map(|(editor, workspace)| {
-                                    let command_name = mat.string.clone();
-                                    let command_range = command_range.clone();
-                                    let editor = editor.clone();
-                                    let workspace = workspace.clone();
-                                    Arc::new(
+                            let confirm =
+                                editor
+                                    .clone()
+                                    .zip(workspace.clone())
+                                    .map(|(editor, workspace)| {
+                                        let command_name = mat.string.clone();
+                                        let command_range = command_range.clone();
+                                        let editor = editor.clone();
+                                        let workspace = workspace.clone();
+                                        Arc::new(
                                             move |intent: CompletionIntent,
                                             window: &mut Window,
                                             cx: &mut App| {
@@ -117,27 +118,22 @@ impl SlashCommandCompletionProvider {
                                                 }
                                             },
                                         ) as Arc<_>
-                                });
-
-                        Some(project::Completion {
-                            replace_range: name_range.clone(),
-                            documentation: Some(CompletionDocumentation::SingleLine(
-                                command.description().into(),
-                            )),
-                            new_text,
-                            label: command.label(cx),
-                            icon_path: None,
-                            insert_text_mode: None,
-                            confirm,
-                            source: CompletionSource::Custom,
+                                    });
+                            Some(project::Completion {
+                                replace_range: name_range.clone(),
+                                documentation: Some(CompletionDocumentation::SingleLine(
+                                    command.description().into(),
+                                )),
+                                new_text,
+                                label: command.label(cx),
+                                icon_path: None,
+                                insert_text_mode: None,
+                                confirm,
+                                source: CompletionSource::Custom,
+                            })
                         })
-                    })
-                    .collect();
-
-                vec![project::CompletionResponse {
-                    completions,
-                    is_incomplete: false,
-                }]
+                        .collect(),
+                )
             })
         })
     }
@@ -151,7 +147,7 @@ impl SlashCommandCompletionProvider {
         last_argument_range: Range<Anchor>,
         window: &mut Window,
         cx: &mut App,
-    ) -> Task<Result<Vec<project::CompletionResponse>>> {
+    ) -> Task<Result<Option<Vec<project::Completion>>>> {
         let new_cancel_flag = Arc::new(AtomicBool::new(false));
         let mut flag = self.cancel_flag.lock();
         flag.store(true, SeqCst);
@@ -169,27 +165,28 @@ impl SlashCommandCompletionProvider {
             let workspace = self.workspace.clone();
             let arguments = arguments.to_vec();
             cx.background_spawn(async move {
-                let completions = completions
-                    .await?
-                    .into_iter()
-                    .map(|new_argument| {
-                        let confirm =
-                            editor
-                                .clone()
-                                .zip(workspace.clone())
-                                .map(|(editor, workspace)| {
-                                    Arc::new({
-                                        let mut completed_arguments = arguments.clone();
-                                        if new_argument.replace_previous_arguments {
-                                            completed_arguments.clear();
-                                        } else {
-                                            completed_arguments.pop();
-                                        }
-                                        completed_arguments.push(new_argument.new_text.clone());
+                Ok(Some(
+                    completions
+                        .await?
+                        .into_iter()
+                        .map(|new_argument| {
+                            let confirm =
+                                editor
+                                    .clone()
+                                    .zip(workspace.clone())
+                                    .map(|(editor, workspace)| {
+                                        Arc::new({
+                                            let mut completed_arguments = arguments.clone();
+                                            if new_argument.replace_previous_arguments {
+                                                completed_arguments.clear();
+                                            } else {
+                                                completed_arguments.pop();
+                                            }
+                                            completed_arguments.push(new_argument.new_text.clone());
 
-                                        let command_range = command_range.clone();
-                                        let command_name = command_name.clone();
-                                        move |intent: CompletionIntent,
+                                            let command_range = command_range.clone();
+                                            let command_name = command_name.clone();
+                                            move |intent: CompletionIntent,
                                               window: &mut Window,
                                               cx: &mut App| {
                                             if new_argument.after_completion.run()
@@ -213,41 +210,34 @@ impl SlashCommandCompletionProvider {
                                                 !new_argument.after_completion.run()
                                             }
                                         }
-                                    }) as Arc<_>
-                                });
+                                        }) as Arc<_>
+                                    });
 
-                        let mut new_text = new_argument.new_text.clone();
-                        if new_argument.after_completion == AfterCompletion::Continue {
-                            new_text.push(' ');
-                        }
+                            let mut new_text = new_argument.new_text.clone();
+                            if new_argument.after_completion == AfterCompletion::Continue {
+                                new_text.push(' ');
+                            }
 
-                        project::Completion {
-                            replace_range: if new_argument.replace_previous_arguments {
-                                argument_range.clone()
-                            } else {
-                                last_argument_range.clone()
-                            },
-                            label: new_argument.label,
-                            icon_path: None,
-                            new_text,
-                            documentation: None,
-                            confirm,
-                            insert_text_mode: None,
-                            source: CompletionSource::Custom,
-                        }
-                    })
-                    .collect();
-
-                Ok(vec![project::CompletionResponse {
-                    completions,
-                    is_incomplete: false,
-                }])
+                            project::Completion {
+                                replace_range: if new_argument.replace_previous_arguments {
+                                    argument_range.clone()
+                                } else {
+                                    last_argument_range.clone()
+                                },
+                                label: new_argument.label,
+                                icon_path: None,
+                                new_text,
+                                documentation: None,
+                                confirm,
+                                insert_text_mode: None,
+                                source: CompletionSource::Custom,
+                            }
+                        })
+                        .collect(),
+                ))
             })
         } else {
-            Task::ready(Ok(vec![project::CompletionResponse {
-                completions: Vec::new(),
-                is_incomplete: false,
-            }]))
+            Task::ready(Ok(Some(Vec::new())))
         }
     }
 }
@@ -261,7 +251,7 @@ impl CompletionProvider for SlashCommandCompletionProvider {
         _: editor::CompletionContext,
         window: &mut Window,
         cx: &mut Context<Editor>,
-    ) -> Task<Result<Vec<project::CompletionResponse>>> {
+    ) -> Task<Result<Option<Vec<project::Completion>>>> {
         let Some((name, arguments, command_range, last_argument_range)) =
             buffer.update(cx, |buffer, _cx| {
                 let position = buffer_position.to_point(buffer);
@@ -305,10 +295,7 @@ impl CompletionProvider for SlashCommandCompletionProvider {
                 Some((name, arguments, command_range, last_argument_range))
             })
         else {
-            return Task::ready(Ok(vec![project::CompletionResponse {
-                completions: Vec::new(),
-                is_incomplete: false,
-            }]));
+            return Task::ready(Ok(Some(Vec::new())));
         };
 
         if let Some((arguments, argument_range)) = arguments {
@@ -342,7 +329,6 @@ impl CompletionProvider for SlashCommandCompletionProvider {
         position: language::Anchor,
         _text: &str,
         _trigger_in_words: bool,
-        _menu_is_open: bool,
         cx: &mut Context<Editor>,
     ) -> bool {
         let buffer = buffer.read(cx);

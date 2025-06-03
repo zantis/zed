@@ -15,7 +15,6 @@ use picker::{Picker, PickerDelegate};
 use release_channel::ReleaseChannel;
 use rope::Rope;
 use settings::Settings;
-use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
@@ -71,7 +70,7 @@ pub trait InlineAssistDelegate {
 pub fn open_rules_library(
     language_registry: Arc<LanguageRegistry>,
     inline_assist_delegate: Box<dyn InlineAssistDelegate>,
-    make_completion_provider: Rc<dyn Fn() -> Rc<dyn CompletionProvider>>,
+    make_completion_provider: Arc<dyn Fn() -> Box<dyn CompletionProvider>>,
     prompt_to_select: Option<PromptId>,
     cx: &mut App,
 ) -> Task<Result<WindowHandle<RulesLibrary>>> {
@@ -147,7 +146,7 @@ pub struct RulesLibrary {
     picker: Entity<Picker<RulePickerDelegate>>,
     pending_load: Task<()>,
     inline_assist_delegate: Box<dyn InlineAssistDelegate>,
-    make_completion_provider: Rc<dyn Fn() -> Rc<dyn CompletionProvider>>,
+    make_completion_provider: Arc<dyn Fn() -> Box<dyn CompletionProvider>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -261,7 +260,6 @@ impl PickerDelegate for RulePickerDelegate {
         let rule = self.matches.get(ix)?;
         let default = rule.default;
         let prompt_id = rule.id;
-
         let element = ListItem::new(ix)
             .inset(true)
             .spacing(ListItemSpacing::Sparse)
@@ -273,10 +271,9 @@ impl PickerDelegate for RulePickerDelegate {
                     .child(Label::new(rule.title.clone().unwrap_or("Untitled".into()))),
             )
             .end_slot::<IconButton>(default.then(|| {
-                IconButton::new("toggle-default-rule", IconName::StarFilled)
+                IconButton::new("toggle-default-rule", IconName::SparkleFilled)
                     .toggle_state(true)
                     .icon_color(Color::Accent)
-                    .icon_size(IconSize::Small)
                     .shape(IconButtonShape::Square)
                     .tooltip(Tooltip::text("Remove from Default Rules"))
                     .on_click(cx.listener(move |_, _, _, cx| {
@@ -285,7 +282,7 @@ impl PickerDelegate for RulePickerDelegate {
             }))
             .end_hover_slot(
                 h_flex()
-                    .gap_1()
+                    .gap_2()
                     .child(if prompt_id.is_built_in() {
                         div()
                             .id("built-in-rule")
@@ -301,9 +298,8 @@ impl PickerDelegate for RulePickerDelegate {
                             })
                             .into_any()
                     } else {
-                        IconButton::new("delete-rule", IconName::TrashAlt)
+                        IconButton::new("delete-rule", IconName::Trash)
                             .icon_color(Color::Muted)
-                            .icon_size(IconSize::Small)
                             .shape(IconButtonShape::Square)
                             .tooltip(Tooltip::text("Delete Rule"))
                             .on_click(cx.listener(move |_, _, _, cx| {
@@ -312,27 +308,16 @@ impl PickerDelegate for RulePickerDelegate {
                             .into_any_element()
                     })
                     .child(
-                        IconButton::new("toggle-default-rule", IconName::Star)
+                        IconButton::new("toggle-default-rule", IconName::Sparkle)
                             .toggle_state(default)
-                            .selected_icon(IconName::StarFilled)
+                            .selected_icon(IconName::SparkleFilled)
                             .icon_color(if default { Color::Accent } else { Color::Muted })
-                            .icon_size(IconSize::Small)
                             .shape(IconButtonShape::Square)
-                            .map(|this| {
-                                if default {
-                                    this.tooltip(Tooltip::text("Remove from Default Rules"))
-                                } else {
-                                    this.tooltip(move |window, cx| {
-                                        Tooltip::with_meta(
-                                            "Add to Default Rules",
-                                            None,
-                                            "Always included in every thread.",
-                                            window,
-                                            cx,
-                                        )
-                                    })
-                                }
-                            })
+                            .tooltip(Tooltip::text(if default {
+                                "Remove from Default Rules"
+                            } else {
+                                "Add to Default Rules"
+                            }))
                             .on_click(cx.listener(move |_, _, _, cx| {
                                 cx.emit(RulePickerEvent::ToggledDefault { prompt_id })
                             })),
@@ -364,7 +349,7 @@ impl RulesLibrary {
         store: Entity<PromptStore>,
         language_registry: Arc<LanguageRegistry>,
         inline_assist_delegate: Box<dyn InlineAssistDelegate>,
-        make_completion_provider: Rc<dyn Fn() -> Rc<dyn CompletionProvider>>,
+        make_completion_provider: Arc<dyn Fn() -> Box<dyn CompletionProvider>>,
         rule_to_select: Option<PromptId>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -1022,180 +1007,216 @@ impl RulesLibrary {
                         .size_full()
                         .relative()
                         .overflow_hidden()
+                        .pl(DynamicSpacing::Base16.rems(cx))
+                        .pt(DynamicSpacing::Base08.rems(cx))
                         .on_click(cx.listener(move |_, _, window, _| {
                             window.focus(&focus_handle);
                         }))
                         .child(
                             h_flex()
                                 .group("active-editor-header")
-                                .pt_2()
-                                .px_2p5()
-                                .gap_2()
+                                .pr(DynamicSpacing::Base16.rems(cx))
+                                .pt(DynamicSpacing::Base02.rems(cx))
+                                .pb(DynamicSpacing::Base08.rems(cx))
                                 .justify_between()
                                 .child(
-                                    div()
-                                        .w_full()
-                                        .on_action(cx.listener(Self::move_down_from_title))
-                                        .border_1()
-                                        .border_color(transparent_black())
-                                        .rounded_sm()
-                                        .group_hover("active-editor-header", |this| {
-                                            this.border_color(cx.theme().colors().border_variant)
-                                        })
-                                        .child(EditorElement::new(
-                                            &rule_editor.title_editor,
-                                            EditorStyle {
-                                                background: cx.theme().system().transparent,
-                                                local_player: cx.theme().players().local(),
-                                                text: TextStyle {
-                                                    color: cx.theme().colors().editor_foreground,
-                                                    font_family: settings.ui_font.family.clone(),
-                                                    font_features: settings
-                                                        .ui_font
-                                                        .features
-                                                        .clone(),
-                                                    font_size: HeadlineSize::Large.rems().into(),
-                                                    font_weight: settings.ui_font.weight,
-                                                    line_height: relative(
-                                                        settings.buffer_line_height.value(),
-                                                    ),
-                                                    ..Default::default()
+                                    h_flex().gap_1().child(
+                                        div()
+                                            .max_w_80()
+                                            .on_action(cx.listener(Self::move_down_from_title))
+                                            .border_1()
+                                            .border_color(transparent_black())
+                                            .rounded_sm()
+                                            .group_hover("active-editor-header", |this| {
+                                                this.border_color(
+                                                    cx.theme().colors().border_variant,
+                                                )
+                                            })
+                                            .child(EditorElement::new(
+                                                &rule_editor.title_editor,
+                                                EditorStyle {
+                                                    background: cx.theme().system().transparent,
+                                                    local_player: cx.theme().players().local(),
+                                                    text: TextStyle {
+                                                        color: cx
+                                                            .theme()
+                                                            .colors()
+                                                            .editor_foreground,
+                                                        font_family: settings
+                                                            .ui_font
+                                                            .family
+                                                            .clone(),
+                                                        font_features: settings
+                                                            .ui_font
+                                                            .features
+                                                            .clone(),
+                                                        font_size: HeadlineSize::Large
+                                                            .rems()
+                                                            .into(),
+                                                        font_weight: settings.ui_font.weight,
+                                                        line_height: relative(
+                                                            settings.buffer_line_height.value(),
+                                                        ),
+                                                        ..Default::default()
+                                                    },
+                                                    scrollbar_width: Pixels::ZERO,
+                                                    syntax: cx.theme().syntax().clone(),
+                                                    status: cx.theme().status().clone(),
+                                                    inlay_hints_style:
+                                                        editor::make_inlay_hints_style(cx),
+                                                    inline_completion_styles:
+                                                        editor::make_suggestion_styles(cx),
+                                                    ..EditorStyle::default()
                                                 },
-                                                scrollbar_width: Pixels::ZERO,
-                                                syntax: cx.theme().syntax().clone(),
-                                                status: cx.theme().status().clone(),
-                                                inlay_hints_style: editor::make_inlay_hints_style(
-                                                    cx,
-                                                ),
-                                                inline_completion_styles:
-                                                    editor::make_suggestion_styles(cx),
-                                                ..EditorStyle::default()
-                                            },
-                                        )),
+                                            )),
+                                    ),
                                 )
                                 .child(
                                     h_flex()
                                         .h_full()
-                                        .flex_shrink_0()
-                                        .gap(DynamicSpacing::Base04.rems(cx))
-                                        .children(rule_editor.token_count.map(|token_count| {
-                                            let token_count: SharedString =
-                                                token_count.to_string().into();
-                                            let label_token_count: SharedString =
-                                                token_count.to_string().into();
-
-                                            div()
-                                                .id("token_count")
-                                                .mr_1()
-                                                .flex_shrink_0()
-                                                .tooltip(move |window, cx| {
-                                                    Tooltip::with_meta(
-                                                        "Token Estimation",
-                                                        None,
-                                                        format!(
-                                                            "Model: {}",
-                                                            model
-                                                                .as_ref()
-                                                                .map(|model| model.name().0)
-                                                                .unwrap_or_default()
-                                                        ),
-                                                        window,
-                                                        cx,
-                                                    )
-                                                })
-                                                .child(
-                                                    Label::new(format!(
-                                                        "{} tokens",
-                                                        label_token_count.clone()
-                                                    ))
-                                                    .color(Color::Muted),
-                                                )
-                                        }))
-                                        .child(if prompt_id.is_built_in() {
-                                            div()
-                                                .id("built-in-rule")
-                                                .child(
-                                                    Icon::new(IconName::FileLock)
-                                                        .color(Color::Muted),
-                                                )
-                                                .tooltip(move |window, cx| {
-                                                    Tooltip::with_meta(
-                                                        "Built-in rule",
-                                                        None,
-                                                        BUILT_IN_TOOLTIP_TEXT,
-                                                        window,
-                                                        cx,
-                                                    )
-                                                })
-                                                .into_any()
-                                        } else {
-                                            IconButton::new("delete-rule", IconName::TrashAlt)
-                                                .icon_size(IconSize::Small)
-                                                .tooltip(move |window, cx| {
-                                                    Tooltip::for_action(
-                                                        "Delete Rule",
-                                                        &DeleteRule,
-                                                        window,
-                                                        cx,
-                                                    )
-                                                })
-                                                .on_click(|_, window, cx| {
-                                                    window
-                                                        .dispatch_action(Box::new(DeleteRule), cx);
-                                                })
-                                                .into_any_element()
-                                        })
                                         .child(
-                                            IconButton::new("duplicate-rule", IconName::BookCopy)
-                                                .icon_size(IconSize::Small)
-                                                .tooltip(move |window, cx| {
-                                                    Tooltip::for_action(
-                                                        "Duplicate Rule",
-                                                        &DuplicateRule,
-                                                        window,
-                                                        cx,
-                                                    )
-                                                })
-                                                .on_click(|_, window, cx| {
-                                                    window.dispatch_action(
-                                                        Box::new(DuplicateRule),
-                                                        cx,
-                                                    );
-                                                }),
+                                            h_flex()
+                                                .h_full()
+                                                .gap(DynamicSpacing::Base16.rems(cx))
+                                                .child(div()),
                                         )
                                         .child(
-                                            IconButton::new("toggle-default-rule", IconName::Star)
-                                                .icon_size(IconSize::Small)
-                                                .toggle_state(rule_metadata.default)
-                                                .selected_icon(IconName::StarFilled)
-                                                .icon_color(if rule_metadata.default {
-                                                    Color::Accent
-                                                } else {
-                                                    Color::Muted
-                                                })
-                                                .map(|this| {
-                                                    if rule_metadata.default {
-                                                        this.tooltip(Tooltip::text(
-                                                            "Remove from Default Rules",
-                                                        ))
-                                                    } else {
-                                                        this.tooltip(move |window, cx| {
+                                            h_flex()
+                                                .h_full()
+                                                .gap(DynamicSpacing::Base16.rems(cx))
+                                                .children(rule_editor.token_count.map(
+                                                    |token_count| {
+                                                        let token_count: SharedString =
+                                                            token_count.to_string().into();
+                                                        let label_token_count: SharedString =
+                                                            token_count.to_string().into();
+
+                                                        h_flex()
+                                                            .id("token_count")
+                                                            .tooltip(move |window, cx| {
+                                                                let token_count =
+                                                                    token_count.clone();
+
+                                                                Tooltip::with_meta(
+                                                                    format!(
+                                                                        "{} tokens",
+                                                                        token_count.clone()
+                                                                    ),
+                                                                    None,
+                                                                    format!(
+                                                                        "Model: {}",
+                                                                        model
+                                                                            .as_ref()
+                                                                            .map(|model| model
+                                                                                .name()
+                                                                                .0)
+                                                                            .unwrap_or_default()
+                                                                    ),
+                                                                    window,
+                                                                    cx,
+                                                                )
+                                                            })
+                                                            .child(
+                                                                Label::new(format!(
+                                                                    "{} tokens",
+                                                                    label_token_count.clone()
+                                                                ))
+                                                                .color(Color::Muted),
+                                                            )
+                                                    },
+                                                ))
+                                                .child(if prompt_id.is_built_in() {
+                                                    div()
+                                                        .id("built-in-rule")
+                                                        .child(
+                                                            Icon::new(IconName::FileLock)
+                                                                .color(Color::Muted),
+                                                        )
+                                                        .tooltip(move |window, cx| {
                                                             Tooltip::with_meta(
-                                                                "Add to Default Rules",
+                                                                "Built-in rule",
                                                                 None,
-                                                                "Always included in every thread.",
+                                                                BUILT_IN_TOOLTIP_TEXT,
                                                                 window,
                                                                 cx,
                                                             )
                                                         })
-                                                    }
+                                                        .into_any()
+                                                } else {
+                                                    IconButton::new("delete-rule", IconName::Trash)
+                                                        .size(ButtonSize::Large)
+                                                        .style(ButtonStyle::Transparent)
+                                                        .shape(IconButtonShape::Square)
+                                                        .size(ButtonSize::Large)
+                                                        .tooltip(move |window, cx| {
+                                                            Tooltip::for_action(
+                                                                "Delete Rule",
+                                                                &DeleteRule,
+                                                                window,
+                                                                cx,
+                                                            )
+                                                        })
+                                                        .on_click(|_, window, cx| {
+                                                            window.dispatch_action(
+                                                                Box::new(DeleteRule),
+                                                                cx,
+                                                            );
+                                                        })
+                                                        .into_any_element()
                                                 })
-                                                .on_click(|_, window, cx| {
-                                                    window.dispatch_action(
-                                                        Box::new(ToggleDefaultRule),
-                                                        cx,
-                                                    );
-                                                }),
+                                                .child(
+                                                    IconButton::new(
+                                                        "duplicate-rule",
+                                                        IconName::BookCopy,
+                                                    )
+                                                    .size(ButtonSize::Large)
+                                                    .style(ButtonStyle::Transparent)
+                                                    .shape(IconButtonShape::Square)
+                                                    .size(ButtonSize::Large)
+                                                    .tooltip(move |window, cx| {
+                                                        Tooltip::for_action(
+                                                            "Duplicate Rule",
+                                                            &DuplicateRule,
+                                                            window,
+                                                            cx,
+                                                        )
+                                                    })
+                                                    .on_click(|_, window, cx| {
+                                                        window.dispatch_action(
+                                                            Box::new(DuplicateRule),
+                                                            cx,
+                                                        );
+                                                    }),
+                                                )
+                                                .child(
+                                                    IconButton::new(
+                                                        "toggle-default-rule",
+                                                        IconName::Sparkle,
+                                                    )
+                                                    .style(ButtonStyle::Transparent)
+                                                    .toggle_state(rule_metadata.default)
+                                                    .selected_icon(IconName::SparkleFilled)
+                                                    .icon_color(if rule_metadata.default {
+                                                        Color::Accent
+                                                    } else {
+                                                        Color::Muted
+                                                    })
+                                                    .shape(IconButtonShape::Square)
+                                                    .size(ButtonSize::Large)
+                                                    .tooltip(Tooltip::text(
+                                                        if rule_metadata.default {
+                                                            "Remove from Default Rules"
+                                                        } else {
+                                                            "Add to Default Rules"
+                                                        },
+                                                    ))
+                                                    .on_click(|_, window, cx| {
+                                                        window.dispatch_action(
+                                                            Box::new(ToggleDefaultRule),
+                                                            cx,
+                                                        );
+                                                    }),
+                                                ),
                                         ),
                                 ),
                         )
@@ -1206,14 +1227,7 @@ impl RulesLibrary {
                                 .on_action(cx.listener(Self::move_up_from_body))
                                 .flex_grow()
                                 .h_full()
-                                .child(
-                                    h_flex()
-                                        .py_2()
-                                        .pl_2p5()
-                                        .h_full()
-                                        .flex_1()
-                                        .child(rule_editor.body_editor.clone()),
-                                ),
+                                .child(rule_editor.body_editor.clone()),
                         ),
                 )
             }))

@@ -28,10 +28,6 @@ impl Tool for ThinkingTool {
         false
     }
 
-    fn may_perform_edits(&self) -> bool {
-        false
-    }
-
     fn description(&self) -> String {
         include_str!("./thinking_tool/description.md").to_string()
     }

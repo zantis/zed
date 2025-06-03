@@ -5,8 +5,8 @@ use crate::inline_prompt_editor::{
 };
 use crate::terminal_codegen::{CLEAR_INPUT, CodegenEvent, TerminalCodegen};
 use crate::thread_store::{TextThreadStore, ThreadStore};
-use agent_settings::AgentSettings;
 use anyhow::{Context as _, Result};
+use assistant_settings::AssistantSettings;
 use client::telemetry::Telemetry;
 use collections::{HashMap, VecDeque};
 use editor::{MultiBuffer, actions::SelectAll};
@@ -106,7 +106,7 @@ impl TerminalInlineAssistant {
         });
         let prompt_editor_render = prompt_editor.clone();
         let block = terminal_view::BlockProperties {
-            height: 4,
+            height: 2,
             render: Box::new(move |_| prompt_editor_render.clone().into_any_element()),
         };
         terminal_view.update(cx, |terminal_view, cx| {
@@ -202,7 +202,7 @@ impl TerminalInlineAssistant {
             .update(cx, |terminal, cx| {
                 terminal
                     .terminal()
-                    .update(cx, |terminal, _| terminal.input(CLEAR_INPUT.as_bytes()));
+                    .update(cx, |terminal, _| terminal.input(CLEAR_INPUT.to_string()));
             })
             .log_err();
 
@@ -272,7 +272,7 @@ impl TerminalInlineAssistant {
             .inline_assistant_model()
             .context("No inline assistant model")?;
 
-        let temperature = AgentSettings::temperature_for_model(&model, cx);
+        let temperature = AssistantSettings::temperature_for_model(&model, cx);
 
         Ok(cx.background_spawn(async move {
             let mut request_message = LanguageModelRequestMessage {

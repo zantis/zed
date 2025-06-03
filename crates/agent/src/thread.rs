@@ -4,8 +4,8 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::time::Instant;
 
-use agent_settings::{AgentSettings, CompletionMode};
 use anyhow::{Result, anyhow};
+use assistant_settings::{AssistantSettings, CompletionMode};
 use assistant_tool::{ActionLog, AnyToolCard, Tool, ToolWorkingSet};
 use chrono::{DateTime, Utc};
 use collections::HashMap;
@@ -24,7 +24,7 @@ use language_model::{
     LanguageModelRequestMessage, LanguageModelRequestTool, LanguageModelToolResult,
     LanguageModelToolResultContent, LanguageModelToolUseId, MessageContent,
     ModelRequestLimitReachedError, PaymentRequiredError, RequestUsage, Role, SelectedModel,
-    StopReason, TokenUsage,
+    StopReason, TokenUsage, WrappedTextContent,
 };
 use postage::stream::Stream as _;
 use project::Project;
@@ -115,7 +115,6 @@ pub struct Message {
     pub segments: Vec<MessageSegment>,
     pub loaded_context: LoadedContext,
     pub creases: Vec<MessageCrease>,
-    pub is_hidden: bool,
 }
 
 impl Message {
@@ -330,7 +329,7 @@ pub struct Thread {
     detailed_summary_task: Task<Option<()>>,
     detailed_summary_tx: postage::watch::Sender<DetailedSummaryState>,
     detailed_summary_rx: postage::watch::Receiver<DetailedSummaryState>,
-    completion_mode: agent_settings::CompletionMode,
+    completion_mode: assistant_settings::CompletionMode,
     messages: Vec<Message>,
     next_message_id: MessageId,
     last_prompt_id: PromptId,
@@ -416,7 +415,7 @@ impl Thread {
             detailed_summary_task: Task::ready(None),
             detailed_summary_tx,
             detailed_summary_rx,
-            completion_mode: AgentSettings::get_global(cx).preferred_completion_mode,
+            completion_mode: AssistantSettings::get_global(cx).preferred_completion_mode,
             messages: Vec::new(),
             next_message_id: MessageId(0),
             last_prompt_id: PromptId::new(),
@@ -494,7 +493,7 @@ impl Thread {
 
         let completion_mode = serialized
             .completion_mode
-            .unwrap_or_else(|| AgentSettings::get_global(cx).preferred_completion_mode);
+            .unwrap_or_else(|| AssistantSettings::get_global(cx).preferred_completion_mode);
 
         Self {
             id,
@@ -541,7 +540,6 @@ impl Thread {
                             context: None,
                         })
                         .collect(),
-                    is_hidden: message.is_hidden,
                 })
                 .collect(),
             next_message_id,
@@ -562,7 +560,7 @@ impl Thread {
             cumulative_token_usage: serialized.cumulative_token_usage,
             exceeded_window_error: None,
             last_usage: None,
-            tool_use_limit_reached: serialized.tool_use_limit_reached,
+            tool_use_limit_reached: false,
             feedback: None,
             message_feedback: HashMap::default(),
             last_auto_capture_at: None,
@@ -759,14 +757,6 @@ impl Thread {
             return;
         };
 
-        self.finalize_checkpoint(pending_checkpoint, cx);
-    }
-
-    fn finalize_checkpoint(
-        &mut self,
-        pending_checkpoint: ThreadCheckpoint,
-        cx: &mut Context<Self>,
-    ) {
         let git_store = self.project.read(cx).git_store().clone();
         let final_checkpoint = git_store.update(cx, |git_store, cx| git_store.checkpoint(cx));
         cx.spawn(async move |this, cx| match final_checkpoint.await {
@@ -851,7 +841,7 @@ impl Thread {
             .get(ix + 1)
             .and_then(|message| {
                 self.message(message.id)
-                    .map(|next_message| next_message.role == Role::User && !next_message.is_hidden)
+                    .map(|next_message| next_message.role == Role::User)
             })
             .unwrap_or(false)
     }
@@ -871,16 +861,7 @@ impl Thread {
         self.tool_use
             .pending_tool_uses()
             .iter()
-            .all(|pending_tool_use| pending_tool_use.status.is_error())
-    }
-
-    /// Returns whether any pending tool uses may perform edits
-    pub fn has_pending_edit_tool_uses(&self) -> bool {
-        self.tool_use
-            .pending_tool_uses()
-            .iter()
-            .filter(|pending_tool_use| !pending_tool_use.status.is_error())
-            .any(|pending_tool_use| pending_tool_use.may_perform_edits)
+            .all(|tool_use| tool_use.status.is_error())
     }
 
     pub fn tool_uses_for_message(&self, id: MessageId, cx: &App) -> Vec<ToolUse> {
@@ -900,7 +881,10 @@ impl Thread {
 
     pub fn output_for_tool(&self, id: &LanguageModelToolUseId) -> Option<&Arc<str>> {
         match &self.tool_use.tool_result(id)?.content {
-            LanguageModelToolResultContent::Text(text) => Some(text),
+            LanguageModelToolResultContent::Text(text)
+            | LanguageModelToolResultContent::WrappedText(WrappedTextContent { text, .. }) => {
+                Some(text)
+            }
             LanguageModelToolResultContent::Image(_) => {
                 // TODO: We should display image
                 None
@@ -959,7 +943,6 @@ impl Thread {
             vec![MessageSegment::Text(text.into())],
             loaded_context.loaded_context,
             creases,
-            false,
             cx,
         );
 
@@ -975,20 +958,6 @@ impl Thread {
         message_id
     }
 
-    pub fn insert_invisible_continue_message(&mut self, cx: &mut Context<Self>) -> MessageId {
-        let id = self.insert_message(
-            Role::User,
-            vec![MessageSegment::Text("Continue where you left off".into())],
-            LoadedContext::default(),
-            vec![],
-            true,
-            cx,
-        );
-        self.pending_checkpoint = None;
-
-        id
-    }
-
     pub fn insert_assistant_message(
         &mut self,
         segments: Vec<MessageSegment>,
@@ -999,7 +968,6 @@ impl Thread {
             segments,
             LoadedContext::default(),
             Vec::new(),
-            false,
             cx,
         )
     }
@@ -1010,7 +978,6 @@ impl Thread {
         segments: Vec<MessageSegment>,
         loaded_context: LoadedContext,
         creases: Vec<MessageCrease>,
-        is_hidden: bool,
         cx: &mut Context<Self>,
     ) -> MessageId {
         let id = self.next_message_id.post_inc();
@@ -1020,7 +987,6 @@ impl Thread {
             segments,
             loaded_context,
             creases,
-            is_hidden,
         });
         self.touch_updated_at();
         cx.emit(ThreadEvent::MessageAdded(id));
@@ -1032,7 +998,6 @@ impl Thread {
         id: MessageId,
         new_role: Role,
         new_segments: Vec<MessageSegment>,
-        creases: Vec<MessageCrease>,
         loaded_context: Option<LoadedContext>,
         checkpoint: Option<GitStoreCheckpoint>,
         cx: &mut Context<Self>,
@@ -1042,7 +1007,6 @@ impl Thread {
         };
         message.role = new_role;
         message.segments = new_segments;
-        message.creases = creases;
         if let Some(context) = loaded_context {
             message.loaded_context = context;
         }
@@ -1163,7 +1127,6 @@ impl Thread {
                                 label: crease.metadata.label.clone(),
                             })
                             .collect(),
-                        is_hidden: message.is_hidden,
                     })
                     .collect(),
                 initial_project_snapshot,
@@ -1179,7 +1142,6 @@ impl Thread {
                         model: model.model.id().0.to_string(),
                     }),
                 completion_mode: Some(this.completion_mode),
-                tool_use_limit_reached: this.tool_use_limit_reached,
             })
         })
     }
@@ -1237,7 +1199,7 @@ impl Thread {
             tools: Vec::new(),
             tool_choice: None,
             stop: Vec::new(),
-            temperature: AgentSettings::temperature_for_model(&model, cx),
+            temperature: AssistantSettings::temperature_for_model(&model, cx),
         };
 
         let available_tools = self.available_tools(cx, model.clone());
@@ -1398,7 +1360,7 @@ impl Thread {
             tools: Vec::new(),
             tool_choice: None,
             stop: Vec::new(),
-            temperature: AgentSettings::temperature_for_model(model, cx),
+            temperature: AssistantSettings::temperature_for_model(model, cx),
         };
 
         for message in &self.messages {
@@ -1439,7 +1401,7 @@ impl Thread {
         messages: &mut Vec<LanguageModelRequestMessage>,
         cx: &App,
     ) {
-        const STALE_FILES_HEADER: &str = include_str!("./prompts/stale_files_prompt_header.txt");
+        const STALE_FILES_HEADER: &str = "These files changed since last read:";
 
         let mut stale_message = String::new();
 
@@ -1451,7 +1413,7 @@ impl Thread {
             };
 
             if stale_message.is_empty() {
-                write!(&mut stale_message, "{}\n", STALE_FILES_HEADER.trim()).ok();
+                write!(&mut stale_message, "{}\n", STALE_FILES_HEADER).ok();
             }
 
             writeln!(&mut stale_message, "- {}", file.path().display()).ok();
@@ -1684,7 +1646,6 @@ impl Thread {
                                         }
                                         CompletionRequestStatus::ToolUseLimitReached => {
                                             thread.tool_use_limit_reached = true;
-                                            cx.emit(ThreadEvent::ToolUseLimitReached);
                                         }
                                     }
                                 }
@@ -1817,7 +1778,6 @@ impl Thread {
                             thread.cancel_last_completion(window, cx);
                         }
                     }
-
                     cx.emit(ThreadEvent::Stopped(result.map_err(Arc::new)));
 
                     if let Some((request_callback, (request, response_events))) = thread
@@ -1866,7 +1826,10 @@ impl Thread {
             return;
         }
 
-        let added_user_message = include_str!("./prompts/summarize_thread_prompt.txt");
+        let added_user_message = "Generate a concise 3-7 word title for this conversation, omitting punctuation. \
+            Go straight to the title, without any preamble and prefix like `Here's a concise suggestion:...` or `Title:`. \
+            If the conversation is about a specific subject, include it in the title. \
+            Be descriptive. DO NOT speak in the first person.";
 
         let request = self.to_summarize_request(
             &model.model,
@@ -1967,7 +1930,12 @@ impl Thread {
             return;
         }
 
-        let added_user_message = include_str!("./prompts/summarize_thread_detailed_prompt.txt");
+        let added_user_message = "Generate a detailed summary of this conversation. Include:\n\
+             1. A brief overview of what was discussed\n\
+             2. Key facts or information discovered\n\
+             3. Outcomes or conclusions reached\n\
+             4. Any action items or next steps if any\n\
+             Format it in Markdown with headings and bullet points.";
 
         let request = self.to_summarize_request(
             &model,
@@ -2079,7 +2047,7 @@ impl Thread {
         for tool_use in pending_tool_uses.iter() {
             if let Some(tool) = self.tools.read(cx).tool(&tool_use.name, cx) {
                 if tool.needs_confirmation(&tool_use.input, cx)
-                    && !AgentSettings::get_global(cx).always_allow_tool_actions
+                    && !AssistantSettings::get_global(cx).always_allow_tool_actions
                 {
                     self.tool_use.confirm_tool_use(
                         tool_use.id.clone(),
@@ -2296,17 +2264,10 @@ impl Thread {
             );
         }
 
+        self.finalize_pending_checkpoint(cx);
+
         if canceled {
             cx.emit(ThreadEvent::CompletionCanceled);
-
-            // When canceled, we always want to insert the checkpoint.
-            // (We skip over finalize_pending_checkpoint, because it
-            // would conclude we didn't have anything to insert here.)
-            if let Some(checkpoint) = self.pending_checkpoint.take() {
-                self.insert_checkpoint(checkpoint, cx);
-            }
-        } else {
-            self.finalize_pending_checkpoint(cx);
         }
 
         canceled
@@ -2610,7 +2571,11 @@ impl Thread {
 
                 writeln!(markdown, "**\n")?;
                 match &tool_result.content {
-                    LanguageModelToolResultContent::Text(text) => {
+                    LanguageModelToolResultContent::Text(text)
+                    | LanguageModelToolResultContent::WrappedText(WrappedTextContent {
+                        text,
+                        ..
+                    }) => {
                         writeln!(markdown, "{text}")?;
                     }
                     LanguageModelToolResultContent::Image(image) => {
@@ -2855,7 +2820,6 @@ pub enum ThreadEvent {
     },
     CheckpointChanged,
     ToolConfirmationNeeded,
-    ToolUseLimitReached,
     CancelEditing,
     CompletionCanceled,
 }
@@ -2872,7 +2836,7 @@ struct PendingCompletion {
 mod tests {
     use super::*;
     use crate::{ThreadStore, context::load_context, context_store::ContextStore, thread_store};
-    use agent_settings::{AgentSettings, LanguageModelParameters};
+    use assistant_settings::{AssistantSettings, LanguageModelParameters};
     use assistant_tool::ToolRegistry;
     use editor::EditorSettings;
     use gpui::TestAppContext;
@@ -2903,8 +2867,7 @@ mod tests {
             .await
             .unwrap();
 
-        let context =
-            context_store.read_with(cx, |store, _| store.context().next().cloned().unwrap());
+        let context = context_store.update(cx, |store, _| store.context().next().cloned().unwrap());
         let loaded_context = cx
             .update(|cx| load_context(vec![context], &project, &None, cx))
             .await;
@@ -3215,8 +3178,7 @@ fn main() {{
             .await
             .unwrap();
 
-        let context =
-            context_store.read_with(cx, |store, _| store.context().next().cloned().unwrap());
+        let context = context_store.update(cx, |store, _| store.context().next().cloned().unwrap());
         let loaded_context = cx
             .update(|cx| load_context(vec![context], &project, &None, cx))
             .await;
@@ -3300,14 +3262,14 @@ fn main() {{
 
         // Both model and provider
         cx.update(|cx| {
-            AgentSettings::override_global(
-                AgentSettings {
+            AssistantSettings::override_global(
+                AssistantSettings {
                     model_parameters: vec![LanguageModelParameters {
                         provider: Some(model.provider_id().0.to_string().into()),
                         model: Some(model.id().0.clone()),
                         temperature: Some(0.66),
                     }],
-                    ..AgentSettings::get_global(cx).clone()
+                    ..AssistantSettings::get_global(cx).clone()
                 },
                 cx,
             );
@@ -3320,14 +3282,14 @@ fn main() {{
 
         // Only model
         cx.update(|cx| {
-            AgentSettings::override_global(
-                AgentSettings {
+            AssistantSettings::override_global(
+                AssistantSettings {
                     model_parameters: vec![LanguageModelParameters {
                         provider: None,
                         model: Some(model.id().0.clone()),
                         temperature: Some(0.66),
                     }],
-                    ..AgentSettings::get_global(cx).clone()
+                    ..AssistantSettings::get_global(cx).clone()
                 },
                 cx,
             );
@@ -3340,14 +3302,14 @@ fn main() {{
 
         // Only provider
         cx.update(|cx| {
-            AgentSettings::override_global(
-                AgentSettings {
+            AssistantSettings::override_global(
+                AssistantSettings {
                     model_parameters: vec![LanguageModelParameters {
                         provider: Some(model.provider_id().0.to_string().into()),
                         model: None,
                         temperature: Some(0.66),
                     }],
-                    ..AgentSettings::get_global(cx).clone()
+                    ..AssistantSettings::get_global(cx).clone()
                 },
                 cx,
             );
@@ -3360,14 +3322,14 @@ fn main() {{
 
         // Same model name, different provider
         cx.update(|cx| {
-            AgentSettings::override_global(
-                AgentSettings {
+            AssistantSettings::override_global(
+                AssistantSettings {
                     model_parameters: vec![LanguageModelParameters {
                         provider: Some("anthropic".into()),
                         model: Some(model.id().0.clone()),
                         temperature: Some(0.66),
                     }],
-                    ..AgentSettings::get_global(cx).clone()
+                    ..AssistantSettings::get_global(cx).clone()
                 },
                 cx,
             );
@@ -3433,8 +3395,8 @@ fn main() {{
         });
 
         cx.run_until_parked();
-        fake_model.stream_last_completion_response("Brief");
-        fake_model.stream_last_completion_response(" Introduction");
+        fake_model.stream_last_completion_response("Brief".into());
+        fake_model.stream_last_completion_response(" Introduction".into());
         fake_model.end_last_completion_stream();
         cx.run_until_parked();
 
@@ -3527,7 +3489,7 @@ fn main() {{
         });
 
         cx.run_until_parked();
-        fake_model.stream_last_completion_response("A successful summary");
+        fake_model.stream_last_completion_response("A successful summary".into());
         fake_model.end_last_completion_stream();
         cx.run_until_parked();
 
@@ -3574,7 +3536,7 @@ fn main() {{
 
     fn simulate_successful_response(fake_model: &FakeLanguageModel, cx: &mut TestAppContext) {
         cx.run_until_parked();
-        fake_model.stream_last_completion_response("Assistant response");
+        fake_model.stream_last_completion_response("Assistant response".into());
         fake_model.end_last_completion_stream();
         cx.run_until_parked();
     }
@@ -3585,7 +3547,7 @@ fn main() {{
             cx.set_global(settings_store);
             language::init(cx);
             Project::init_settings(cx);
-            AgentSettings::register(cx);
+            AssistantSettings::register(cx);
             prompt_store::init(cx);
             thread_store::init(cx);
             workspace::init_settings(cx);

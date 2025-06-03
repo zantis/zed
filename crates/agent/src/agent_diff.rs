@@ -1,6 +1,6 @@
 use crate::{Keep, KeepAll, OpenAgentDiff, Reject, RejectAll, Thread, ThreadEvent};
-use agent_settings::AgentSettings;
 use anyhow::Result;
+use assistant_settings::AssistantSettings;
 use buffer_diff::DiffHunkStatus;
 use collections::{HashMap, HashSet};
 use editor::{
@@ -699,7 +699,7 @@ fn render_diff_hunk_controls(
         .rounded_b_md()
         .bg(cx.theme().colors().editor_background)
         .gap_1()
-        .block_mouse_except_scroll()
+        .occlude()
         .shadow_md()
         .children(vec![
             Button::new(("reject", row as u64), "Reject")
@@ -1253,9 +1253,9 @@ impl AgentDiff {
 
         let settings_subscription = cx.observe_global_in::<SettingsStore>(window, {
             let workspace = workspace.clone();
-            let mut was_active = AgentSettings::get_global(cx).single_file_review;
+            let mut was_active = AssistantSettings::get_global(cx).single_file_review;
             move |this, window, cx| {
-                let is_active = AgentSettings::get_global(cx).single_file_review;
+                let is_active = AssistantSettings::get_global(cx).single_file_review;
                 if was_active != is_active {
                     was_active = is_active;
                     this.update_reviewing_editors(&workspace, window, cx);
@@ -1372,7 +1372,6 @@ impl AgentDiff {
             | ThreadEvent::ToolFinished { .. }
             | ThreadEvent::CheckpointChanged
             | ThreadEvent::ToolConfirmationNeeded
-            | ThreadEvent::ToolUseLimitReached
             | ThreadEvent::CancelEditing => {}
         }
     }
@@ -1462,13 +1461,10 @@ impl AgentDiff {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !AgentSettings::get_global(cx).single_file_review {
+        if !AssistantSettings::get_global(cx).single_file_review {
             for (editor, _) in self.reviewing_editors.drain() {
                 editor
-                    .update(cx, |editor, cx| {
-                        editor.end_temporary_diff_override(cx);
-                        editor.unregister_addon::<EditorAgentDiffAddon>();
-                    })
+                    .update(cx, |editor, cx| editor.end_temporary_diff_override(cx))
                     .ok();
             }
             return;
@@ -1564,10 +1560,7 @@ impl AgentDiff {
 
             if in_workspace {
                 editor
-                    .update(cx, |editor, cx| {
-                        editor.end_temporary_diff_override(cx);
-                        editor.unregister_addon::<EditorAgentDiffAddon>();
-                    })
+                    .update(cx, |editor, cx| editor.end_temporary_diff_override(cx))
                     .ok();
                 self.reviewing_editors.remove(&editor);
             }
@@ -1743,7 +1736,7 @@ impl editor::Addon for EditorAgentDiffAddon {
 mod tests {
     use super::*;
     use crate::{Keep, ThreadStore, thread_store};
-    use agent_settings::AgentSettings;
+    use assistant_settings::AssistantSettings;
     use assistant_tool::ToolWorkingSet;
     use editor::EditorSettings;
     use gpui::{TestAppContext, UpdateGlobal, VisualTestContext};
@@ -1762,7 +1755,7 @@ mod tests {
             cx.set_global(settings_store);
             language::init(cx);
             Project::init_settings(cx);
-            AgentSettings::register(cx);
+            AssistantSettings::register(cx);
             prompt_store::init(cx);
             thread_store::init(cx);
             workspace::init_settings(cx);
@@ -1918,7 +1911,7 @@ mod tests {
             cx.set_global(settings_store);
             language::init(cx);
             Project::init_settings(cx);
-            AgentSettings::register(cx);
+            AssistantSettings::register(cx);
             prompt_store::init(cx);
             thread_store::init(cx);
             workspace::init_settings(cx);

@@ -60,10 +60,6 @@ impl Tool for GrepTool {
         false
     }
 
-    fn may_perform_edits(&self) -> bool {
-        false
-    }
-
     fn description(&self) -> String {
         include_str!("./grep_tool/description.md").into()
     }

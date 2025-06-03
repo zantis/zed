@@ -179,21 +179,21 @@ impl TerminalTransaction {
         // Ensure that the assistant cannot accidentally execute commands that are streamed into the terminal
         let input = Self::sanitize_input(hunk);
         self.terminal
-            .update(cx, |terminal, _| terminal.input(input.into_bytes()));
+            .update(cx, |terminal, _| terminal.input(input));
     }
 
     pub fn undo(&self, cx: &mut App) {
         self.terminal
-            .update(cx, |terminal, _| terminal.input(CLEAR_INPUT.as_bytes()));
+            .update(cx, |terminal, _| terminal.input(CLEAR_INPUT.to_string()));
     }
 
     pub fn complete(&self, cx: &mut App) {
-        self.terminal
-            .update(cx, |terminal, _| terminal.input(CARRIAGE_RETURN.as_bytes()));
+        self.terminal.update(cx, |terminal, _| {
+            terminal.input(CARRIAGE_RETURN.to_string())
+        });
     }
 
-    fn sanitize_input(mut input: String) -> String {
-        input.retain(|c| c != '\r' && c != '\n');
-        input
+    fn sanitize_input(input: String) -> String {
+        input.replace(['\r', '\n'], "")
     }
 }

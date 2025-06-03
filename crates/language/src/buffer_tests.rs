@@ -39,7 +39,9 @@ pub static TRAILING_WHITESPACE_REGEX: LazyLock<regex::Regex> = LazyLock::new(|| 
 #[cfg(test)]
 #[ctor::ctor]
 fn init_logger() {
-    zlog::init_test();
+    if std::env::var("RUST_LOG").is_ok() {
+        env_logger::init();
+    }
 }
 
 #[gpui::test]
@@ -85,17 +87,6 @@ fn test_select_language(cx: &mut App) {
     )));
     registry.add(Arc::new(Language::new(
         LanguageConfig {
-            name: "Rust with longer extension".into(),
-            matcher: LanguageMatcher {
-                path_suffixes: vec!["longer.rs".to_string()],
-                ..Default::default()
-            },
-            ..Default::default()
-        },
-        Some(tree_sitter_rust::LANGUAGE.into()),
-    )));
-    registry.add(Arc::new(Language::new(
-        LanguageConfig {
             name: LanguageName::new("Make"),
             matcher: LanguageMatcher {
                 path_suffixes: vec!["Makefile".to_string(), "mk".to_string()],
@@ -118,14 +109,6 @@ fn test_select_language(cx: &mut App) {
             .language_for_file(&file("src/lib.mk"), None, cx)
             .map(|l| l.name()),
         Some("Make".into())
-    );
-
-    // matching longer, compound extension, part of which could also match another lang
-    assert_eq!(
-        registry
-            .language_for_file(&file("src/lib.longer.rs"), None, cx)
-            .map(|l| l.name()),
-        Some("Rust with longer extension".into())
     );
 
     // matching filename
@@ -200,11 +183,7 @@ async fn test_language_for_file_with_custom_file_types(cx: &mut TestAppContext) 
         init_settings(cx, |settings| {
             settings.file_types.extend([
                 ("TypeScript".into(), vec!["js".into()]),
-                (
-                    "JavaScript".into(),
-                    vec!["*longer.ts".into(), "ecmascript".into()],
-                ),
-                ("C++".into(), vec!["c".into(), "*.dev".into()]),
+                ("C++".into(), vec!["c".into()]),
                 (
                     "Dockerfile".into(),
                     vec!["Dockerfile".into(), "Dockerfile.*".into()],
@@ -227,7 +206,7 @@ async fn test_language_for_file_with_custom_file_types(cx: &mut TestAppContext) 
         LanguageConfig {
             name: "TypeScript".into(),
             matcher: LanguageMatcher {
-                path_suffixes: vec!["ts".to_string(), "ts.ecmascript".to_string()],
+                path_suffixes: vec!["js".to_string()],
                 ..Default::default()
             },
             ..Default::default()
@@ -260,21 +239,6 @@ async fn test_language_for_file_with_custom_file_types(cx: &mut TestAppContext) 
         languages.add(Arc::new(Language::new(config, None)));
     }
 
-    // matches system-provided lang extension
-    let language = cx
-        .read(|cx| languages.language_for_file(&file("foo.ts"), None, cx))
-        .unwrap();
-    assert_eq!(language.name(), "TypeScript".into());
-    let language = cx
-        .read(|cx| languages.language_for_file(&file("foo.ts.ecmascript"), None, cx))
-        .unwrap();
-    assert_eq!(language.name(), "TypeScript".into());
-    let language = cx
-        .read(|cx| languages.language_for_file(&file("foo.cpp"), None, cx))
-        .unwrap();
-    assert_eq!(language.name(), "C++".into());
-
-    // user configured lang extension, same length as system-provided
     let language = cx
         .read(|cx| languages.language_for_file(&file("foo.js"), None, cx))
         .unwrap();
@@ -283,25 +247,6 @@ async fn test_language_for_file_with_custom_file_types(cx: &mut TestAppContext) 
         .read(|cx| languages.language_for_file(&file("foo.c"), None, cx))
         .unwrap();
     assert_eq!(language.name(), "C++".into());
-
-    // user configured lang extension, longer than system-provided
-    let language = cx
-        .read(|cx| languages.language_for_file(&file("foo.longer.ts"), None, cx))
-        .unwrap();
-    assert_eq!(language.name(), "JavaScript".into());
-
-    // user configured lang extension, shorter than system-provided
-    let language = cx
-        .read(|cx| languages.language_for_file(&file("foo.ecmascript"), None, cx))
-        .unwrap();
-    assert_eq!(language.name(), "JavaScript".into());
-
-    // user configured glob matches
-    let language = cx
-        .read(|cx| languages.language_for_file(&file("c-plus-plus.dev"), None, cx))
-        .unwrap();
-    assert_eq!(language.name(), "C++".into());
-    // should match Dockerfile.* => Dockerfile, not *.dev => C++
     let language = cx
         .read(|cx| languages.language_for_file(&file("Dockerfile.dev"), None, cx))
         .unwrap();
@@ -2273,7 +2218,6 @@ fn test_language_scope_at_with_javascript(cx: &mut App) {
             LanguageConfig {
                 name: "JavaScript".into(),
                 line_comments: vec!["// ".into()],
-                block_comment: Some(("/*".into(), "*/".into())),
                 brackets: BracketPairConfig {
                     pairs: vec![
                         BracketPair {
@@ -2337,10 +2281,6 @@ fn test_language_scope_at_with_javascript(cx: &mut App) {
 
         let config = snapshot.language_scope_at(0).unwrap();
         assert_eq!(config.line_comment_prefixes(), &[Arc::from("// ")]);
-        assert_eq!(
-            config.block_comment_delimiters(),
-            Some((&"/*".into(), &"*/".into()))
-        );
         // Both bracket pairs are enabled
         assert_eq!(
             config.brackets().map(|e| e.1).collect::<Vec<_>>(),
@@ -2359,10 +2299,6 @@ fn test_language_scope_at_with_javascript(cx: &mut App) {
             .language_scope_at(text.find("b\"").unwrap())
             .unwrap();
         assert_eq!(string_config.line_comment_prefixes(), &[Arc::from("// ")]);
-        assert_eq!(
-            string_config.block_comment_delimiters(),
-            Some((&"/*".into(), &"*/".into()))
-        );
         // Second bracket pair is disabled
         assert_eq!(
             string_config.brackets().map(|e| e.1).collect::<Vec<_>>(),
@@ -2391,10 +2327,6 @@ fn test_language_scope_at_with_javascript(cx: &mut App) {
             .unwrap();
         assert_eq!(tag_config.line_comment_prefixes(), &[Arc::from("// ")]);
         assert_eq!(
-            tag_config.block_comment_delimiters(),
-            Some((&"/*".into(), &"*/".into()))
-        );
-        assert_eq!(
             tag_config.brackets().map(|e| e.1).collect::<Vec<_>>(),
             &[true, true]
         );
@@ -2406,10 +2338,6 @@ fn test_language_scope_at_with_javascript(cx: &mut App) {
         assert_eq!(
             expression_in_element_config.line_comment_prefixes(),
             &[Arc::from("// ")]
-        );
-        assert_eq!(
-            expression_in_element_config.block_comment_delimiters(),
-            Some((&"/*".into(), &"*/".into()))
         );
         assert_eq!(
             expression_in_element_config

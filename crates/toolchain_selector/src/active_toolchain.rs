@@ -56,16 +56,16 @@ impl ActiveToolchain {
     fn spawn_tracker_task(window: &mut Window, cx: &mut Context<Self>) -> Task<Option<()>> {
         cx.spawn_in(window, async move |this, cx| {
             let active_file = this
-                .read_with(cx, |this, _| {
+                .update(cx, |this, _| {
                     this.active_buffer
                         .as_ref()
                         .map(|(_, buffer, _)| buffer.clone())
                 })
                 .ok()
                 .flatten()?;
-            let workspace = this.read_with(cx, |this, _| this.workspace.clone()).ok()?;
+            let workspace = this.update(cx, |this, _| this.workspace.clone()).ok()?;
             let language_name = active_file
-                .read_with(cx, |this, _| Some(this.language()?.name()))
+                .update(cx, |this, _| Some(this.language()?.name()))
                 .ok()
                 .flatten()?;
             let term = workspace
@@ -136,7 +136,7 @@ impl ActiveToolchain {
     ) -> Task<Option<Toolchain>> {
         cx.spawn(async move |cx| {
             let workspace_id = workspace
-                .read_with(cx, |this, _| this.database_id())
+                .update(cx, |this, _| this.database_id())
                 .ok()
                 .flatten()?;
             let selected_toolchain = workspace
@@ -156,9 +156,9 @@ impl ActiveToolchain {
                 Some(toolchain)
             } else {
                 let project = workspace
-                    .read_with(cx, |this, _| this.project().clone())
+                    .update(cx, |this, _| this.project().clone())
                     .ok()?;
-                let (toolchains, relative_path) = cx
+                let toolchains = cx
                     .update(|_, cx| {
                         project.read(cx).available_toolchains(
                             ProjectPath {

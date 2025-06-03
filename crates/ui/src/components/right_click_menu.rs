@@ -2,9 +2,9 @@ use std::{cell::RefCell, rc::Rc};
 
 use gpui::{
     AnyElement, App, Bounds, Corner, DismissEvent, DispatchPhase, Element, ElementId, Entity,
-    Focusable as _, GlobalElementId, Hitbox, HitboxBehavior, InteractiveElement, IntoElement,
-    LayoutId, ManagedView, MouseButton, MouseDownEvent, ParentElement, Pixels, Point, Window,
-    anchored, deferred, div, px,
+    Focusable as _, GlobalElementId, Hitbox, InteractiveElement, IntoElement, LayoutId,
+    ManagedView, MouseButton, MouseDownEvent, ParentElement, Pixels, Point, Window, anchored,
+    deferred, div, px,
 };
 
 pub struct RightClickMenu<M: ManagedView> {
@@ -116,14 +116,9 @@ impl<M: ManagedView> Element for RightClickMenu<M> {
         Some(self.id.clone())
     }
 
-    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
-        None
-    }
-
     fn request_layout(
         &mut self,
         id: Option<&GlobalElementId>,
-        _inspector_id: Option<&gpui::InspectorElementId>,
         window: &mut Window,
         cx: &mut App,
     ) -> (gpui::LayoutId, Self::RequestLayoutState) {
@@ -179,13 +174,12 @@ impl<M: ManagedView> Element for RightClickMenu<M> {
     fn prepaint(
         &mut self,
         _id: Option<&GlobalElementId>,
-        _inspector_id: Option<&gpui::InspectorElementId>,
         bounds: Bounds<Pixels>,
         request_layout: &mut Self::RequestLayoutState,
         window: &mut Window,
         cx: &mut App,
     ) -> PrepaintState {
-        let hitbox = window.insert_hitbox(bounds, HitboxBehavior::Normal);
+        let hitbox = window.insert_hitbox(bounds, false);
 
         if let Some(child) = request_layout.child_element.as_mut() {
             child.prepaint(window, cx);
@@ -206,7 +200,6 @@ impl<M: ManagedView> Element for RightClickMenu<M> {
     fn paint(
         &mut self,
         id: Option<&GlobalElementId>,
-        _inspector_id: Option<&gpui::InspectorElementId>,
         _bounds: Bounds<gpui::Pixels>,
         request_layout: &mut Self::RequestLayoutState,
         prepaint_state: &mut Self::PrepaintState,

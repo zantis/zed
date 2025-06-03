@@ -121,17 +121,16 @@ impl From<dap::Thread> for Thread {
 
 pub enum Mode {
     Building,
-    Running(RunningMode),
+    Running(LocalMode),
 }
 
 #[derive(Clone)]
-pub struct RunningMode {
+pub struct LocalMode {
     client: Arc<DebugAdapterClient>,
     binary: DebugAdapterBinary,
     tmp_breakpoint: Option<SourceBreakpoint>,
     worktree: WeakEntity<Worktree>,
     executor: BackgroundExecutor,
-    is_started: bool,
 }
 
 fn client_source(abs_path: &Path) -> dap::Source {
@@ -149,7 +148,7 @@ fn client_source(abs_path: &Path) -> dap::Source {
     }
 }
 
-impl RunningMode {
+impl LocalMode {
     async fn new(
         session_id: SessionId,
         parent_session: Option<Entity<Session>>,
@@ -182,7 +181,6 @@ impl RunningMode {
             tmp_breakpoint: None,
             binary,
             executor: cx.background_executor().clone(),
-            is_started: false,
         })
     }
 
@@ -224,8 +222,9 @@ impl RunningMode {
     ) -> Task<()> {
         let breakpoints =
             breakpoint_store
-                .read(cx)
-                .source_breakpoints_from_path(&abs_path, cx)
+                .read_with(cx, |store, cx| {
+                    store.source_breakpoints_from_path(&abs_path, cx)
+                })
                 .into_iter()
                 .filter(|bp| bp.state.is_enabled())
                 .chain(self.tmp_breakpoint.iter().filter_map(|breakpoint| {
@@ -304,7 +303,8 @@ impl RunningMode {
         cx: &App,
     ) -> Task<HashMap<Arc<Path>, anyhow::Error>> {
         let mut breakpoint_tasks = Vec::new();
-        let breakpoints = breakpoint_store.read(cx).all_source_breakpoints(cx);
+        let breakpoints =
+            breakpoint_store.read_with(cx, |store, cx| store.all_source_breakpoints(cx));
         let mut raw_breakpoints = breakpoint_store.read_with(cx, |this, _| this.all_breakpoints());
         debug_assert_eq!(raw_breakpoints.len(), breakpoints.len());
         let session_id = self.client.id();
@@ -375,7 +375,7 @@ impl RunningMode {
         capabilities: &Capabilities,
         initialized_rx: oneshot::Receiver<()>,
         dap_store: WeakEntity<DapStore>,
-        cx: &mut Context<Session>,
+        cx: &App,
     ) -> Task<Result<()>> {
         let raw = self.binary.request_args.clone();
 
@@ -407,9 +407,9 @@ impl RunningMode {
         let this = self.clone();
         let worktree = self.worktree().clone();
         let configuration_sequence = cx.spawn({
-            async move |_, cx| {
+            async move |cx| {
                 let breakpoint_store =
-                    dap_store.read_with(cx, |dap_store, _| dap_store.breakpoint_store().clone())?;
+                    dap_store.update(cx, |dap_store, _| dap_store.breakpoint_store().clone())?;
                 initialized_rx.await?;
                 let errors_by_path = cx
                     .update(|cx| this.send_source_breakpoints(false, &breakpoint_store, cx))?
@@ -455,20 +455,9 @@ impl RunningMode {
             }
         });
 
-        let task = cx.background_spawn(futures::future::try_join(launch, configuration_sequence));
-
-        cx.spawn(async move |this, cx| {
-            task.await?;
-
-            this.update(cx, |this, cx| {
-                if let Some(this) = this.as_running_mut() {
-                    this.is_started = true;
-                    cx.notify();
-                }
-            })
-            .ok();
-
-            anyhow::Ok(())
+        cx.background_spawn(async move {
+            futures::future::try_join(launch, configuration_sequence).await?;
+            Ok(())
         })
     }
 
@@ -717,7 +706,7 @@ impl Session {
             cx.subscribe(&breakpoint_store, |this, store, event, cx| match event {
                 BreakpointStoreEvent::BreakpointsUpdated(path, reason) => {
                     if let Some(local) = (!this.ignore_breakpoints)
-                        .then(|| this.as_running_mut())
+                        .then(|| this.as_local_mut())
                         .flatten()
                     {
                         local
@@ -727,7 +716,7 @@ impl Session {
                 }
                 BreakpointStoreEvent::BreakpointsCleared(paths) => {
                     if let Some(local) = (!this.ignore_breakpoints)
-                        .then(|| this.as_running_mut())
+                        .then(|| this.as_local_mut())
                         .flatten()
                     {
                         local.unset_breakpoints_from_paths(paths, cx).detach();
@@ -819,7 +808,7 @@ impl Session {
         let parent_session = self.parent_session.clone();
 
         cx.spawn(async move |this, cx| {
-            let mode = RunningMode::new(
+            let mode = LocalMode::new(
                 id,
                 parent_session,
                 worktree.downgrade(),
@@ -919,29 +908,18 @@ impl Session {
         return tx;
     }
 
-    pub fn is_started(&self) -> bool {
-        match &self.mode {
-            Mode::Building => false,
-            Mode::Running(running) => running.is_started,
-        }
-    }
-
-    pub fn is_building(&self) -> bool {
-        matches!(self.mode, Mode::Building)
-    }
-
-    pub fn is_running(&self) -> bool {
+    pub fn is_local(&self) -> bool {
         matches!(self.mode, Mode::Running(_))
     }
 
-    pub fn as_running_mut(&mut self) -> Option<&mut RunningMode> {
+    pub fn as_local_mut(&mut self) -> Option<&mut LocalMode> {
         match &mut self.mode {
             Mode::Running(local_mode) => Some(local_mode),
             Mode::Building => None,
         }
     }
 
-    pub fn as_running(&self) -> Option<&RunningMode> {
+    pub fn as_local(&self) -> Option<&LocalMode> {
         match &self.mode {
             Mode::Running(local_mode) => Some(local_mode),
             Mode::Building => None,
@@ -1164,7 +1142,7 @@ impl Session {
         body: Option<serde_json::Value>,
         cx: &mut Context<Self>,
     ) -> Task<Result<()>> {
-        let Some(local_session) = self.as_running() else {
+        let Some(local_session) = self.as_local() else {
             unreachable!("Cannot respond to remote client");
         };
         let client = local_session.client.clone();
@@ -1186,7 +1164,7 @@ impl Session {
     fn handle_stopped_event(&mut self, event: StoppedEvent, cx: &mut Context<Self>) {
         // todo(debugger): Find a clean way to get around the clone
         let breakpoint_store = self.breakpoint_store.clone();
-        if let Some((local, path)) = self.as_running_mut().and_then(|local| {
+        if let Some((local, path)) = self.as_local_mut().and_then(|local| {
             let breakpoint = local.tmp_breakpoint.take()?;
             let path = breakpoint.path.clone();
             Some((local, path))
@@ -1421,7 +1399,7 @@ impl Session {
             ));
             return cx.spawn(async move |this, cx| {
                 this.update(cx, |this, cx| process_result(this, error, cx))
-                    .ok()
+                    .log_err()
                     .flatten()
             });
         }
@@ -1430,7 +1408,7 @@ impl Session {
         cx.spawn(async move |this, cx| {
             let result = request.await;
             this.update(cx, |this, cx| process_result(this, result, cx))
-                .ok()
+                .log_err()
                 .flatten()
         })
     }
@@ -1552,7 +1530,7 @@ impl Session {
 
         self.ignore_breakpoints = ignore;
 
-        if let Some(local) = self.as_running() {
+        if let Some(local) = self.as_local() {
             local.send_source_breakpoints(ignore, &self.breakpoint_store, cx)
         } else {
             // todo(debugger): We need to propagate this change to downstream sessions and send a message to upstream sessions
@@ -1574,7 +1552,7 @@ impl Session {
     }
 
     fn send_exception_breakpoints(&mut self, cx: &App) {
-        if let Some(local) = self.as_running() {
+        if let Some(local) = self.as_local() {
             let exception_filters = self
                 .exception_breakpoints
                 .values()
@@ -2193,9 +2171,5 @@ impl Session {
         } else {
             self.shutdown(cx).detach();
         }
-    }
-
-    pub fn thread_state(&self, thread_id: ThreadId) -> Option<ThreadStatus> {
-        self.thread_states.thread_state(thread_id)
     }
 }

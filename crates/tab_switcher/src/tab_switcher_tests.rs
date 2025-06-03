@@ -10,7 +10,9 @@ use workspace::{AppState, Workspace};
 
 #[ctor::ctor]
 fn init_logger() {
-    zlog::init_test();
+    if std::env::var("RUST_LOG").is_ok() {
+        env_logger::init();
+    }
 }
 
 #[gpui::test]
@@ -324,7 +326,7 @@ async fn open_buffer(
     workspace: &Entity<Workspace>,
     cx: &mut gpui::VisualTestContext,
 ) -> Box<dyn ItemHandle> {
-    let project = workspace.read_with(cx, |workspace, _| workspace.project().clone());
+    let project = workspace.update(cx, |workspace, _| workspace.project().clone());
     let worktree_id = project.update(cx, |project, cx| {
         let worktree = project.worktrees(cx).last().expect("worktree not found");
         worktree.read(cx).id()

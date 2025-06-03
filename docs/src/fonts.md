@@ -31,6 +31,8 @@ TBD: Explain various font settings in Zed.
   - `terminal.font-size`
   - `terminal.font-family`
   - `terminal.font-features`
+- Other settings:
+  - `active-pane-magnification`
 
 ## Old Zed Fonts
 

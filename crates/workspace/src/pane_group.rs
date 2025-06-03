@@ -902,9 +902,9 @@ mod element {
     use std::{cell::RefCell, iter, rc::Rc, sync::Arc};
 
     use gpui::{
-        Along, AnyElement, App, Axis, BorderStyle, Bounds, Element, GlobalElementId,
-        HitboxBehavior, IntoElement, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement,
-        Pixels, Point, Size, Style, WeakEntity, Window, px, relative, size,
+        Along, AnyElement, App, Axis, BorderStyle, Bounds, Element, GlobalElementId, IntoElement,
+        MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point, Size, Style,
+        WeakEntity, Window, px, relative, size,
     };
     use gpui::{CursorStyle, Hitbox};
     use parking_lot::Mutex;
@@ -1091,7 +1091,7 @@ mod element {
             };
 
             PaneAxisHandleLayout {
-                hitbox: window.insert_hitbox(handle_bounds, HitboxBehavior::BlockMouse),
+                hitbox: window.insert_hitbox(handle_bounds, true),
                 divider_bounds,
             }
         }
@@ -1113,14 +1113,9 @@ mod element {
             Some(self.basis.into())
         }
 
-        fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
-            None
-        }
-
         fn request_layout(
             &mut self,
             _global_id: Option<&GlobalElementId>,
-            _inspector_id: Option<&gpui::InspectorElementId>,
             window: &mut Window,
             cx: &mut App,
         ) -> (gpui::LayoutId, Self::RequestLayoutState) {
@@ -1137,7 +1132,6 @@ mod element {
         fn prepaint(
             &mut self,
             global_id: Option<&GlobalElementId>,
-            _inspector_id: Option<&gpui::InspectorElementId>,
             bounds: Bounds<Pixels>,
             _state: &mut Self::RequestLayoutState,
             window: &mut Window,
@@ -1155,7 +1149,16 @@ mod element {
             debug_assert!(flexes.len() == len);
             debug_assert!(flex_values_in_bounds(flexes.as_slice()));
 
-            let total_flex = len as f32;
+            let active_pane_magnification = WorkspaceSettings::get(None, cx)
+                .active_pane_modifiers
+                .magnification
+                .and_then(|val| if val == 1.0 { None } else { Some(val) });
+
+            let total_flex = if let Some(flex) = active_pane_magnification {
+                self.children.len() as f32 - 1. + flex
+            } else {
+                len as f32
+            };
 
             let mut origin = bounds.origin;
             let space_per_flex = bounds.size.along(self.axis) / total_flex;
@@ -1168,7 +1171,15 @@ mod element {
                 children: Vec::new(),
             };
             for (ix, mut child) in mem::take(&mut self.children).into_iter().enumerate() {
-                let child_flex = flexes[ix];
+                let child_flex = active_pane_magnification
+                    .map(|magnification| {
+                        if self.active_pane_ix == Some(ix) {
+                            magnification
+                        } else {
+                            1.
+                        }
+                    })
+                    .unwrap_or_else(|| flexes[ix]);
 
                 let child_size = bounds
                     .size
@@ -1197,7 +1208,7 @@ mod element {
             }
 
             for (ix, child_layout) in layout.children.iter_mut().enumerate() {
-                if ix < len - 1 {
+                if active_pane_magnification.is_none() && ix < len - 1 {
                     child_layout.handle = Some(Self::layout_handle(
                         self.axis,
                         child_layout.bounds,
@@ -1213,7 +1224,6 @@ mod element {
         fn paint(
             &mut self,
             _id: Option<&GlobalElementId>,
-            _inspector_id: Option<&gpui::InspectorElementId>,
             bounds: gpui::Bounds<ui::prelude::Pixels>,
             _: &mut Self::RequestLayoutState,
             layout: &mut Self::PrepaintState,

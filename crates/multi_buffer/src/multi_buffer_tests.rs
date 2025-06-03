@@ -11,7 +11,9 @@ use util::test::sample_text;
 
 #[ctor::ctor]
 fn init_logger() {
-    zlog::init_test();
+    if std::env::var("RUST_LOG").is_ok() {
+        env_logger::init();
+    }
 }
 
 #[gpui::test]
@@ -1592,6 +1594,7 @@ fn test_set_excerpts_for_buffer_ordering(cx: &mut TestAppContext) {
              six
              seven
              eight
+             -----
              nine
              ten
              eleven
@@ -1847,6 +1850,7 @@ fn test_set_excerpts_for_buffer_rename(cx: &mut TestAppContext) {
         zero
         one
         two
+        -----
         three
         four
         five
