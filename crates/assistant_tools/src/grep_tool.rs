@@ -60,6 +60,10 @@ impl Tool for GrepTool {
         false
     }
 
+    fn may_perform_edits(&self) -> bool {
+        false
+    }
+
     fn description(&self) -> String {
         include_str!("./grep_tool/description.md").into()
     }
@@ -109,7 +113,7 @@ impl Tool for GrepTool {
         let input = match serde_json::from_value::<GrepToolInput>(input) {
             Ok(input) => input,
             Err(error) => {
-                return Task::ready(Err(anyhow!("Failed to parse input: {}", error))).into();
+                return Task::ready(Err(anyhow!("Failed to parse input: {error}"))).into();
             }
         };
 
@@ -122,7 +126,7 @@ impl Tool for GrepTool {
         ) {
             Ok(matcher) => matcher,
             Err(error) => {
-                return Task::ready(Err(anyhow!("invalid include glob pattern: {}", error))).into();
+                return Task::ready(Err(anyhow!("invalid include glob pattern: {error}"))).into();
             }
         };
 
