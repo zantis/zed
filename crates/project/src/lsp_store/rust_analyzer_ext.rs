@@ -49,33 +49,36 @@ pub fn register_notifications(lsp_store: WeakEntity<LspStore>, language_server: 
                 let message = params
                     .message
                     .as_ref()
-                    .map(|message| message.trim())
-                    .filter(|message| !message.is_empty())
-                    .map(|message| {
-                        format!("Language server {name} (id {server_id}) status update: {message}")
-                    });
+                    .map(|message| message.trim().to_owned())
+                    .filter(|message| !message.is_empty());
                 let status = match params.health {
                     ServerHealthStatus::Ok => {
-                        if let Some(message) = message.as_ref() {
-                            log::info!("{message}");
+                        if let Some(message) = &message {
+                            log::info!(
+                                "Language server {name} (id {server_id}) status update: {message}"
+                            );
                         }
                         proto::status_update::Status::Ok
                     }
                     ServerHealthStatus::Warning => {
-                        if let Some(message) = message.as_ref() {
-                            log::warn!("{message}");
+                        if let Some(message) = &message {
+                            log::warn!(
+                                "Language server {name} (id {server_id}) status update: {message}"
+                            );
                         }
                         proto::status_update::Status::Warning
                     }
                     ServerHealthStatus::Error => {
-                        if let Some(message) = message.as_ref() {
-                            log::error!("{message}");
+                        if let Some(message) = &message {
+                            log::error!(
+                                "Language server {name} (id {server_id}) status update: {message}"
+                            );
                         }
                         proto::status_update::Status::Error
                     }
                     ServerHealthStatus::Other(status) => {
-                        if let Some(message) = message.as_ref() {
-                            log::info!("Unknown server health: {status}\n{message}");
+                        if let Some(message) = &message {
+                            log::info!("Unknown server health: {status}\nLanguage server {name} (id {server_id}) status update: {message}");
                         }
                         proto::status_update::Status::Other
                     }
@@ -87,7 +90,7 @@ pub fn register_notifications(lsp_store: WeakEntity<LspStore>, language_server: 
                             name: Some(name),
                             message: proto::update_language_server::Variant::StatusUpdate(
                                 proto::StatusUpdate {
-                                    message: message,
+                                    message,
                                     status: status as i32,
                                 },
                             ),
