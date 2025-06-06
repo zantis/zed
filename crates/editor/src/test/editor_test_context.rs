@@ -304,7 +304,6 @@ impl EditorTestContext {
         fs.set_head_for_repo(
             &Self::root_path().join(".git"),
             &[(path.into(), diff_base.to_string())],
-            "deadbeef",
         );
         self.cx.run_until_parked();
     }

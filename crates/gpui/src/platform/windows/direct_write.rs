@@ -1351,7 +1351,7 @@ fn apply_font_features(
 }
 
 #[inline]
-const fn make_direct_write_feature(feature_name: &str, parameter: u32) -> DWRITE_FONT_FEATURE {
+fn make_direct_write_feature(feature_name: &str, parameter: u32) -> DWRITE_FONT_FEATURE {
     let tag = make_direct_write_tag(feature_name);
     DWRITE_FONT_FEATURE {
         nameTag: tag,
@@ -1360,14 +1360,17 @@ const fn make_direct_write_feature(feature_name: &str, parameter: u32) -> DWRITE
 }
 
 #[inline]
-const fn make_open_type_tag(tag_name: &str) -> u32 {
-    let bytes = tag_name.as_bytes();
-    debug_assert!(bytes.len() == 4);
-    u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
+fn make_open_type_tag(tag_name: &str) -> u32 {
+    let bytes = tag_name.bytes().collect_vec();
+    assert_eq!(bytes.len(), 4);
+    ((bytes[3] as u32) << 24)
+        | ((bytes[2] as u32) << 16)
+        | ((bytes[1] as u32) << 8)
+        | (bytes[0] as u32)
 }
 
 #[inline]
-const fn make_direct_write_tag(tag_name: &str) -> DWRITE_FONT_FEATURE_TAG {
+fn make_direct_write_tag(tag_name: &str) -> DWRITE_FONT_FEATURE_TAG {
     DWRITE_FONT_FEATURE_TAG(make_open_type_tag(tag_name))
 }
 

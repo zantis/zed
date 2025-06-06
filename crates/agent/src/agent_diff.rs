@@ -1086,7 +1086,7 @@ impl Render for AgentDiffToolbar {
                     .child(vertical_divider())
                     .when_some(editor.read(cx).workspace(), |this, _workspace| {
                         this.child(
-                            IconButton::new("review", IconName::ListTodo)
+                            IconButton::new("review", IconName::ListCollapse)
                                 .icon_size(IconSize::Small)
                                 .tooltip(Tooltip::for_action_title_in(
                                     "Review All Files",
@@ -1116,13 +1116,8 @@ impl Render for AgentDiffToolbar {
                     return Empty.into_any();
                 };
 
-                let has_pending_edit_tool_use = agent_diff
-                    .read(cx)
-                    .thread
-                    .read(cx)
-                    .has_pending_edit_tool_uses();
-
-                if has_pending_edit_tool_use {
+                let is_generating = agent_diff.read(cx).thread.read(cx).is_generating();
+                if is_generating {
                     return div().px_2().child(spinner_icon).into_any();
                 }
 
@@ -1378,8 +1373,7 @@ impl AgentDiff {
             | ThreadEvent::CheckpointChanged
             | ThreadEvent::ToolConfirmationNeeded
             | ThreadEvent::ToolUseLimitReached
-            | ThreadEvent::CancelEditing
-            | ThreadEvent::ProfileChanged => {}
+            | ThreadEvent::CancelEditing => {}
         }
     }
 
@@ -1513,7 +1507,7 @@ impl AgentDiff {
                     multibuffer.add_diff(diff_handle.clone(), cx);
                 });
 
-                let new_state = if thread.read(cx).has_pending_edit_tool_uses() {
+                let new_state = if thread.read(cx).is_generating() {
                     EditorState::Generating
                 } else {
                     EditorState::Reviewing

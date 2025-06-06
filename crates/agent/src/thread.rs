@@ -4,7 +4,7 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::time::Instant;
 
-use agent_settings::{AgentProfileId, AgentSettings, CompletionMode};
+use agent_settings::{AgentSettings, CompletionMode};
 use anyhow::{Result, anyhow};
 use assistant_tool::{ActionLog, AnyToolCard, Tool, ToolWorkingSet};
 use chrono::{DateTime, Utc};
@@ -41,7 +41,6 @@ use uuid::Uuid;
 use zed_llm_client::{CompletionIntent, CompletionRequestStatus};
 
 use crate::ThreadStore;
-use crate::agent_profile::AgentProfile;
 use crate::context::{AgentContext, AgentContextHandle, ContextLoadResult, LoadedContext};
 use crate::thread_store::{
     SerializedCrease, SerializedLanguageModel, SerializedMessage, SerializedMessageSegment,
@@ -361,7 +360,6 @@ pub struct Thread {
     >,
     remaining_turns: u32,
     configured_model: Option<ConfiguredModel>,
-    profile: AgentProfile,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -409,7 +407,6 @@ impl Thread {
     ) -> Self {
         let (detailed_summary_tx, detailed_summary_rx) = postage::watch::channel();
         let configured_model = LanguageModelRegistry::read_global(cx).default_model();
-        let profile_id = AgentSettings::get_global(cx).default_profile.clone();
 
         Self {
             id: ThreadId::new(),
@@ -452,7 +449,6 @@ impl Thread {
             request_callback: None,
             remaining_turns: u32::MAX,
             configured_model,
-            profile: AgentProfile::new(profile_id, tools),
         }
     }
 
@@ -499,9 +495,6 @@ impl Thread {
         let completion_mode = serialized
             .completion_mode
             .unwrap_or_else(|| AgentSettings::get_global(cx).preferred_completion_mode);
-        let profile_id = serialized
-            .profile
-            .unwrap_or_else(|| AgentSettings::get_global(cx).default_profile.clone());
 
         Self {
             id,
@@ -561,7 +554,7 @@ impl Thread {
             pending_checkpoint: None,
             project: project.clone(),
             prompt_builder,
-            tools: tools.clone(),
+            tools,
             tool_use,
             action_log: cx.new(|_| ActionLog::new(project)),
             initial_project_snapshot: Task::ready(serialized.initial_project_snapshot).shared(),
@@ -577,7 +570,6 @@ impl Thread {
             request_callback: None,
             remaining_turns: u32::MAX,
             configured_model,
-            profile: AgentProfile::new(profile_id, tools),
         }
     }
 
@@ -591,17 +583,6 @@ impl Thread {
 
     pub fn id(&self) -> &ThreadId {
         &self.id
-    }
-
-    pub fn profile(&self) -> &AgentProfile {
-        &self.profile
-    }
-
-    pub fn set_profile(&mut self, id: AgentProfileId, cx: &mut Context<Self>) {
-        if &id != self.profile.id() {
-            self.profile = AgentProfile::new(id, self.tools.clone());
-            cx.emit(ThreadEvent::ProfileChanged);
-        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -938,7 +919,8 @@ impl Thread {
         model: Arc<dyn LanguageModel>,
     ) -> Vec<LanguageModelRequestTool> {
         if model.supports_tools() {
-            self.profile
+            self.tools()
+                .read(cx)
                 .enabled_tools(cx)
                 .into_iter()
                 .filter_map(|tool| {
@@ -1198,7 +1180,6 @@ impl Thread {
                     }),
                 completion_mode: Some(this.completion_mode),
                 tool_use_limit_reached: this.tool_use_limit_reached,
-                profile: Some(this.profile.id().clone()),
             })
         })
     }
@@ -2140,7 +2121,7 @@ impl Thread {
         window: Option<AnyWindowHandle>,
         cx: &mut Context<Thread>,
     ) {
-        let available_tools = self.profile.enabled_tools(cx);
+        let available_tools = self.tools.read(cx).enabled_tools(cx);
 
         let tool_list = available_tools
             .iter()
@@ -2232,15 +2213,19 @@ impl Thread {
     ) -> Task<()> {
         let tool_name: Arc<str> = tool.name().into();
 
-        let tool_result = tool.run(
-            input,
-            request,
-            self.project.clone(),
-            self.action_log.clone(),
-            model,
-            window,
-            cx,
-        );
+        let tool_result = if self.tools.read(cx).is_disabled(&tool.source(), &tool_name) {
+            Task::ready(Err(anyhow!("tool is disabled: {tool_name}"))).into()
+        } else {
+            tool.run(
+                input,
+                request,
+                self.project.clone(),
+                self.action_log.clone(),
+                model,
+                window,
+                cx,
+            )
+        };
 
         // Store the card separately if it exists
         if let Some(card) = tool_result.card.clone() {
@@ -2359,7 +2344,8 @@ impl Thread {
         let client = self.project.read(cx).client();
 
         let enabled_tool_names: Vec<String> = self
-            .profile
+            .tools()
+            .read(cx)
             .enabled_tools(cx)
             .iter()
             .map(|tool| tool.name())
@@ -2872,7 +2858,6 @@ pub enum ThreadEvent {
     ToolUseLimitReached,
     CancelEditing,
     CompletionCanceled,
-    ProfileChanged,
 }
 
 impl EventEmitter<ThreadEvent> for Thread {}
@@ -2887,7 +2872,7 @@ struct PendingCompletion {
 mod tests {
     use super::*;
     use crate::{ThreadStore, context::load_context, context_store::ContextStore, thread_store};
-    use agent_settings::{AgentProfileId, AgentSettings, LanguageModelParameters};
+    use agent_settings::{AgentSettings, LanguageModelParameters};
     use assistant_tool::ToolRegistry;
     use editor::EditorSettings;
     use gpui::TestAppContext;
@@ -3297,71 +3282,6 @@ fn main() {{
             last_message.string_contents(),
             expected_content,
             "Last message should be exactly the stale buffer notification"
-        );
-    }
-
-    #[gpui::test]
-    async fn test_storing_profile_setting_per_thread(cx: &mut TestAppContext) {
-        init_test_settings(cx);
-
-        let project = create_test_project(
-            cx,
-            json!({"code.rs": "fn main() {\n    println!(\"Hello, world!\");\n}"}),
-        )
-        .await;
-
-        let (_workspace, thread_store, thread, _context_store, _model) =
-            setup_test_environment(cx, project.clone()).await;
-
-        // Check that we are starting with the default profile
-        let profile = cx.read(|cx| thread.read(cx).profile.clone());
-        let tool_set = cx.read(|cx| thread_store.read(cx).tools());
-        assert_eq!(
-            profile,
-            AgentProfile::new(AgentProfileId::default(), tool_set)
-        );
-    }
-
-    #[gpui::test]
-    async fn test_serializing_thread_profile(cx: &mut TestAppContext) {
-        init_test_settings(cx);
-
-        let project = create_test_project(
-            cx,
-            json!({"code.rs": "fn main() {\n    println!(\"Hello, world!\");\n}"}),
-        )
-        .await;
-
-        let (_workspace, thread_store, thread, _context_store, _model) =
-            setup_test_environment(cx, project.clone()).await;
-
-        // Profile gets serialized with default values
-        let serialized = thread
-            .update(cx, |thread, cx| thread.serialize(cx))
-            .await
-            .unwrap();
-
-        assert_eq!(serialized.profile, Some(AgentProfileId::default()));
-
-        let deserialized = cx.update(|cx| {
-            thread.update(cx, |thread, cx| {
-                Thread::deserialize(
-                    thread.id.clone(),
-                    serialized,
-                    thread.project.clone(),
-                    thread.tools.clone(),
-                    thread.prompt_builder.clone(),
-                    thread.project_context.clone(),
-                    None,
-                    cx,
-                )
-            })
-        });
-        let tool_set = cx.read(|cx| thread_store.read(cx).tools());
-
-        assert_eq!(
-            deserialized.profile,
-            AgentProfile::new(AgentProfileId::default(), tool_set)
         );
     }
 

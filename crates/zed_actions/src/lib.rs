@@ -154,12 +154,6 @@ pub mod jj {
     actions!(jj, [BookmarkList]);
 }
 
-pub mod toast {
-    use gpui::actions;
-
-    actions!(toast, [RunAction]);
-}
-
 pub mod command_palette {
     use gpui::actions;
 
@@ -260,8 +254,6 @@ pub struct OpenRecent {
 pub struct OpenRemote {
     #[serde(default)]
     pub from_existing_connection: bool,
-    #[serde(default)]
-    pub create_new_window: bool,
 }
 
 impl_actions!(projects, [OpenRecent, OpenRemote]);

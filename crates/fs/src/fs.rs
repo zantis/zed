@@ -1456,12 +1456,7 @@ impl FakeFs {
         .unwrap();
     }
 
-    pub fn set_head_for_repo(
-        &self,
-        dot_git: &Path,
-        head_state: &[(RepoPath, String)],
-        sha: impl Into<String>,
-    ) {
+    pub fn set_head_for_repo(&self, dot_git: &Path, head_state: &[(RepoPath, String)]) {
         self.with_git_state(dot_git, true, |state| {
             state.head_contents.clear();
             state.head_contents.extend(
@@ -1469,7 +1464,6 @@ impl FakeFs {
                     .iter()
                     .map(|(path, content)| (path.clone(), content.clone())),
             );
-            state.refs.insert("HEAD".into(), sha.into());
         })
         .unwrap();
     }
