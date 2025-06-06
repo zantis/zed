@@ -1,24 +1,26 @@
 use std::sync::Arc;
 
-use agent_settings::{AgentDockPosition, AgentProfileId, AgentSettings, builtin_profiles};
+use agent_settings::{
+    AgentDockPosition, AgentProfile, AgentProfileId, AgentSettings, GroupedAgentProfiles,
+    builtin_profiles,
+};
 use fs::Fs;
-use gpui::{Action, Empty, Entity, FocusHandle, Subscription, prelude::*};
+use gpui::{Action, Empty, Entity, FocusHandle, Subscription, WeakEntity, prelude::*};
 use language_model::LanguageModelRegistry;
 use settings::{Settings as _, SettingsStore, update_settings_file};
 use ui::{
     ContextMenu, ContextMenuEntry, DocumentationSide, PopoverMenu, PopoverMenuHandle, Tooltip,
     prelude::*,
 };
+use util::ResultExt as _;
 
-use crate::{
-    ManageProfiles, Thread, ToggleProfileSelector,
-    agent_profile::{AgentProfile, AvailableProfiles},
-};
+use crate::{ManageProfiles, Thread, ThreadStore, ToggleProfileSelector};
 
 pub struct ProfileSelector {
-    profiles: AvailableProfiles,
+    profiles: GroupedAgentProfiles,
     fs: Arc<dyn Fs>,
     thread: Entity<Thread>,
+    thread_store: WeakEntity<ThreadStore>,
     menu_handle: PopoverMenuHandle<ContextMenu>,
     focus_handle: FocusHandle,
     _subscriptions: Vec<Subscription>,
@@ -28,6 +30,7 @@ impl ProfileSelector {
     pub fn new(
         fs: Arc<dyn Fs>,
         thread: Entity<Thread>,
+        thread_store: WeakEntity<ThreadStore>,
         focus_handle: FocusHandle,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -36,9 +39,10 @@ impl ProfileSelector {
         });
 
         Self {
-            profiles: AgentProfile::available_profiles(cx),
+            profiles: GroupedAgentProfiles::from_settings(AgentSettings::get_global(cx)),
             fs,
             thread,
+            thread_store,
             menu_handle: PopoverMenuHandle::default(),
             focus_handle,
             _subscriptions: vec![settings_subscription],
@@ -50,7 +54,7 @@ impl ProfileSelector {
     }
 
     fn refresh_profiles(&mut self, cx: &mut Context<Self>) {
-        self.profiles = AgentProfile::available_profiles(cx);
+        self.profiles = GroupedAgentProfiles::from_settings(AgentSettings::get_global(cx));
     }
 
     fn build_context_menu(
@@ -60,30 +64,21 @@ impl ProfileSelector {
     ) -> Entity<ContextMenu> {
         ContextMenu::build(window, cx, |mut menu, _window, cx| {
             let settings = AgentSettings::get_global(cx);
-
-            let mut found_non_builtin = false;
-            for (profile_id, profile_name) in self.profiles.iter() {
-                if !builtin_profiles::is_builtin(profile_id) {
-                    found_non_builtin = true;
-                    continue;
-                }
+            for (profile_id, profile) in self.profiles.builtin.iter() {
                 menu = menu.item(self.menu_entry_for_profile(
                     profile_id.clone(),
-                    profile_name,
+                    profile,
                     settings,
                     cx,
                 ));
             }
 
-            if found_non_builtin {
+            if !self.profiles.custom.is_empty() {
                 menu = menu.separator().header("Custom Profiles");
-                for (profile_id, profile_name) in self.profiles.iter() {
-                    if builtin_profiles::is_builtin(profile_id) {
-                        continue;
-                    }
+                for (profile_id, profile) in self.profiles.custom.iter() {
                     menu = menu.item(self.menu_entry_for_profile(
                         profile_id.clone(),
-                        profile_name,
+                        profile,
                         settings,
                         cx,
                     ));
@@ -104,20 +99,19 @@ impl ProfileSelector {
     fn menu_entry_for_profile(
         &self,
         profile_id: AgentProfileId,
-        profile_name: &SharedString,
+        profile: &AgentProfile,
         settings: &AgentSettings,
-        cx: &App,
+        _cx: &App,
     ) -> ContextMenuEntry {
-        let documentation = match profile_name.to_lowercase().as_str() {
+        let documentation = match profile.name.to_lowercase().as_str() {
             builtin_profiles::WRITE => Some("Get help to write anything."),
             builtin_profiles::ASK => Some("Chat about your codebase."),
             builtin_profiles::MINIMAL => Some("Chat about anything with no tools."),
             _ => None,
         };
-        let thread_profile_id = self.thread.read(cx).profile().id();
 
-        let entry = ContextMenuEntry::new(profile_name.clone())
-            .toggleable(IconPosition::End, &profile_id == thread_profile_id);
+        let entry = ContextMenuEntry::new(profile.name.clone())
+            .toggleable(IconPosition::End, profile_id == settings.default_profile);
 
         let entry = if let Some(doc_text) = documentation {
             entry.documentation_aside(documentation_side(settings.dock), move |_| {
@@ -129,7 +123,7 @@ impl ProfileSelector {
 
         entry.handler({
             let fs = self.fs.clone();
-            let thread = self.thread.clone();
+            let thread_store = self.thread_store.clone();
             let profile_id = profile_id.clone();
             move |_window, cx| {
                 update_settings_file::<AgentSettings>(fs.clone(), cx, {
@@ -139,9 +133,11 @@ impl ProfileSelector {
                     }
                 });
 
-                thread.update(cx, |this, cx| {
-                    this.set_profile(profile_id.clone(), cx);
-                });
+                thread_store
+                    .update(cx, |this, cx| {
+                        this.load_profile_by_id(profile_id.clone(), cx);
+                    })
+                    .log_err();
             }
         })
     }
@@ -150,7 +146,7 @@ impl ProfileSelector {
 impl Render for ProfileSelector {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let settings = AgentSettings::get_global(cx);
-        let profile_id = self.thread.read(cx).profile().id();
+        let profile_id = &settings.default_profile;
         let profile = settings.profiles.get(profile_id);
 
         let selected_profile = profile

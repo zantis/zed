@@ -104,15 +104,7 @@ impl Tool for ContextServerTool {
                     tool_name,
                     arguments
                 );
-                let response = protocol
-                    .request::<context_server::types::request::CallTool>(
-                        context_server::types::CallToolParams {
-                            name: tool_name,
-                            arguments,
-                            meta: None,
-                        },
-                    )
-                    .await?;
+                let response = protocol.run_tool(tool_name, arguments).await?;
 
                 let mut result = String::new();
                 for content in response.content {

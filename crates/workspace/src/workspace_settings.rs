@@ -1,6 +1,5 @@
 use std::num::NonZeroUsize;
 
-use crate::DockPosition;
 use anyhow::Result;
 use collections::HashMap;
 use gpui::App;
@@ -27,7 +26,6 @@ pub struct WorkspaceSettings {
     pub max_tabs: Option<NonZeroUsize>,
     pub when_closing_with_no_tabs: CloseWindowWhenNoItems,
     pub on_last_window_closed: OnLastWindowClosed,
-    pub resize_all_panels_in_dock: Vec<DockPosition>,
     pub close_on_file_delete: bool,
 }
 
@@ -194,10 +192,6 @@ pub struct WorkspaceSettingsContent {
     ///
     /// Default: auto (nothing on macOS, "app quit" otherwise)
     pub on_last_window_closed: Option<OnLastWindowClosed>,
-    /// Whether to resize all the panels in a dock when resizing the dock.
-    ///
-    /// Default: ["left"]
-    pub resize_all_panels_in_dock: Option<Vec<DockPosition>>,
     /// Whether to automatically close files that have been deleted on disk.
     ///
     /// Default: false

@@ -272,11 +272,7 @@ pub struct ZedDotDevSettingsContent {
 }
 
 #[derive(Default, Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
-pub struct CopilotChatSettingsContent {
-    pub api_url: Option<String>,
-    pub auth_url: Option<String>,
-    pub models_url: Option<String>,
-}
+pub struct CopilotChatSettingsContent {}
 
 #[derive(Default, Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
 pub struct OpenRouterSettingsContent {
@@ -434,24 +430,6 @@ impl settings::Settings for AllLanguageModelSettings {
                 open_router
                     .as_ref()
                     .and_then(|s| s.available_models.clone()),
-            );
-
-            // Copilot Chat
-            let copilot_chat = value.copilot_chat.clone().unwrap_or_default();
-
-            settings.copilot_chat.api_url = copilot_chat.api_url.map_or_else(
-                || Arc::from("https://api.githubcopilot.com/chat/completions"),
-                Arc::from,
-            );
-
-            settings.copilot_chat.auth_url = copilot_chat.auth_url.map_or_else(
-                || Arc::from("https://api.github.com/copilot_internal/v2/token"),
-                Arc::from,
-            );
-
-            settings.copilot_chat.models_url = copilot_chat.models_url.map_or_else(
-                || Arc::from("https://api.githubcopilot.com/models"),
-                Arc::from,
             );
         }
 

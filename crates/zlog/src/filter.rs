@@ -38,11 +38,11 @@ pub static LEVEL_ENABLED_MAX_CONFIG: AtomicU8 = AtomicU8::new(LEVEL_ENABLED_MAX_
 
 const DEFAULT_FILTERS: &[(&str, log::LevelFilter)] = &[
     #[cfg(any(target_os = "linux", target_os = "freebsd"))]
-    ("zbus", log::LevelFilter::Warn),
+    ("zbus", log::LevelFilter::Off),
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "windows"))]
-    ("blade_graphics", log::LevelFilter::Warn),
+    ("blade_graphics", log::LevelFilter::Off),
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "windows"))]
-    ("naga::back::spv::writer", log::LevelFilter::Warn),
+    ("naga::back::spv::writer", log::LevelFilter::Off),
 ];
 
 pub fn init_env_filter(filter: env_config::EnvFilter) {
@@ -88,6 +88,10 @@ pub fn is_scope_enabled(scope: &Scope, module_path: Option<&str>, level: log::Le
         EnabledStatus::Enabled => true,
         EnabledStatus::Disabled => false,
     };
+}
+
+pub(crate) fn refresh() {
+    refresh_from_settings(&HashMap::default());
 }
 
 pub fn refresh_from_settings(settings: &HashMap<String, String>) {

@@ -86,26 +86,20 @@ impl SlashCommand for ContextServerSlashCommand {
             cx.foreground_executor().spawn(async move {
                 let protocol = server.client().context("Context server not initialized")?;
 
-                let response = protocol
-                    .request::<context_server::types::request::CompletionComplete>(
-                        context_server::types::CompletionCompleteParams {
-                            reference: context_server::types::CompletionReference::Prompt(
-                                context_server::types::PromptReference {
-                                    ty: context_server::types::PromptReferenceType::Prompt,
-                                    name: prompt_name,
-                                },
-                            ),
-                            argument: context_server::types::CompletionArgument {
-                                name: arg_name,
-                                value: arg_value,
+                let completion_result = protocol
+                    .completion(
+                        context_server::types::CompletionReference::Prompt(
+                            context_server::types::PromptReference {
+                                r#type: context_server::types::PromptReferenceType::Prompt,
+                                name: prompt_name,
                             },
-                            meta: None,
-                        },
+                        ),
+                        arg_name,
+                        arg_value,
                     )
                     .await?;
 
-                let completions = response
-                    .completion
+                let completions = completion_result
                     .values
                     .into_iter()
                     .map(|value| ArgumentCompletion {
@@ -144,18 +138,10 @@ impl SlashCommand for ContextServerSlashCommand {
         if let Some(server) = store.get_running_server(&server_id) {
             cx.foreground_executor().spawn(async move {
                 let protocol = server.client().context("Context server not initialized")?;
-                let response = protocol
-                    .request::<context_server::types::request::PromptsGet>(
-                        context_server::types::PromptsGetParams {
-                            name: prompt_name.clone(),
-                            arguments: Some(prompt_args),
-                            meta: None,
-                        },
-                    )
-                    .await?;
+                let result = protocol.run_prompt(&prompt_name, prompt_args).await?;
 
                 anyhow::ensure!(
-                    response
+                    result
                         .messages
                         .iter()
                         .all(|msg| matches!(msg.role, context_server::types::Role::User)),
@@ -163,7 +149,7 @@ impl SlashCommand for ContextServerSlashCommand {
                 );
 
                 // Extract text from user messages into a single prompt string
-                let mut prompt = response
+                let mut prompt = result
                     .messages
                     .into_iter()
                     .filter_map(|msg| match msg.content {
@@ -181,7 +167,7 @@ impl SlashCommand for ContextServerSlashCommand {
                         range: 0..(prompt.len()),
                         icon: IconName::ZedAssistant,
                         label: SharedString::from(
-                            response
+                            result
                                 .description
                                 .unwrap_or(format!("Result from {}", prompt_name)),
                         ),

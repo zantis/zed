@@ -1,16 +1,18 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use agent_settings::{
-    AgentProfileContent, AgentProfileId, AgentProfileSettings, AgentSettings, AgentSettingsContent,
+    AgentProfile, AgentProfileContent, AgentProfileId, AgentSettings, AgentSettingsContent,
     ContextServerPresetContent,
 };
 use assistant_tool::{ToolSource, ToolWorkingSet};
 use fs::Fs;
 use gpui::{App, Context, DismissEvent, Entity, EventEmitter, Focusable, Task, WeakEntity, Window};
 use picker::{Picker, PickerDelegate};
-use settings::update_settings_file;
+use settings::{Settings as _, update_settings_file};
 use ui::{ListItem, ListItemSpacing, prelude::*};
 use util::ResultExt as _;
+
+use crate::ThreadStore;
 
 pub struct ToolPicker {
     picker: Entity<Picker<ToolPickerDelegate>>,
@@ -69,10 +71,11 @@ pub enum PickerItem {
 
 pub struct ToolPickerDelegate {
     tool_picker: WeakEntity<ToolPicker>,
+    thread_store: WeakEntity<ThreadStore>,
     fs: Arc<dyn Fs>,
     items: Arc<Vec<PickerItem>>,
     profile_id: AgentProfileId,
-    profile_settings: AgentProfileSettings,
+    profile: AgentProfile,
     filtered_items: Vec<PickerItem>,
     selected_index: usize,
     mode: ToolPickerMode,
@@ -83,18 +86,20 @@ impl ToolPickerDelegate {
         mode: ToolPickerMode,
         fs: Arc<dyn Fs>,
         tool_set: Entity<ToolWorkingSet>,
+        thread_store: WeakEntity<ThreadStore>,
         profile_id: AgentProfileId,
-        profile_settings: AgentProfileSettings,
+        profile: AgentProfile,
         cx: &mut Context<ToolPicker>,
     ) -> Self {
         let items = Arc::new(Self::resolve_items(mode, &tool_set, cx));
 
         Self {
             tool_picker: cx.entity().downgrade(),
+            thread_store,
             fs,
             items,
             profile_id,
-            profile_settings,
+            profile,
             filtered_items: Vec::new(),
             selected_index: 0,
             mode,
@@ -244,31 +249,28 @@ impl PickerDelegate for ToolPickerDelegate {
         };
 
         let is_currently_enabled = if let Some(server_id) = server_id.clone() {
-            let preset = self
-                .profile_settings
-                .context_servers
-                .entry(server_id)
-                .or_default();
+            let preset = self.profile.context_servers.entry(server_id).or_default();
             let is_enabled = *preset.tools.entry(tool_name.clone()).or_default();
             *preset.tools.entry(tool_name.clone()).or_default() = !is_enabled;
             is_enabled
         } else {
-            let is_enabled = *self
-                .profile_settings
-                .tools
-                .entry(tool_name.clone())
-                .or_default();
-            *self
-                .profile_settings
-                .tools
-                .entry(tool_name.clone())
-                .or_default() = !is_enabled;
+            let is_enabled = *self.profile.tools.entry(tool_name.clone()).or_default();
+            *self.profile.tools.entry(tool_name.clone()).or_default() = !is_enabled;
             is_enabled
         };
 
+        let active_profile_id = &AgentSettings::get_global(cx).default_profile;
+        if active_profile_id == &self.profile_id {
+            self.thread_store
+                .update(cx, |this, cx| {
+                    this.load_profile(self.profile.clone(), cx);
+                })
+                .log_err();
+        }
+
         update_settings_file::<AgentSettings>(self.fs.clone(), cx, {
             let profile_id = self.profile_id.clone();
-            let default_profile = self.profile_settings.clone();
+            let default_profile = self.profile.clone();
             let server_id = server_id.clone();
             let tool_name = tool_name.clone();
             move |settings: &mut AgentSettingsContent, _cx| {
@@ -346,18 +348,14 @@ impl PickerDelegate for ToolPickerDelegate {
             ),
             PickerItem::Tool { name, server_id } => {
                 let is_enabled = if let Some(server_id) = server_id {
-                    self.profile_settings
+                    self.profile
                         .context_servers
                         .get(server_id.as_ref())
                         .and_then(|preset| preset.tools.get(name))
                         .copied()
-                        .unwrap_or(self.profile_settings.enable_all_context_servers)
+                        .unwrap_or(self.profile.enable_all_context_servers)
                 } else {
-                    self.profile_settings
-                        .tools
-                        .get(name)
-                        .copied()
-                        .unwrap_or(false)
+                    self.profile.tools.get(name).copied().unwrap_or(false)
                 };
 
                 Some(

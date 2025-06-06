@@ -39,7 +39,7 @@ fn eval_extract_handle_command_output() {
     // Model                       | Pass rate
     // ----------------------------|----------
     // claude-3.7-sonnet           |  0.98
-    // gemini-2.5-pro-06-05        |  0.77
+    // gemini-2.5-pro              |  0.86
     // gemini-2.5-flash            |  0.11
     // gpt-4.1                     |  1.00
 
@@ -58,7 +58,6 @@ fn eval_extract_handle_command_output() {
     eval(
         100,
         0.7, // Taking the lower bar for Gemini
-        0.05,
         EvalInput::from_conversation(
             vec![
                 message(
@@ -117,7 +116,6 @@ fn eval_delete_run_git_blame() {
     eval(
         100,
         0.95,
-        0.05,
         EvalInput::from_conversation(
             vec![
                 message(
@@ -180,7 +178,6 @@ fn eval_translate_doc_comments() {
     eval(
         200,
         1.,
-        0.05,
         EvalInput::from_conversation(
             vec![
                 message(
@@ -244,7 +241,6 @@ fn eval_use_wasi_sdk_in_compile_parser_to_wasm() {
     eval(
         100,
         0.95,
-        0.05,
         EvalInput::from_conversation(
             vec![
                 message(
@@ -369,7 +365,6 @@ fn eval_disable_cursor_blinking() {
     eval(
         100,
         0.95,
-        0.05,
         EvalInput::from_conversation(
             vec![
                 message(User, [text("Let's research how to cursor blinking works.")]),
@@ -453,9 +448,6 @@ fn eval_from_pixels_constructor() {
     eval(
         100,
         0.95,
-        // For whatever reason, this eval produces more mismatched tags.
-        // Increasing for now, let's see if we can bring this down.
-        0.2,
         EvalInput::from_conversation(
             vec![
                 message(
@@ -656,7 +648,6 @@ fn eval_zode() {
     eval(
         50,
         1.,
-        0.05,
         EvalInput::from_conversation(
             vec![
                 message(User, [text(include_str!("evals/fixtures/zode/prompt.md"))]),
@@ -763,7 +754,6 @@ fn eval_add_overwrite_test() {
     eval(
         200,
         0.5, // TODO: make this eval better
-        0.05,
         EvalInput::from_conversation(
             vec![
                 message(
@@ -1003,7 +993,6 @@ fn eval_create_empty_file() {
     eval(
         100,
         0.99,
-        0.05,
         EvalInput::from_conversation(
             vec![
                 message(User, [text("Create a second empty todo file ")]),
@@ -1290,12 +1279,7 @@ impl EvalAssertion {
     }
 }
 
-fn eval(
-    iterations: usize,
-    expected_pass_ratio: f32,
-    mismatched_tag_threshold: f32,
-    mut eval: EvalInput,
-) {
+fn eval(iterations: usize, expected_pass_ratio: f32, mut eval: EvalInput) {
     let mut evaluated_count = 0;
     let mut failed_count = 0;
     report_progress(evaluated_count, failed_count, iterations);
@@ -1367,7 +1351,7 @@ fn eval(
 
     let mismatched_tag_ratio =
         cumulative_parser_metrics.mismatched_tags as f32 / cumulative_parser_metrics.tags as f32;
-    if mismatched_tag_ratio > mismatched_tag_threshold {
+    if mismatched_tag_ratio > 0.05 {
         for eval_output in eval_outputs {
             println!("{}", eval_output);
         }

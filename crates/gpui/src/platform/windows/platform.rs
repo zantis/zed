@@ -231,6 +231,9 @@ impl WindowsPlatform {
                         }
                     }
                     _ => {
+                        // todo(windows)
+                        // crate `windows 0.56` reports true as Err
+                        TranslateMessage(&msg).as_bool();
                         DispatchMessageW(&msg);
                     }
                 }

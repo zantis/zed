@@ -5,25 +5,19 @@ mod env_config;
 pub mod filter;
 pub mod sink;
 
+use anyhow::Context;
 pub use sink::{flush, init_output_file, init_output_stdout};
 
 pub const SCOPE_DEPTH_MAX: usize = 4;
 
 pub fn init() {
-    match try_init() {
-        Err(err) => {
-            log::error!("{err}");
-            eprintln!("{err}");
-        }
-        Ok(()) => {}
-    }
+    try_init().expect("Failed to initialize logger");
 }
 
 pub fn try_init() -> anyhow::Result<()> {
-    log::set_logger(&ZLOG)?;
+    log::set_logger(&ZLOG).context("cannot be initialized twice")?;
     log::set_max_level(log::LevelFilter::max());
     process_env();
-    filter::refresh_from_settings(&std::collections::HashMap::default());
     Ok(())
 }
 
@@ -48,6 +42,7 @@ pub fn process_env() {
     match env_config::parse(&env_config) {
         Ok(filter) => {
             filter::init_env_filter(filter);
+            filter::refresh();
         }
         Err(err) => {
             eprintln!("Failed to parse log filter: {}", err);
