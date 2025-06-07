@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, path::Path, sync::Arc};
 
-use anyhow::Context as _;
+use anyhow::{Context as _, anyhow};
 use assistant_context_editor::{AssistantContext, SavedContextMetadata};
 use chrono::{DateTime, Utc};
 use futures::future::{TryFutureExt as _, join_all};
@@ -14,7 +14,7 @@ use util::ResultExt as _;
 use crate::{
     Thread,
     thread::ThreadId,
-    thread_store::{SerializedThreadMetadata, ThreadStore},
+    thread_store::{SerializedThreadMetadata, ThreadMetadata, ThreadStore},
 };
 
 const MAX_RECENTLY_OPENED_ENTRIES: usize = 6;
@@ -52,7 +52,7 @@ pub enum HistoryEntryId {
 
 #[derive(Clone, Debug)]
 pub(crate) enum RecentEntry {
-    Thread(ThreadId, Entity<Thread>),
+    Thread(ThreadId, Entity<ThreadMetadata>),
     Context(Entity<AssistantContext>),
 }
 
@@ -69,6 +69,10 @@ impl PartialEq for RecentEntry {
 impl Eq for RecentEntry {}
 
 impl RecentEntry {
+    pub(crate) fn for_thread(thread: &Thread) -> Self {
+        RecentEntry::Thread(thread.id().clone(), thread.metadata().clone())
+    }
+
     pub(crate) fn summary(&self, cx: &App) -> SharedString {
         match self {
             RecentEntry::Thread(_, thread) => thread.read(cx).summary().or_default(),
@@ -122,12 +126,19 @@ impl HistoryStore {
                         .take(MAX_RECENTLY_OPENED_ENTRIES)
                         .map(|serialized| match serialized {
                             SerializedRecentEntry::Thread(id) => thread_store
-                                .update_in(cx, |thread_store, window, cx| {
+                                .update(cx, |thread_store, cx| {
                                     let thread_id = ThreadId::from(id.as_str());
-                                    thread_store
-                                        .open_thread(&thread_id, window, cx)
-                                        .map_ok(|thread| RecentEntry::Thread(thread_id, thread))
-                                        .boxed()
+                                    Task::ready(
+                                        thread_store
+                                            .thread_metadata(&thread_id, cx)
+                                            .map(|metadata| {
+                                                RecentEntry::Thread(thread_id, metadata)
+                                            })
+                                            .ok_or_else(|| {
+                                                anyhow!("No thread metadata for recent entry")
+                                            }),
+                                    )
+                                    .boxed()
                                 })
                                 .unwrap_or_else(|_| {
                                     async {
@@ -149,6 +160,7 @@ impl HistoryStore {
                                     .boxed()
                                 }),
                         });
+                    // todo! Make this all sync if context metadata is also immediately available.
                     let entries = join_all(entries)
                         .await
                         .into_iter()

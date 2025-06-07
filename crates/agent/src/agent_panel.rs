@@ -511,12 +511,11 @@ impl AgentPanel {
                 }
             });
 
-        let thread_id = thread.read(cx).id().clone();
         let history_store = cx.new(|cx| {
             HistoryStore::new(
                 thread_store.clone(),
                 context_store.clone(),
-                [RecentEntry::Thread(thread_id, thread.clone())],
+                [RecentEntry::for_thread(thread.read(cx))],
                 window,
                 cx,
             )
@@ -615,9 +614,9 @@ impl AgentPanel {
                                             .update(cx, {
                                                 let entry = entry.clone();
                                                 move |this, cx| match entry {
-                                                    RecentEntry::Thread(_, thread) => {
-                                                        this.open_thread(thread, window, cx)
-                                                    }
+                                                    RecentEntry::Thread(id, _) => this
+                                                        .open_thread_by_id(&id, window, cx)
+                                                        .detach_and_log_err(cx),
                                                     RecentEntry::Context(context) => {
                                                         let Some(path) = context.read(cx).path()
                                                         else {
@@ -996,9 +995,9 @@ impl AgentPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Task<Result<()>> {
-        let open_thread_task = self
-            .thread_store
-            .update(cx, |this, cx| this.open_thread(thread_id, window, cx));
+        let open_thread_task = self.thread_store.update(cx, |thread_store, cx| {
+            thread_store.open_thread(thread_id, window, cx)
+        });
         cx.spawn_in(window, async move |this, cx| {
             let thread = open_thread_task.await?;
             this.update_in(cx, |this, window, cx| {
@@ -1399,8 +1398,8 @@ impl AgentPanel {
         match &new_view {
             ActiveView::Thread { thread, .. } => self.history_store.update(cx, |store, cx| {
                 if let Some(thread) = thread.upgrade() {
-                    let id = thread.read(cx).id().clone();
-                    store.push_recently_opened_entry(RecentEntry::Thread(id, thread), cx);
+                    let recent_entry = RecentEntry::for_thread(thread.read(cx));
+                    store.push_recently_opened_entry(recent_entry, cx);
                 }
             }),
             ActiveView::TextThread { context_editor, .. } => {

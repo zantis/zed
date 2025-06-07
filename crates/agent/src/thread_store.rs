@@ -14,7 +14,7 @@ use futures::future::{self, BoxFuture, Shared};
 use futures::{FutureExt as _, StreamExt as _};
 use gpui::{
     App, BackgroundExecutor, Context, Entity, EventEmitter, Global, ReadGlobal, SharedString,
-    Subscription, Task, prelude::*,
+    Subscription, Task, WeakEntity, prelude::*,
 };
 
 use language_model::{LanguageModelToolResultContent, LanguageModelToolUseId, Role, TokenUsage};
@@ -31,6 +31,7 @@ use util::ResultExt as _;
 use crate::context_server_tool::ContextServerTool;
 use crate::thread::{
     DetailedSummaryState, ExceededWindowError, MessageId, ProjectSnapshot, Thread, ThreadId,
+    ThreadSummary,
 };
 use indoc::indoc;
 use sqlez::{
@@ -103,6 +104,8 @@ pub struct ThreadStore {
     prompt_store: Option<Entity<PromptStore>>,
     context_server_tool_ids: HashMap<ContextServerId, Vec<ToolId>>,
     threads: Vec<SerializedThreadMetadata>,
+    thread_metadata: HashMap<ThreadId, WeakEntity<ThreadMetadata>>,
+    open_threads: HashMap<ThreadId, WeakEntity<Thread>>,
     project_context: SharedProjectContext,
     reload_system_prompt_tx: mpsc::Sender<()>,
     _reload_system_prompt_task: Task<()>,
@@ -189,6 +192,8 @@ impl ThreadStore {
             prompt_store,
             context_server_tool_ids: HashMap::default(),
             threads: Vec::new(),
+            thread_metadata: HashMap::default(),
+            open_threads: HashMap::default(),
             project_context: SharedProjectContext::default(),
             reload_system_prompt_tx,
             _reload_system_prompt_task: reload_system_prompt_task,
@@ -404,46 +409,109 @@ impl ThreadStore {
     }
 
     pub fn create_thread(&mut self, cx: &mut Context<Self>) -> Entity<Thread> {
-        cx.new(|cx| {
+        let id = ThreadId::new();
+        let metadata = cx.new(|_cx| ThreadMetadata::initial());
+        self.thread_metadata
+            .insert(id.clone(), metadata.downgrade());
+        let thread = cx.new(|cx| {
             Thread::new(
+                id.clone(),
+                metadata,
                 self.project.clone(),
                 self.tools.clone(),
                 self.prompt_builder.clone(),
                 self.project_context.clone(),
                 cx,
             )
-        })
+        });
+        self.open_threads.insert(id, thread.downgrade());
+        thread
     }
 
     pub fn create_thread_from_serialized(
         &mut self,
+        id: ThreadId,
         serialized: SerializedThread,
+        window: Option<&mut Window>,
         cx: &mut Context<Self>,
     ) -> Entity<Thread> {
-        cx.new(|cx| {
+        let metadata = if let Some(metadata) = self.thread_metadata.get(&id) {
+            if let Some(metadata) = metadata.upgrade() {
+                metadata
+            } else {
+                self.thread_metadata.remove(&id);
+                cx.new(|_cx| ThreadMetadata::initial())
+            }
+        } else {
+            cx.new(|_cx| ThreadMetadata::initial())
+        };
+        let weak_metadata = metadata.downgrade();
+
+        let thread = cx.new(|cx| {
             Thread::deserialize(
-                ThreadId::new(),
+                id.clone(),
                 serialized,
+                metadata,
                 self.project.clone(),
                 self.tools.clone(),
                 self.prompt_builder.clone(),
                 self.project_context.clone(),
-                None,
+                window,
                 cx,
             )
-        })
+        });
+        // todo! needed? skip if existing?
+        self.thread_metadata.insert(id.clone(), weak_metadata);
+        self.open_threads.insert(id, thread.downgrade());
+        thread
+    }
+
+    pub fn thread_metadata(
+        &mut self,
+        id: &ThreadId,
+        cx: &mut App,
+    ) -> Option<Entity<ThreadMetadata>> {
+        if let Some(metadata) = self.thread_metadata.get(id) {
+            if let Some(metadata) = metadata.upgrade() {
+                return Some(metadata);
+            } else {
+                self.thread_metadata.remove(id);
+            }
+        }
+        // todo! can we be sure this is populated / up to date?
+        self.threads
+            .iter()
+            .find(|serialized_metadata| &serialized_metadata.id == id)
+            .map(|serialized_metadata| {
+                let metadata = cx.new(|_cx| {
+                    ThreadMetadata::new(
+                        ThreadSummary::Ready(serialized_metadata.summary.clone()),
+                        serialized_metadata.updated_at.clone(),
+                    )
+                });
+                self.thread_metadata
+                    .insert(id.clone(), metadata.downgrade());
+                metadata
+            })
     }
 
     pub fn open_thread(
-        &self,
+        &mut self,
         id: &ThreadId,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Task<Result<Entity<Thread>>> {
+        if let Some(thread) = self.open_threads.get(id) {
+            if let Some(thread) = thread.upgrade() {
+                return Task::ready(Ok(thread));
+            } else {
+                self.open_threads.remove(id);
+            }
+        }
+
         let id = id.clone();
         let database_future = ThreadsDatabase::global_future(cx);
-        let this = cx.weak_entity();
-        window.spawn(cx, async move |cx| {
+        cx.spawn_in(window, async move |this, cx| {
             let database = database_future.await.map_err(|err| anyhow!(err))?;
             let thread = database
                 .try_find_thread(id.clone())
@@ -451,18 +519,7 @@ impl ThreadStore {
                 .with_context(|| format!("no thread found with ID: {id:?}"))?;
 
             let thread = this.update_in(cx, |this, window, cx| {
-                cx.new(|cx| {
-                    Thread::deserialize(
-                        id.clone(),
-                        thread,
-                        this.project.clone(),
-                        this.tools.clone(),
-                        this.prompt_builder.clone(),
-                        this.project_context.clone(),
-                        Some(window),
-                        cx,
-                    )
-                })
+                this.create_thread_from_serialized(id, thread, Some(window), cx)
             })?;
 
             Ok(thread)
@@ -470,14 +527,14 @@ impl ThreadStore {
     }
 
     pub fn save_thread(&self, thread: &Entity<Thread>, cx: &mut Context<Self>) -> Task<Result<()>> {
-        let (metadata, serialized_thread) =
+        let (id, serialized_thread) =
             thread.update(cx, |thread, cx| (thread.id().clone(), thread.serialize(cx)));
 
         let database_future = ThreadsDatabase::global_future(cx);
         cx.spawn(async move |this, cx| {
             let serialized_thread = serialized_thread.await?;
             let database = database_future.await.map_err(|err| anyhow!(err))?;
-            database.save_thread(metadata, serialized_thread).await?;
+            database.save_thread(id, serialized_thread).await?;
 
             this.update(cx, |this, cx| this.reload(cx))?.await
         })
@@ -491,6 +548,7 @@ impl ThreadStore {
             database.delete_thread(id.clone()).await?;
 
             this.update(cx, |this, cx| {
+                this.open_threads.remove(&id);
                 this.threads.retain(|thread| thread.id != id);
                 cx.notify();
             })
@@ -598,6 +656,38 @@ impl ThreadStore {
             }
         })
         .detach();
+    }
+}
+
+pub struct ThreadMetadata {
+    summary: ThreadSummary,
+    updated_at: DateTime<Utc>,
+}
+
+impl ThreadMetadata {
+    pub fn initial() -> Self {
+        Self {
+            summary: ThreadSummary::Pending,
+            updated_at: Utc::now(),
+        }
+    }
+
+    pub fn new(summary: ThreadSummary, updated_at: DateTime<Utc>) -> Self {
+        Self {
+            summary,
+            updated_at,
+        }
+    }
+
+    pub fn set(
+        &mut self,
+        summary: ThreadSummary,
+        updated_at: DateTime<Utc>,
+        cx: &mut Context<Self>,
+    ) {
+        self.summary = summary;
+        self.updated_at = updated_at;
+        cx.notify();
     }
 }
 

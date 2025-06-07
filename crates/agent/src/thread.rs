@@ -46,6 +46,7 @@ use crate::context::{AgentContext, AgentContextHandle, ContextLoadResult, Loaded
 use crate::thread_store::{
     SerializedCrease, SerializedLanguageModel, SerializedMessage, SerializedMessageSegment,
     SerializedThread, SerializedToolResult, SerializedToolUse, SharedProjectContext,
+    ThreadMetadata,
 };
 use crate::tool_use::{PendingToolUse, ToolUse, ToolUseMetadata, ToolUseState};
 
@@ -325,8 +326,7 @@ pub enum QueueState {
 /// A thread of conversation with the LLM.
 pub struct Thread {
     id: ThreadId,
-    updated_at: DateTime<Utc>,
-    summary: ThreadSummary,
+    metadata: Entity<ThreadMetadata>,
     pending_summary: Task<Option<()>>,
     detailed_summary_task: Task<Option<()>>,
     detailed_summary_tx: postage::watch::Sender<DetailedSummaryState>,
@@ -401,6 +401,8 @@ pub struct ExceededWindowError {
 
 impl Thread {
     pub fn new(
+        id: ThreadId,
+        metadata: Entity<ThreadMetadata>,
         project: Entity<Project>,
         tools: Entity<ToolWorkingSet>,
         prompt_builder: Arc<PromptBuilder>,
@@ -412,9 +414,8 @@ impl Thread {
         let profile_id = AgentSettings::get_global(cx).default_profile.clone();
 
         Self {
-            id: ThreadId::new(),
-            updated_at: Utc::now(),
-            summary: ThreadSummary::Pending,
+            id,
+            metadata,
             pending_summary: Task::ready(None),
             detailed_summary_task: Task::ready(None),
             detailed_summary_tx,
@@ -459,6 +460,7 @@ impl Thread {
     pub fn deserialize(
         id: ThreadId,
         serialized: SerializedThread,
+        metadata: Entity<ThreadMetadata>,
         project: Entity<Project>,
         tools: Entity<ToolWorkingSet>,
         prompt_builder: Arc<PromptBuilder>,
@@ -503,10 +505,17 @@ impl Thread {
             .profile
             .unwrap_or_else(|| AgentSettings::get_global(cx).default_profile.clone());
 
+        metadata.update(cx, |metadata, cx| {
+            metadata.set(
+                ThreadSummary::Ready(serialized.summary),
+                serialized.updated_at,
+                cx,
+            )
+        });
+
         Self {
             id,
-            updated_at: serialized.updated_at,
-            summary: ThreadSummary::Ready(serialized.summary),
+            metadata,
             pending_summary: Task::ready(None),
             detailed_summary_task: Task::ready(None),
             detailed_summary_tx,
@@ -591,6 +600,10 @@ impl Thread {
 
     pub fn id(&self) -> &ThreadId {
         &self.id
+    }
+
+    pub fn metadata(&self) -> &Entity<ThreadMetadata> {
+        &self.metadata
     }
 
     pub fn profile(&self) -> &AgentProfile {
@@ -3343,11 +3356,13 @@ fn main() {{
 
         assert_eq!(serialized.profile, Some(AgentProfileId::default()));
 
+        let metadata = cx.new(|_cx| ThreadMetadata::initial());
         let deserialized = cx.update(|cx| {
             thread.update(cx, |thread, cx| {
                 Thread::deserialize(
                     thread.id.clone(),
                     serialized,
+                    metadata,
                     thread.project.clone(),
                     thread.tools.clone(),
                     thread.prompt_builder.clone(),
