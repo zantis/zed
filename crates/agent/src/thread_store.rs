@@ -679,14 +679,26 @@ impl ThreadMetadata {
         }
     }
 
-    pub fn set(
-        &mut self,
-        summary: ThreadSummary,
-        updated_at: DateTime<Utc>,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn set_summary(&mut self, summary: ThreadSummary, cx: &mut Context<Self>) {
         self.summary = summary;
+        cx.notify();
+    }
+
+    pub fn set_updated_at(&mut self, updated_at: DateTime<Utc>, cx: &mut Context<Self>) {
         self.updated_at = updated_at;
+        cx.notify();
+    }
+
+    pub fn summary(&self) -> &ThreadSummary {
+        &self.summary
+    }
+
+    pub fn updated_at(&self) -> DateTime<Utc> {
+        self.updated_at
+    }
+
+    pub fn touch_updated_at(&mut self, cx: &mut Context<Self>) {
+        self.updated_at = Utc::now();
         cx.notify();
     }
 }

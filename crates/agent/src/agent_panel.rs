@@ -200,7 +200,7 @@ impl ActiveView {
     }
 
     pub fn thread(thread: Entity<Thread>, window: &mut Window, cx: &mut App) -> Self {
-        let summary = thread.read(cx).summary().or_default();
+        let summary = thread.read(cx).summary(cx).or_default();
 
         let editor = cx.new(|cx| {
             let mut editor = Editor::single_line(window, cx);
@@ -222,7 +222,7 @@ impl ActiveView {
                         }
                         EditorEvent::Blurred => {
                             if editor.read(cx).text(cx).is_empty() {
-                                let summary = thread.read(cx).summary().or_default();
+                                let summary = thread.read(cx).summary(cx).or_default();
 
                                 editor.update(cx, |editor, cx| {
                                     editor.set_text(summary, window, cx);
@@ -237,7 +237,7 @@ impl ActiveView {
                 let editor = editor.clone();
                 move |thread, event, window, cx| match event {
                     ThreadEvent::SummaryGenerated => {
-                        let summary = thread.read(cx).summary().or_default();
+                        let summary = thread.read(cx).summary(cx).or_default();
 
                         editor.update(cx, |editor, cx| {
                             editor.set_text(summary, window, cx);

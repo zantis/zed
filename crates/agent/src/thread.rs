@@ -506,11 +506,8 @@ impl Thread {
             .unwrap_or_else(|| AgentSettings::get_global(cx).default_profile.clone());
 
         metadata.update(cx, |metadata, cx| {
-            metadata.set(
-                ThreadSummary::Ready(serialized.summary),
-                serialized.updated_at,
-                cx,
-            )
+            metadata.set_summary(ThreadSummary::Ready(serialized.summary), cx);
+            metadata.set_updated_at(serialized.updated_at, cx);
         });
 
         Self {
@@ -602,10 +599,6 @@ impl Thread {
         &self.id
     }
 
-    pub fn metadata(&self) -> &Entity<ThreadMetadata> {
-        &self.metadata
-    }
-
     pub fn profile(&self) -> &AgentProfile {
         &self.profile
     }
@@ -621,12 +614,14 @@ impl Thread {
         self.messages.is_empty()
     }
 
-    pub fn updated_at(&self) -> DateTime<Utc> {
-        self.updated_at
+    pub fn updated_at(&self, cx: &App) -> DateTime<Utc> {
+        self.metadata.read(cx).updated_at()
     }
 
-    pub fn touch_updated_at(&mut self) {
-        self.updated_at = Utc::now();
+    pub fn touch_updated_at(&mut self, cx: &mut Context<Self>) {
+        self.metadata.update(cx, |metadata, cx| {
+            metadata.touch_updated_at(cx);
+        });
     }
 
     pub fn advance_prompt_id(&mut self) {
@@ -635,6 +630,10 @@ impl Thread {
 
     pub fn project_context(&self) -> SharedProjectContext {
         self.project_context.clone()
+    }
+
+    pub fn metadata(&self) -> &Entity<ThreadMetadata> {
+        &self.metadata
     }
 
     pub fn get_or_init_configured_model(&mut self, cx: &App) -> Option<ConfiguredModel> {
@@ -653,12 +652,13 @@ impl Thread {
         cx.notify();
     }
 
-    pub fn summary(&self) -> &ThreadSummary {
-        &self.summary
+    pub fn summary<'a>(&'a self, cx: &'a App) -> &'a ThreadSummary {
+        &self.metadata.read(cx).summary()
     }
 
     pub fn set_summary(&mut self, new_summary: impl Into<SharedString>, cx: &mut Context<Self>) {
-        let current_summary = match &self.summary {
+        let current_summary = self.metadata.read(cx).summary().clone();
+        let current_summary_str = match &current_summary {
             ThreadSummary::Pending | ThreadSummary::Generating => return,
             ThreadSummary::Ready(summary) => summary,
             ThreadSummary::Error => &ThreadSummary::DEFAULT,
@@ -670,8 +670,10 @@ impl Thread {
             new_summary = ThreadSummary::DEFAULT;
         }
 
-        if current_summary != &new_summary {
-            self.summary = ThreadSummary::Ready(new_summary);
+        if current_summary_str != &new_summary {
+            self.metadata.update(cx, |metadata, cx| {
+                metadata.set_summary(ThreadSummary::Ready(new_summary), cx);
+            });
             cx.emit(ThreadEvent::SummaryChanged);
         }
     }
@@ -1053,7 +1055,7 @@ impl Thread {
             creases,
             is_hidden,
         });
-        self.touch_updated_at();
+        self.touch_updated_at(cx);
         cx.emit(ThreadEvent::MessageAdded(id));
         id
     }
@@ -1086,7 +1088,7 @@ impl Thread {
                 },
             );
         }
-        self.touch_updated_at();
+        self.touch_updated_at(cx);
         cx.emit(ThreadEvent::MessageEdited(id));
         true
     }
@@ -1096,7 +1098,7 @@ impl Thread {
             return false;
         };
         self.messages.remove(index);
-        self.touch_updated_at();
+        self.touch_updated_at(cx);
         cx.emit(ThreadEvent::MessageDeleted(id));
         true
     }
@@ -1137,8 +1139,8 @@ impl Thread {
             let initial_project_snapshot = initial_project_snapshot.await;
             this.read_with(cx, |this, cx| SerializedThread {
                 version: SerializedThread::VERSION.to_string(),
-                summary: this.summary().or_default(),
-                updated_at: this.updated_at(),
+                summary: this.summary(cx).or_default(),
+                updated_at: this.updated_at(cx),
                 messages: this
                     .messages()
                     .map(|message| SerializedMessage {
@@ -1723,7 +1725,7 @@ impl Thread {
                             }
                         }
 
-                        thread.touch_updated_at();
+                        thread.touch_updated_at(cx);
                         cx.emit(ThreadEvent::StreamedCompletion);
                         cx.notify();
 
@@ -1742,7 +1744,7 @@ impl Thread {
 
                     // If there is a response without tool use, summarize the message. Otherwise,
                     // allow two tool uses before summarizing.
-                    if matches!(thread.summary, ThreadSummary::Pending)
+                    if matches!(*thread.summary(cx), ThreadSummary::Pending)
                         && thread.messages.len() >= 2
                         && (!thread.has_pending_tool_uses() || thread.messages.len() >= 6)
                     {
@@ -1907,7 +1909,9 @@ impl Thread {
             cx,
         );
 
-        self.summary = ThreadSummary::Generating;
+        self.metadata.update(cx, |metadata, cx| {
+            metadata.set_summary(ThreadSummary::Generating, cx);
+        });
 
         self.pending_summary = cx.spawn(async move |this, cx| {
             let result = async {
@@ -1950,14 +1954,18 @@ impl Thread {
             this.update(cx, |this, cx| {
                 match result {
                     Ok(new_summary) => {
-                        if new_summary.is_empty() {
-                            this.summary = ThreadSummary::Error;
-                        } else {
-                            this.summary = ThreadSummary::Ready(new_summary.into());
-                        }
+                        this.metadata.update(cx, |metadata, cx| {
+                            if new_summary.is_empty() {
+                                metadata.set_summary(ThreadSummary::Error, cx);
+                            } else {
+                                metadata.set_summary(ThreadSummary::Ready(new_summary.into()), cx);
+                            }
+                        });
                     }
                     Err(err) => {
-                        this.summary = ThreadSummary::Error;
+                        this.metadata.update(cx, |metadata, cx| {
+                            metadata.set_summary(ThreadSummary::Error, cx);
+                        });
                         log::error!("Failed to generate thread summary: {}", err);
                     }
                 }
@@ -2578,7 +2586,7 @@ impl Thread {
     pub fn to_markdown(&self, cx: &App) -> Result<String> {
         let mut markdown = Vec::new();
 
-        let summary = self.summary().or_default();
+        let summary = self.summary(cx).or_default();
         writeln!(markdown, "# {summary}\n")?;
 
         for message in self.messages() {
@@ -3484,9 +3492,9 @@ fn main() {{
             setup_test_environment(cx, project.clone()).await;
 
         // Initial state should be pending
-        thread.read_with(cx, |thread, _| {
-            assert!(matches!(thread.summary(), ThreadSummary::Pending));
-            assert_eq!(thread.summary().or_default(), ThreadSummary::DEFAULT);
+        thread.read_with(cx, |thread, cx| {
+            assert!(matches!(*thread.summary(cx), ThreadSummary::Pending));
+            assert_eq!(thread.summary(cx).or_default(), ThreadSummary::DEFAULT);
         });
 
         // Manually setting the summary should not be allowed in this state
@@ -3494,8 +3502,8 @@ fn main() {{
             thread.set_summary("This should not work", cx);
         });
 
-        thread.read_with(cx, |thread, _| {
-            assert!(matches!(thread.summary(), ThreadSummary::Pending));
+        thread.read_with(cx, |thread, cx| {
+            assert!(matches!(*thread.summary(cx), ThreadSummary::Pending));
         });
 
         // Send a message
@@ -3513,8 +3521,8 @@ fn main() {{
         simulate_successful_response(&fake_model, cx);
 
         // Should start generating summary when there are >= 2 messages
-        thread.read_with(cx, |thread, _| {
-            assert_eq!(*thread.summary(), ThreadSummary::Generating);
+        thread.read_with(cx, |thread, cx| {
+            assert_eq!(*thread.summary(cx), ThreadSummary::Generating);
         });
 
         // Should not be able to set the summary while generating
@@ -3522,9 +3530,9 @@ fn main() {{
             thread.set_summary("This should not work either", cx);
         });
 
-        thread.read_with(cx, |thread, _| {
-            assert!(matches!(thread.summary(), ThreadSummary::Generating));
-            assert_eq!(thread.summary().or_default(), ThreadSummary::DEFAULT);
+        thread.read_with(cx, |thread, cx| {
+            assert!(matches!(thread.summary(cx), ThreadSummary::Generating));
+            assert_eq!(thread.summary(cx).or_default(), ThreadSummary::DEFAULT);
         });
 
         cx.run_until_parked();
@@ -3534,9 +3542,9 @@ fn main() {{
         cx.run_until_parked();
 
         // Summary should be set
-        thread.read_with(cx, |thread, _| {
-            assert!(matches!(thread.summary(), ThreadSummary::Ready(_)));
-            assert_eq!(thread.summary().or_default(), "Brief Introduction");
+        thread.read_with(cx, |thread, cx| {
+            assert!(matches!(*thread.summary(cx), ThreadSummary::Ready(_)));
+            assert_eq!(thread.summary(cx).or_default(), "Brief Introduction");
         });
 
         // Now we should be able to set a summary
@@ -3544,8 +3552,8 @@ fn main() {{
             thread.set_summary("Brief Intro", cx);
         });
 
-        thread.read_with(cx, |thread, _| {
-            assert_eq!(thread.summary().or_default(), "Brief Intro");
+        thread.read_with(cx, |thread, cx| {
+            assert_eq!(thread.summary(cx).or_default(), "Brief Intro");
         });
 
         // Test setting an empty summary (should default to DEFAULT)
@@ -3553,9 +3561,9 @@ fn main() {{
             thread.set_summary("", cx);
         });
 
-        thread.read_with(cx, |thread, _| {
-            assert!(matches!(thread.summary(), ThreadSummary::Ready(_)));
-            assert_eq!(thread.summary().or_default(), ThreadSummary::DEFAULT);
+        thread.read_with(cx, |thread, cx| {
+            assert!(matches!(*thread.summary(cx), ThreadSummary::Ready(_)));
+            assert_eq!(thread.summary(cx).or_default(), ThreadSummary::DEFAULT);
         });
     }
 
@@ -3575,9 +3583,9 @@ fn main() {{
             thread.set_summary("Brief Intro", cx);
         });
 
-        thread.read_with(cx, |thread, _| {
-            assert!(matches!(thread.summary(), ThreadSummary::Ready(_)));
-            assert_eq!(thread.summary().or_default(), "Brief Intro");
+        thread.read_with(cx, |thread, cx| {
+            assert!(matches!(*thread.summary(cx), ThreadSummary::Ready(_)));
+            assert_eq!(thread.summary(cx).or_default(), "Brief Intro");
         });
     }
 
@@ -3607,9 +3615,9 @@ fn main() {{
         let fake_model = model.as_fake();
         simulate_successful_response(&fake_model, cx);
 
-        thread.read_with(cx, |thread, _| {
+        thread.read_with(cx, |thread, cx| {
             // State is still Error, not Generating
-            assert!(matches!(thread.summary(), ThreadSummary::Error));
+            assert!(matches!(*thread.summary(cx), ThreadSummary::Error));
         });
 
         // But the summarize request can be invoked manually
@@ -3617,8 +3625,8 @@ fn main() {{
             thread.summarize(cx);
         });
 
-        thread.read_with(cx, |thread, _| {
-            assert!(matches!(thread.summary(), ThreadSummary::Generating));
+        thread.read_with(cx, |thread, cx| {
+            assert!(matches!(*thread.summary(cx), ThreadSummary::Generating));
         });
 
         cx.run_until_parked();
@@ -3626,9 +3634,9 @@ fn main() {{
         fake_model.end_last_completion_stream();
         cx.run_until_parked();
 
-        thread.read_with(cx, |thread, _| {
-            assert!(matches!(thread.summary(), ThreadSummary::Ready(_)));
-            assert_eq!(thread.summary().or_default(), "A successful summary");
+        thread.read_with(cx, |thread, cx| {
+            assert!(matches!(*thread.summary(cx), ThreadSummary::Ready(_)));
+            assert_eq!(thread.summary(cx).or_default(), "A successful summary");
         });
     }
 
@@ -3650,9 +3658,9 @@ fn main() {{
         let fake_model = model.as_fake();
         simulate_successful_response(&fake_model, cx);
 
-        thread.read_with(cx, |thread, _| {
-            assert!(matches!(thread.summary(), ThreadSummary::Generating));
-            assert_eq!(thread.summary().or_default(), ThreadSummary::DEFAULT);
+        thread.read_with(cx, |thread, cx| {
+            assert!(matches!(thread.summary(cx), ThreadSummary::Generating));
+            assert_eq!(thread.summary(cx).or_default(), ThreadSummary::DEFAULT);
         });
 
         // Simulate summary request ending
@@ -3661,9 +3669,9 @@ fn main() {{
         cx.run_until_parked();
 
         // State is set to Error and default message
-        thread.read_with(cx, |thread, _| {
-            assert!(matches!(thread.summary(), ThreadSummary::Error));
-            assert_eq!(thread.summary().or_default(), ThreadSummary::DEFAULT);
+        thread.read_with(cx, |thread, cx| {
+            assert!(matches!(*thread.summary(cx), ThreadSummary::Error));
+            assert_eq!(thread.summary(cx).or_default(), ThreadSummary::DEFAULT);
         });
     }
 
