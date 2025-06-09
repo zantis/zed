@@ -723,6 +723,7 @@ impl JsonSchema for LanguageModelProviderSetting {
             enum_values: Some(vec![
                 "anthropic".into(),
                 "amazon-bedrock".into(),
+                "azure_openai".into(),
                 "google".into(),
                 "lmstudio".into(),
                 "ollama".into(),

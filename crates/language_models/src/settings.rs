@@ -11,6 +11,7 @@ use settings::{Settings, SettingsSources, update_settings_file};
 use crate::provider::{
     self,
     anthropic::AnthropicSettings,
+    azure_openai::AzureOpenAiSettings,
     bedrock::AmazonBedrockSettings,
     cloud::{self, ZedDotDevSettings},
     copilot_chat::CopilotChatSettings,
@@ -59,6 +60,7 @@ pub fn init(fs: Arc<dyn Fs>, cx: &mut App) {
 #[derive(Default)]
 pub struct AllLanguageModelSettings {
     pub anthropic: AnthropicSettings,
+    pub azure_openai: AzureOpenAiSettings,
     pub bedrock: AmazonBedrockSettings,
     pub ollama: OllamaSettings,
     pub openai: OpenAiSettings,
@@ -74,6 +76,7 @@ pub struct AllLanguageModelSettings {
 #[derive(Default, Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
 pub struct AllLanguageModelSettingsContent {
     pub anthropic: Option<AnthropicSettingsContent>,
+    pub azure_openai: Option<AzureOpenAiSettingsContent>,
     pub bedrock: Option<AmazonBedrockSettingsContent>,
     pub ollama: Option<OllamaSettingsContent>,
     pub lmstudio: Option<LmStudioSettingsContent>,
@@ -284,6 +287,13 @@ pub struct OpenRouterSettingsContent {
     pub available_models: Option<Vec<provider::open_router::AvailableModel>>,
 }
 
+#[derive(Default, Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
+pub struct AzureOpenAiSettingsContent {
+    pub resource_name: Option<String>,
+    pub api_version: Option<String>,
+    pub available_models: Option<Vec<provider::azure_openai::AvailableModel>>,
+}
+
 impl settings::Settings for AllLanguageModelSettings {
     const KEY: Option<&'static str> = Some("language_models");
 
@@ -318,6 +328,21 @@ impl settings::Settings for AllLanguageModelSettings {
             merge(
                 &mut settings.anthropic.available_models,
                 anthropic.as_ref().and_then(|s| s.available_models.clone()),
+            );
+
+            // Azure OpenAI
+            let azure_openai = value.azure_openai.clone();
+            merge(
+                &mut settings.azure_openai.resource_name,
+                azure_openai.as_ref().and_then(|s| s.resource_name.clone()),
+            );
+            merge(
+                &mut settings.azure_openai.api_version,
+                azure_openai.as_ref().and_then(|s| s.api_version.clone()),
+            );
+            merge(
+                &mut settings.azure_openai.available_models,
+                azure_openai.as_ref().and_then(|s| s.available_models.clone()),
             );
 
             // Bedrock

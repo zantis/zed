@@ -1,4 +1,5 @@
 pub mod anthropic;
+pub mod azure_openai;
 pub mod bedrock;
 pub mod cloud;
 pub mod copilot_chat;
