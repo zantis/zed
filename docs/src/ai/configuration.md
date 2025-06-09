@@ -13,6 +13,7 @@ Here's an overview of the supported providers and tool call support:
 | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [Amazon Bedrock](#amazon-bedrock)               | Depends on the model                                                                                                                                                        |
 | [Anthropic](#anthropic)                         | ✅                                                                                                                                                                          |
+| [Azure OpenAI](#azure-openai)                   | ✅                                                                                                                                                                          |
 | [DeepSeek](#deepseek)                           | ✅                                                                                                                                                                          |
 | [GitHub Copilot Chat](#github-copilot-chat)     | For Some Models ([link](https://github.com/zed-industries/zed/blob/9e0330ba7d848755c9734bf456c716bddf0973f3/crates/language_models/src/provider/copilot_chat.rs#L189-L198)) |
 | [Google AI](#google-ai)                         | ✅                                                                                                                                                                          |
@@ -430,6 +431,61 @@ To use alternate models, perhaps a preview release or a dated model release, or 
 You must provide the model's Context Window in the `max_tokens` parameter; this can be found in the [OpenAI model documentation](https://platform.openai.com/docs/models).
 OpenAI `o1` models should set `max_completion_tokens` as well to avoid incurring high reasoning token costs.
 Custom models will be listed in the model dropdown in the Agent Panel.
+
+### Azure OpenAI {#azure-openai}
+
+> ✅ Supports tool use
+
+Zed supports Azure OpenAI models through the Azure AI Foundry or Azure Portal.
+
+#### Setting up Azure OpenAI
+
+1. Create an Azure OpenAI resource in [Azure AI Foundry](https://ai.azure.com) or via the [Azure Portal](https://portal.azure.com)
+2. Deploy one or more models in your Azure OpenAI resource
+3. Obtain your API key and endpoint from the resource's "Keys and Endpoint" section
+4. Open the settings view (`agent: open configuration`) and navigate to the Azure OpenAI section
+5. Configure your Azure OpenAI API key then complete your Zed `settings.json` to set up the Azure OpenAI models you want to use
+
+#### Azure OpenAI Configuration
+
+To configure Azure OpenAI models, add the following to your Zed `settings.json`:
+
+```json
+  "language_models": {
+    "azure_openai": {
+      "resource_name": "your-resource-name",
+      "api_version": "2025-04-01-preview",
+      "available_models": [
+        {
+          "name": "gpt-4.1",
+          "deployment_name": "your-gpt-4.1-deployment-name",
+          "display_name": "GPT-4.1 (Azure)",
+          "max_tokens": 32768
+        },
+        {
+          "name": "o4-mini",
+          "deployment_name": "your-o4-mini-deployment-name",
+          "display_name": "o4-mini (Azure)",
+          "max_tokens": 32768,
+          "max_output_tokens": 32768
+        }
+      ]
+    }
+  }
+```
+
+#### Configuration Fields
+
+- **`resource_name`**: The name of your Azure OpenAI resource (not the full endpoint URL)
+- **`api_version`**: Azure OpenAI API version
+- **`deployment_name`**: The deployment name you created in Azure AI Foundry or Azure portal
+- **`name`**: The underlying OpenAI model name (must match the model used in your deployment)
+- **`max_tokens`**: Maximum context window size for the model
+- **`max_output_tokens`**: Maximum number of tokens the model can generate in a single response
+- **`max_completion_tokens`**: Alternative to `max_output_tokens` used specifically by o-series reasoning models
+
+You must provide the model's Context Window in the `max_tokens` parameter; this can be found in the [Azure OpenAI model documentation](https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models).
+Azure OpenAI o-series models should set `max_completion_tokens` as well to avoid incurring high reasoning token costs.
 
 ### OpenRouter {#openrouter}
 
